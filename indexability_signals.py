@@ -177,7 +177,7 @@ def _build_important_urls(homepage_url: str, html: str) -> tuple[list[str], dict
     links: list[dict[str, Any]] = []
     order = 0
     for a in soup.find_all("a"):
-        href = (a.get("href") or "").strip()
+        href = str(a.get("href") or "").strip()
         if not href or href.startswith("#"):
             continue
         if href.startswith(("mailto:", "tel:", "javascript:")):
@@ -257,9 +257,9 @@ def _extract_meta_directives(html: str) -> dict[str, Any]:
     soup = BeautifulSoup(html or "", "html.parser")
     meta: dict[str, list[dict[str, Any]]] = {"robots": [], "googlebot": []}
     for tag in soup.find_all("meta"):
-        name = (tag.get("name") or "").strip().lower()
+        name = str(tag.get("name") or "").strip().lower()
         if name in ("robots", "googlebot"):
-            content = (tag.get("content") or "").strip()
+            content = str(tag.get("content") or "").strip()
             meta[name].append({
                 "content": content,
                 "snippet": str(tag)[:300],
@@ -275,7 +275,7 @@ def _extract_canonical(html: str, base_url: str) -> dict[str, Any]:
         rel = tag.get("rel") or []
         rel_vals = [r.lower() for r in rel] if isinstance(rel, list) else [str(rel).lower()]
         if "canonical" in rel_vals:
-            href = (tag.get("href") or "").strip()
+            href = str(tag.get("href") or "").strip()
             tags.append({
                 "href": href,
                 "resolved": urljoin(base_url, href) if href else "",
