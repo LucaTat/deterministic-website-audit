@@ -1,0 +1,31 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# macOS junk
+.DS_Store
+
+# Virtual environments (future-proof)
+.venv/
+venv/
+
+# Generated reports (keep code clean)
+reports/
+
+# PDFs generated manually
+*.pdf
+
+# CSV exports
+*.csv
+
+# Temporary files
+*.tmp
+__pycache__/
+*.pyc
+*.zip
+.pytest_cache/
+.mypy_cache/
+.env
+.venv/
+__pycache__/
+*.pyc
