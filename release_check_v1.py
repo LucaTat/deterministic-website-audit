@@ -33,8 +33,12 @@ def main() -> None:
 
         # Invariants: category must exist, even if no findings are emitted
         findings = result.get("findings") or []
-        cats = sorted({(f or {}).get("category") for f in findings if isinstance(f, dict)})
-        assert_true("social" in cats or True, f"{name}: sanity (categories)")  # don't overconstrain old packs
+        cats = {
+           (f or {}).get("category")
+           for f in findings
+           if isinstance(f, dict) and (f or {}).get("category")
+    }
+
         # Indexability category: may be 0 findings, that's OK. But must not crash.
 
         # Jet_s_studio should still have at least one canonical offpage finding (known issue example)
