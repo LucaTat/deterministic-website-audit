@@ -85,12 +85,18 @@ def build_proof_completeness_shadow_report(
     for idx, finding in enumerate(_normalize_findings(findings)):
         proof = finding.get("proof_completeness")
         profile_id = _resolve_profile_id(finding, spec)
+        if finding.get("id") == "IDX_SITEMAP_MISSING":
+            profile_id = "idx_sitemap_missing_rule_v1"
         profile = _lookup_profile(profile_id, spec)
         spec_proof = _evaluate_profile(finding, profile)
+        rule_candidate = None
+        if finding.get("id") == "IDX_SITEMAP_MISSING":
+            rule_candidate = _evaluate_profile(finding, _lookup_profile("idx_sitemap_missing_rule_v1", spec))
         mismatch = spec_proof != proof
-
+        
         items.append(
             {
+                "spec_rule_candidate": rule_candidate,
                 "finding_index": idx,
                 "id": finding.get("id"),
                 "profile_id": profile_id,

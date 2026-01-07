@@ -15,6 +15,30 @@
       "mode": "static",
       "value": "partial"
     },
+    "idx_sitemap_missing_rule_v1": {
+      "mode": "rule",
+      "rules": [
+        {
+          "when": "inventory.robots_fetch_error == true",
+          "value": "partial",
+          "because": "robots_fetch_failed"
+        },
+        {
+          "when": "inventory.robots_http_status != 200",
+          "value": "partial",
+          "because": "robots_non_200"
+        },
+        {
+          "when": "inventory.has_sitemap == false",
+          "value": "partial",
+          "because": "no_sitemap_detected"
+        }
+      ],
+      "default": {
+        "value": "partial",
+        "because": "fallback"
+      }
+    },
     "idx_canonical_missing_v1": {
       "mode": "static",
       "value": "partial"
