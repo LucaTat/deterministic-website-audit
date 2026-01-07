@@ -255,6 +255,7 @@ def build_indexability_findings(idx_signals: dict[str, Any], important_urls: lis
 
         if canon_href and canon_resolved:
             offpage = _canonical_points_offpage(final_url, canon_resolved)
+            entry = None
             if offpage:
                 key = canon_resolved  # consolidate by resolved canonical
                 tag_snippet = (canonical.get("tags") or [{}])[0].get("snippet", "")
@@ -262,6 +263,7 @@ def build_indexability_findings(idx_signals: dict[str, Any], important_urls: lis
                     "canonical_href": canon_href,
                     "canonical_resolved": canon_resolved,
                     "affected_pages": [],
+                    "target_fetches": [],
                 })
                 entry["affected_pages"].append({
                     "url": page_url,
@@ -273,6 +275,8 @@ def build_indexability_findings(idx_signals: dict[str, Any], important_urls: lis
             # Canonical target non-200 (only if actually fetched)
             target_fetch = canonical.get("target_fetch") or None
             if isinstance(target_fetch, dict) and target_fetch:
+                if offpage and entry is not None:
+                    entry["target_fetches"].append(target_fetch)
                 target_status = target_fetch.get("final_status")
                 if target_status is not None and int(target_status) != 200:
                     findings.append({
@@ -365,15 +369,15 @@ def build_indexability_findings(idx_signals: dict[str, Any], important_urls: lis
             })
 
     # Consolidated canonical offpage findings (one per canonical target)
-    for _, entry in offpage_groups.items():
-        findings.append({
+        for _, entry in offpage_groups.items():
+            finding = {
             "id": "IDX_CANONICAL_POINTS_OFFPAGE",
             "category": CATEGORY,
             "severity": "fail",
             "title_en": "Canonical points to a different page",
             "title_ro": "Canonical indică o altă pagină",
-            "description_en": "The canonical URL points to a different host or path than the affected pages.",
-            "description_ro": "URL-ul canonical indică un host sau un path diferit față de paginile afectate.",
+            "description_en": "These pages declare a canonical URL that points to a different URL (often the site root/homepage) instead of the page’s own URL.",
+            "description_ro": "Aceste pagini declară un URL canonical care indică un URL diferit (adesea rădăcina site-ului/homepage) în locul propriului URL al paginii.",
             "recommendation_en": "Confirm whether these pages should canonicalize to the homepage. If not, set each page’s canonical to its preferred URL.",
             "recommendation_ro": "Confirmați dacă aceste pagini trebuie să aibă canonical către homepage. Dacă nu, setați canonical pentru fiecare pagină către URL-ul preferat.",
             "evidence": {
@@ -382,7 +386,55 @@ def build_indexability_findings(idx_signals: dict[str, Any], important_urls: lis
                 "canonical_resolved": entry.get("canonical_resolved"),
                 "affected_pages": entry.get("affected_pages") or [],
             },
-        })
+        }
+
+        # Canonical target validation (earn complete proof)
+        entry_dict = entry if isinstance(entry, dict) else {}
+        target_fetches = entry_dict.get("target_fetches") or []
+
+        valid_targets = [
+            tf for tf in target_fetches
+            if isinstance(tf, dict) and tf.get("final_status") == 200
+        ]
+
+
+        if valid_targets:
+            finding["proof_completeness"] = "complete"
+            finding["confidence_level"] = "high"
+        else:
+            finding["proof_completeness"] = "partial"
+            finding["confidence_level"] = "medium"
+
+        findings.append(finding)
+
+
+        # --------------------------------------------------
+        # Canonical target validation (earn complete proof)
+        # --------------------------------------------------
+        entry_dict = entry if isinstance(entry, dict) else {}
+        canonicals = entry_dict.get("canonicals") or []
+
+
+        target_fetches = [
+            c.get("target_fetch")
+            for c in canonicals
+            if isinstance(c.get("target_fetch"), dict)
+        ]
+
+        valid_targets = [
+            tf for tf in target_fetches
+            if tf.get("final_status") == 200
+        ]
+
+        if valid_targets:
+            finding["proof_completeness"] = "complete"
+            finding["confidence_level"] = "high"
+        else:
+            finding["proof_completeness"] = "partial"
+            finding["confidence_level"] = "medium"
+
+        findings.append(finding)
+
 
     # -------------------------
     # Sitemap findings (site)
@@ -495,75 +547,76 @@ def build_indexability_findings(idx_signals: dict[str, Any], important_urls: lis
                 "sample": sample_results,
             },
         })
+   
+        # IMPORTANT PAGE NOT DISCOVERABLE
+        homepage_links = set()
+        pages = idx_signals.get("pages") or {}
+        homepage_url = (idx_signals.get("homepage_final_url") or "").rstrip("/")
+
+        # Collect internal links found on homepage
+        homepage_page = pages.get(homepage_url)
+        if homepage_page:
+            fetch = homepage_page.get("fetch") or {}
+            html = fetch.get("text") or ""
+            try:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(html, "html.parser")
+                for a in soup.find_all("a"):
+                    href = str(a.get("href") or "").strip()
+
+                    if href.startswith(("http://", "https://")):
+                        homepage_links.add(href.rstrip("/"))
+            except Exception:
+                pass
+
+        sitemap_urls = set()
+        sitemaps = idx_signals.get("sitemaps") or {}
+        fetched = sitemaps.get("fetched") or {}
+        for sm in fetched.values():
+            for u in sm.get("urls") or []:
+                sitemap_urls.add(u.rstrip("/"))
+
+        for page_url in important_urls:
+            norm = page_url.rstrip("/")
+            if norm == homepage_url:
+                continue
+
+            found_in_homepage = norm in homepage_links
+            found_in_sitemap = norm in sitemap_urls
+
+            if not found_in_homepage and not found_in_sitemap:
+                severity = "fail" if page_url in primary_urls else "warning"
+
+                findings.append({
+                    "id": "IDX_IMPORTANT_PAGE_NOT_DISCOVERABLE",
+                    "category": CATEGORY,
+                    "severity": severity,
+                    "title_en": "Important page is not discoverable by search engines",
+                    "title_ro": "Pagina importantă nu este ușor descoperibilă de motoarele de căutare",
+                    "description_en": (
+                        "This page is indexable, but we could not find a clear discovery path "
+                        "via internal links or sitemap references."
+                    ),
+                    "description_ro": (
+                        "Pagina este indexabilă, dar nu am identificat o cale clară de descoperire "
+                        "prin linkuri interne sau sitemap."
+                    ),
+                    "recommendation_en": (
+                        "Link this page from the homepage or include it in the sitemap."
+                    ),
+                    "recommendation_ro": (
+                        "Adăugați un link către această pagină din homepage sau includeți-o în sitemap."
+                    ),
+                    "evidence": {
+                        "page_url": page_url,
+                        "found_in_homepage_links": found_in_homepage,
+                        "found_in_sitemap": found_in_sitemap,
+                        "checked_sources": ["homepage_links", "sitemap_urls"],
+                    },
+                })
+
 
     return findings
-
-    # IMPORTANT PAGE NOT DISCOVERABLE
-    homepage_links = set()
-    pages = idx_signals.get("pages") or {}
-    homepage_url = (idx_signals.get("homepage_final_url") or "").rstrip("/")
-
-    # Collect internal links found on homepage
-    homepage_page = pages.get(homepage_url)
-    if homepage_page:
-        fetch = homepage_page.get("fetch") or {}
-        html = fetch.get("text") or ""
-        try:
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(html, "html.parser")
-            for a in soup.find_all("a"):
-                href = (a.get("href") or "").strip()
-                if href.startswith(("http://", "https://")):
-                    homepage_links.add(href.rstrip("/"))
-        except Exception:
-            pass
-
-    sitemap_urls = set()
-    sitemaps = idx_signals.get("sitemaps") or {}
-    fetched = sitemaps.get("fetched") or {}
-    for sm in fetched.values():
-        for u in sm.get("urls") or []:
-            sitemap_urls.add(u.rstrip("/"))
-
-    for page_url in important_urls:
-        norm = page_url.rstrip("/")
-        if norm == homepage_url:
-            continue
-
-        found_in_homepage = norm in homepage_links
-        found_in_sitemap = norm in sitemap_urls
-
-        if not found_in_homepage and not found_in_sitemap:
-            severity = "fail" if page_url in primary_urls else "warning"
-
-            findings.append({
-                "id": "IDX_IMPORTANT_PAGE_NOT_DISCOVERABLE",
-                "category": CATEGORY,
-                "severity": severity,
-                "title_en": "Important page is not discoverable by search engines",
-                "title_ro": "Pagina importantă nu este ușor descoperibilă de motoarele de căutare",
-                "description_en": (
-                    "This page is indexable, but we could not find a clear discovery path "
-                    "via internal links or sitemap references."
-                ),
-                "description_ro": (
-                    "Pagina este indexabilă, dar nu am identificat o cale clară de descoperire "
-                    "prin linkuri interne sau sitemap."
-                ),
-                "recommendation_en": (
-                    "Link this page from the homepage or include it in the sitemap."
-                ),
-                "recommendation_ro": (
-                    "Adăugați un link către această pagină din homepage sau includeți-o în sitemap."
-                ),
-                "evidence": {
-                    "page_url": page_url,
-                    "found_in_homepage_links": found_in_homepage,
-                    "found_in_sitemap": found_in_sitemap,
-                    "checked_sources": ["homepage_links", "sitemap_urls"],
-                },
-            })
-
 
 def _blocked_important_urls(important_urls: list[str], ua_rules: dict[str, list[str]]) -> list[dict[str, Any]]:
     blocked: list[dict[str, Any]] = []

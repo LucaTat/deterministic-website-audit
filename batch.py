@@ -7,8 +7,9 @@ import argparse
 import datetime as dt
 from urllib.parse import urlparse
 from datetime import datetime, timezone
-
-from audit import (
+from finding_policy import enforce_policy_on_findings
+from findings_enricher import enrich_findings
+from audit import (    
     fetch_html,
     page_signals,
     build_all_signals,
@@ -206,7 +207,9 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
             + build_share_meta_findings(signals)
             + build_indexability_findings(idx_signals, important_urls=idx_signals.get("important_urls", []))
             + build_conversion_loss_findings(mode="ok", signals=signals, business_inputs=business_inputs)
-        )
+      )
+
+        findings = enforce_policy_on_findings(findings)
 
         conversion_loss = build_conversion_loss(mode="ok", signals=signals, business_inputs=business_inputs)
 
@@ -235,6 +238,7 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
 
         conversion_loss = build_conversion_loss(mode="broken", signals={"reason": reason}, business_inputs=business_inputs)
         conversion_loss_findings = build_conversion_loss_findings(mode="broken", signals={"reason": reason}, business_inputs=business_inputs)
+        conversion_loss_findings = enforce_policy_on_findings(conversion_loss_findings)
 
         return {
             "url": u,
