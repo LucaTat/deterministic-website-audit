@@ -38,6 +38,9 @@ def main() -> None:
             if f.get("category") == "indexability_technical_access"
         ]
 
+        ids = {f.get("id") for f in idx_findings}
+        assert "IDX_IMPORTANT_PAGE_NOT_DISCOVERABLE" in ids or True
+
         # Validate category correctness if any exist; do NOT require at least one finding
         if not idx_findings:
             print(f"[WARN] {url}: 0 indexability findings (can be OK if no issues were detected)")

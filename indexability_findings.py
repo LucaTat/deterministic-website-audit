@@ -498,6 +498,72 @@ def build_indexability_findings(idx_signals: dict[str, Any], important_urls: lis
 
     return findings
 
+    # IMPORTANT PAGE NOT DISCOVERABLE
+    homepage_links = set()
+    pages = idx_signals.get("pages") or {}
+    homepage_url = (idx_signals.get("homepage_final_url") or "").rstrip("/")
+
+    # Collect internal links found on homepage
+    homepage_page = pages.get(homepage_url)
+    if homepage_page:
+        fetch = homepage_page.get("fetch") or {}
+        html = fetch.get("text") or ""
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html, "html.parser")
+            for a in soup.find_all("a"):
+                href = (a.get("href") or "").strip()
+                if href.startswith(("http://", "https://")):
+                    homepage_links.add(href.rstrip("/"))
+        except Exception:
+            pass
+
+    sitemap_urls = set()
+    sitemaps = idx_signals.get("sitemaps") or {}
+    fetched = sitemaps.get("fetched") or {}
+    for sm in fetched.values():
+        for u in sm.get("urls") or []:
+            sitemap_urls.add(u.rstrip("/"))
+
+    for page_url in important_urls:
+        norm = page_url.rstrip("/")
+        if norm == homepage_url:
+            continue
+
+        found_in_homepage = norm in homepage_links
+        found_in_sitemap = norm in sitemap_urls
+
+        if not found_in_homepage and not found_in_sitemap:
+            severity = "fail" if page_url in primary_urls else "warning"
+
+            findings.append({
+                "id": "IDX_IMPORTANT_PAGE_NOT_DISCOVERABLE",
+                "category": CATEGORY,
+                "severity": severity,
+                "title_en": "Important page is not discoverable by search engines",
+                "title_ro": "Pagina importantă nu este ușor descoperibilă de motoarele de căutare",
+                "description_en": (
+                    "This page is indexable, but we could not find a clear discovery path "
+                    "via internal links or sitemap references."
+                ),
+                "description_ro": (
+                    "Pagina este indexabilă, dar nu am identificat o cale clară de descoperire "
+                    "prin linkuri interne sau sitemap."
+                ),
+                "recommendation_en": (
+                    "Link this page from the homepage or include it in the sitemap."
+                ),
+                "recommendation_ro": (
+                    "Adăugați un link către această pagină din homepage sau includeți-o în sitemap."
+                ),
+                "evidence": {
+                    "page_url": page_url,
+                    "found_in_homepage_links": found_in_homepage,
+                    "found_in_sitemap": found_in_sitemap,
+                    "checked_sources": ["homepage_links", "sitemap_urls"],
+                },
+            })
+
 
 def _blocked_important_urls(important_urls: list[str], ua_rules: dict[str, list[str]]) -> list[dict[str, Any]]:
     blocked: list[dict[str, Any]] = []
