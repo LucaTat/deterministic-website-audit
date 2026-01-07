@@ -27,6 +27,7 @@ from indexability_findings import build_indexability_findings
 from client_narrative import build_client_narrative
 from pdf_export import export_audit_pdf
 from ai.advisory import build_ai_advisory
+from proof_completeness_shadow import write_proof_completeness_shadow
 
 CAMPAIGN = "2025-Q1-outreach"
 
@@ -36,6 +37,8 @@ def parse_args():
     p.add_argument("--lang", choices=["en", "ro"], default="en", help="PDF/client narrative language")
     p.add_argument("--campaign", default=CAMPAIGN, help="Campaign folder name under reports/")
     p.add_argument("--targets", default="urls.txt", help="Targets file (default: urls.txt)")
+    p.add_argument("--proof-spec", choices=["legacy", "shadow"], default="legacy",
+                   help="Proof completeness spec mode (default: legacy)")
     # Optional business inputs to translate % impact into absolute estimates.
     # If omitted, the tool will output conservative % ranges only.
     p.add_argument("--sessions", type=float, default=None, help="Optional: monthly sessions (e.g. 3000)")
@@ -302,6 +305,7 @@ def main():
     lang = args.lang
     campaign = args.campaign
     targets_path = args.targets
+    proof_spec = args.proof_spec
 
     business_inputs = {
         "sessions_per_month": args.sessions,
@@ -345,6 +349,10 @@ def main():
 
         export_audit_pdf(result, pdf_path)
         save_json(result, json_path)
+
+        if proof_spec == "shadow":
+            shadow_path = os.path.join(out_folder, "proof_completeness_shadow.json")
+            write_proof_completeness_shadow(result.get("findings", []), shadow_path)
 
         signals = result.get("signals", {}) or {}
         append_csv_row(csv_path, {

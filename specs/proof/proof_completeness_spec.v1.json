@@ -1,0 +1,6 @@
+{
+  "version": "v1",
+  "mode": "shadow",
+  "default_behavior": "passthrough",
+  "description": "Shadow-mode passthrough spec for proof_completeness."
+}
