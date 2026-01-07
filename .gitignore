@@ -33,3 +33,6 @@ __pycache__/
 # Local-only artifacts
 coverage.json
 targets.txt
+
+# Local target lists
+targets_ok*.txt
