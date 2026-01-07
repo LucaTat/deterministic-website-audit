@@ -2,5 +2,18 @@
   "version": "v1",
   "mode": "shadow",
   "default_behavior": "passthrough",
-  "description": "Shadow-mode passthrough spec for proof_completeness."
+  "default_profile": "passthrough_v1",
+  "profiles": {
+    "passthrough_v1": {
+      "mode": "passthrough"
+    },
+    "convloss_site_unreachable_v1": {
+      "mode": "static",
+      "value": "partial"
+    }
+  },
+  "bindings": {
+    "CONVLOSS_SITE_UNREACHABLE": "convloss_site_unreachable_v1"
+  },
+  "description": "Shadow-mode spec with profile bindings for proof_completeness."
 }

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 SPEC_PATH = os.path.join(
@@ -12,6 +12,8 @@ SPEC_PATH = os.path.join(
     "proof",
     "proof_completeness_spec.v1.json",
 )
+
+PROOF_VALUES = {"complete", "partial", "supporting"}
 
 
 def load_proof_completeness_spec(path: str = SPEC_PATH) -> Dict[str, Any]:
@@ -30,11 +32,48 @@ def _sorted_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         items,
         key=lambda x: (
             str(x.get("id") or ""),
+            str(x.get("profile_id") or ""),
             str(x.get("proof_completeness") or ""),
             str(x.get("spec_proof_completeness") or ""),
             int(x.get("finding_index") or 0),
         ),
     )
+
+def _resolve_profile_id(finding: Dict[str, Any], spec: Dict[str, Any]) -> Optional[str]:
+    bindings = spec.get("bindings") or {}
+    if not isinstance(bindings, dict):
+        bindings = {}
+    default_profile = spec.get("default_profile")
+    fid = finding.get("id")
+    return bindings.get(fid, default_profile)
+
+
+def _lookup_profile(profile_id: Optional[str], spec: Dict[str, Any]) -> Dict[str, Any]:
+    profiles = spec.get("profiles") or {}
+    if not isinstance(profiles, dict):
+        return {}
+    if profile_id and profile_id in profiles and isinstance(profiles[profile_id], dict):
+        return profiles[profile_id]
+    return {}
+
+
+def _passthrough_proof(finding: Dict[str, Any]) -> str:
+    proof = finding.get("proof_completeness")
+    if proof not in PROOF_VALUES:
+        return "partial"
+    return proof
+
+
+def _evaluate_profile(finding: Dict[str, Any], profile: Dict[str, Any]) -> str:
+    mode = profile.get("mode")
+    if mode == "static":
+        value = profile.get("value")
+        if value not in PROOF_VALUES:
+            return "partial"
+        return value
+    if mode == "passthrough":
+        return _passthrough_proof(finding)
+    return _passthrough_proof(finding)
 
 
 def build_proof_completeness_shadow_report(
@@ -45,13 +84,16 @@ def build_proof_completeness_shadow_report(
 
     for idx, finding in enumerate(_normalize_findings(findings)):
         proof = finding.get("proof_completeness")
-        spec_proof = proof  # passthrough default
+        profile_id = _resolve_profile_id(finding, spec)
+        profile = _lookup_profile(profile_id, spec)
+        spec_proof = _evaluate_profile(finding, profile)
         mismatch = spec_proof != proof
 
         items.append(
             {
                 "finding_index": idx,
                 "id": finding.get("id"),
+                "profile_id": profile_id,
                 "proof_completeness": proof,
                 "spec_proof_completeness": spec_proof,
                 "mismatch": mismatch,
