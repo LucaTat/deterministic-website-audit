@@ -1,5 +1,5 @@
 from typing import Dict, Any, List
-
+from typing import Any, Dict, List
 
 ALLOWED_SEVERITIES = {"fail", "warning", "info"}
 CONFIDENCE_LEVELS = {"high", "medium", "low"}
@@ -62,6 +62,17 @@ def enforce_finding_policy(finding: Dict[str, Any]) -> Dict[str, Any]:
 
 def enforce_policy_on_findings(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Applies enforce_finding_policy to a list of findings.
+    Apply enforce_finding_policy() to every finding deterministically.
+    Must never crash. Must never reference a loop variable outside the loop.
     """
-    return [enforce_finding_policy(f) for f in findings]
+    if not findings:
+        return []
+
+    out: List[Dict[str, Any]] = []
+    for f in findings:
+        # Defensive: ensure we always return a dict
+        if not isinstance(f, dict):
+            continue
+        out.append(enforce_finding_policy(f))
+    return out
+
