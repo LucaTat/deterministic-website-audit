@@ -29,3 +29,7 @@ __pycache__/
 .venv/
 __pycache__/
 *.pyc
+
+# Local-only artifacts
+coverage.json
+targets.txt
