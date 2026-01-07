@@ -4,7 +4,7 @@ import json
 import re
 import csv
 import argparse
-import datetime as dt
+import datetime as dt 
 from urllib.parse import urlparse
 from datetime import datetime, timezone
 from finding_policy import enforce_policy_on_findings
@@ -236,37 +236,43 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
         }
 
     except Exception as e:
+        import traceback
+
         reason = str(e)
+        tb = traceback.format_exc()
+
         summary = human_summary(u, {"reason": reason}, mode="broken")
 
         conversion_loss = build_conversion_loss(mode="broken", signals={"reason": reason}, business_inputs=business_inputs)
         conversion_loss_findings = build_conversion_loss_findings(mode="broken", signals={"reason": reason}, business_inputs=business_inputs)
-        conversion_loss_findings = enforce_policy_on_findings(conversion_loss_findings)
+
+        findings = enforce_policy_on_findings(conversion_loss_findings)
 
         return {
             "url": u,
             "mode": "broken",
             "lang": lang,
             "html": "",
-            "signals": {"reason": reason},
-            "findings": conversion_loss_findings,
+            "signals": {"reason": reason, "traceback": tb},
+            "findings": findings,
             "meta": {"indexability_pack_version": INDEXABILITY_PACK_VERSION},
             "business_inputs": business_inputs or {},
             "conversion_loss": conversion_loss,
             "summary_ro": summary,
             "client_narrative": client_narrative_for_mode("broken", lang, {"reason": reason}),
             "user_insights_en": {
-                "primary_issue": "The website is unreachable or broken.",
+                "primary_issue": "Audit crashed internally.",
                 "secondary_issues": [],
                 "confidence": "High",
-                "recommended_focus": "Fix access first (domain/hosting/SSL), then retest.",
+                "recommended_focus": "Fix internal error and rerun.",
                 "steps": [
-                    "Check domain + hosting availability (site must load reliably).",
-                    "Fix SSL/HTTPS issues if present.",
-                    "Retest the homepage once the site loads normally.",
+                    "Open the saved traceback and fix the crashing line.",
+                    "Rerun the audit."
                 ],
             },
         }
+
+
 
 
 def save_json(audit_result: dict, out_path: str) -> None:
@@ -367,7 +373,18 @@ def main():
             "lang": lang,
         })
 
-        print(f"[OK] {base} → {out_folder}")
+        mode = result.get("mode", "unknown")
+        tag = "OK" if mode == "ok" else ("BROKEN" if mode == "broken" else mode.upper())
+        display = result.get("url", "<unknown>")
+        print(f"[{tag}] {display} → {out_folder}")
+
+        # If broken mode includes a traceback, write it next to the outputs for debugging.
+        tb = ((result.get("signals") or {}).get("traceback"))
+        if tb:
+            with open(os.path.join(out_folder, "error_traceback.txt"), "w", encoding="utf-8") as f:
+               f.write(tb)
+
+
 
 
 if __name__ == "__main__":
