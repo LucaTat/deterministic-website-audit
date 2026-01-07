@@ -369,8 +369,8 @@ def build_indexability_findings(idx_signals: dict[str, Any], important_urls: lis
             })
 
     # Consolidated canonical offpage findings (one per canonical target)
-        for _, entry in offpage_groups.items():
-            finding = {
+    for _, entry in offpage_groups.items():
+        finding = {
             "id": "IDX_CANONICAL_POINTS_OFFPAGE",
             "category": CATEGORY,
             "severity": "fail",
@@ -382,9 +382,9 @@ def build_indexability_findings(idx_signals: dict[str, Any], important_urls: lis
             "recommendation_ro": "Confirmați dacă aceste pagini trebuie să aibă canonical către homepage. Dacă nu, setați canonical pentru fiecare pagină către URL-ul preferat.",
             "evidence": {
                 "type": "html_tag",
-                "canonical_href": entry.get("canonical_href"),
-                "canonical_resolved": entry.get("canonical_resolved"),
-                "affected_pages": entry.get("affected_pages") or [],
+                "canonical_href": entry.get("canonical_href") if isinstance(entry, dict) else None,
+                "canonical_resolved": entry.get("canonical_resolved") if isinstance(entry, dict) else None,
+                "affected_pages": (entry.get("affected_pages") or []) if isinstance(entry, dict) else [],
             },
         }
 
@@ -406,7 +406,7 @@ def build_indexability_findings(idx_signals: dict[str, Any], important_urls: lis
             finding["confidence_level"] = "medium"
 
         findings.append(finding)
-
+    
 
         # --------------------------------------------------
         # Canonical target validation (earn complete proof)
