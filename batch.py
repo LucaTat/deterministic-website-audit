@@ -156,7 +156,7 @@ def client_narrative_for_mode(mode: str, lang: str, signals: dict) -> dict:
 
     if mode == "broken":
         reason = (signals or {}).get("reason", "")
-        human_reason = humanize_fetch_error(reason, lang=lang) if reason else ""
+        secondary_issues = humanize_fetch_error_bullets(reason, lang=lang) if reason else []
         if lang == "ro":
             return {
                 "overview": [
@@ -164,7 +164,7 @@ def client_narrative_for_mode(mode: str, lang: str, signals: dict) -> dict:
                     "Orice vizitator care vede o eroare pleacă imediat."
                 ],
                 "primary_issue": {"title": "Website inaccesibil", "impact": "Se pierd lead-uri și scade încrederea din Google/Maps."},
-                "secondary_issues": [human_reason] if human_reason else [],
+                "secondary_issues": secondary_issues[:2],
                 "plan": [
                     "Reparați accesul (domeniu/hosting/SSL) astfel încât homepage-ul să se încarce constant.",
                     "Retestați după fix și apoi îmbunătățiți programarea/contactul.",
@@ -178,7 +178,7 @@ def client_narrative_for_mode(mode: str, lang: str, signals: dict) -> dict:
                 "Any visitor who hits an error is likely to leave immediately."
             ],
             "primary_issue": {"title": "Website unreachable", "impact": "Lost leads and reduced trust from Google/Maps visitors."},
-            "secondary_issues": [human_reason] if human_reason else [],
+            "secondary_issues": secondary_issues[:2],
             "plan": [
                 "Fix hosting/domain/SSL so the homepage loads consistently.",
                 "Retest after the fix and then improve booking/contact clarity.",
@@ -210,52 +210,65 @@ def humanize_fetch_error(reason: str, lang: str = "ro") -> str:
 
 
 def humanize_fetch_error_bullets(reason: str, lang: str = "ro") -> list[str]:
-    text = (reason or "").lower()
+    r = (reason or "").lower()
+
     is_ro = (lang or "").lower().strip() == "ro"
-    bullets: list[str] = []
 
-    def add_pair(cause_ro: str, action_ro: str, cause_en: str, action_en: str) -> list[str]:
-        if is_ro:
-            return [f"Cauză probabilă: {cause_ro}", f"Ce să faceți: {action_ro}"]
-        return [f"Likely cause: {cause_en}", f"What to do: {action_en}"]
+    def ro(cause, action):
+        return [f"Cauză probabilă: {cause}", f"Ce să faceți: {action}"]
 
-    if "ssl" in text or "certificate" in text or "cert" in text:
-        bullets = add_pair(
-            "certificat invalid sau necompatibil.",
-            "Reînnoiți certificatul SSL și verificați lanțul de certificate.",
-            "invalid or incompatible certificate.",
-            "Renew the SSL certificate and verify the full certificate chain.",
-        )
-    elif "dns" in text or "name or service not known" in text or "nodename nor servname" in text:
-        bullets = add_pair(
-            "domeniu inexistent sau DNS neconfigurat.",
-            "Verificați DNS-ul domeniului și configurarea hostingului.",
-            "domain missing or DNS misconfigured.",
-            "Check domain DNS records and hosting configuration.",
-        )
-    elif "timeout" in text or "timed out" in text:
-        bullets = add_pair(
-            "server lent sau indisponibil temporar.",
-            "Verificați serverul și timpul de răspuns; încercați din nou.",
-            "server slow or temporarily unavailable.",
-            "Check server health and response time; retry later.",
-        )
-    elif "connection refused" in text or "refused" in text:
-        bullets = add_pair(
-            "serverul refuză conexiunea.",
-            "Verificați firewall-ul, hostingul și statusul serverului.",
-            "server is refusing the connection.",
-            "Check firewall rules, hosting status, and server availability.",
-        )
-    elif "redirect" in text and ("loop" in text or "too many" in text):
-        bullets = add_pair(
-            "lanț de redirect-uri greșit configurat.",
-            "Corectați regulile de redirect pentru a evita buclele.",
-            "misconfigured redirect chain.",
-            "Fix redirect rules to eliminate loops.",
+    def en(cause, action):
+        return [f"Likely cause: {cause}", f"What to do: {action}"]
+
+    def out(cause_ro, action_ro, cause_en, action_en):
+        return (ro(cause_ro, action_ro) if is_ro else en(cause_en, action_en))[:2]
+
+    if "ssl" in r or "certificate" in r or "cert" in r:
+        return out(
+            "certificatul SSL nu este configurat corect pentru domeniu (www vs non-www)",
+            "reinstalați certificatul și verificați redirecționările către domeniul principal",
+            "the SSL certificate is misconfigured for the domain (www vs non-www)",
+            "reinstall the certificate and verify redirects to the primary domain",
         )
 
-    return bullets[:2]
+    if "dns" in r or "name or service not known" in r or "nodename nor servname" in r:
+        return out(
+            "domeniul nu indică corect către server (DNS greșit sau lipsă)",
+            "verificați înregistrările DNS și IP-ul serverului",
+            "the domain does not point correctly to the server (DNS issue)",
+            "check DNS records and server IP configuration",
+        )
+
+    if "timeout" in r or "timed out" in r:
+        return out(
+            "serverul răspunde foarte lent sau nu răspunde",
+            "verificați hostingul și performanța serverului",
+            "the server is too slow or not responding",
+            "check hosting stability and server performance",
+        )
+
+    if "refused" in r or "connection" in r:
+        return out(
+            "serverul respinge conexiunile externe",
+            "verificați firewall-ul și configurația serverului",
+            "the server is refusing external connections",
+            "check firewall and server configuration",
+        )
+
+    if "redirect" in r:
+        return out(
+            "există o buclă de redirecționare (http/https sau www/non-www)",
+            "corectați regulile de redirecționare către un singur URL canonical",
+            "there is a redirect loop (http/https or www/non-www)",
+            "fix redirects to point to a single canonical URL",
+        )
+
+    return out(
+        "configurația domeniului sau a serverului împiedică accesarea site-ului",
+        "verificați domeniul, hostingul și certificatul SSL",
+        "domain or server configuration prevents access",
+        "check domain, hosting, and SSL configuration",
+    )
 
 def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
     u = (url or "").strip()
