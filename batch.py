@@ -5,6 +5,7 @@ import re
 import csv
 import argparse
 import datetime as dt 
+import requests
 from urllib.parse import urlparse
 from datetime import datetime, timezone
 from finding_policy import enforce_policy_on_findings
@@ -191,60 +192,67 @@ def client_narrative_for_mode(mode: str, lang: str, signals: dict) -> dict:
 
 def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
     u = (url or "").strip()
+    summary_text = ""
 
     # No website case
     if u.lower() in ["none", "no", "no website", "n/a", "na", ""]:
-       summary = human_summary("(no website)", {}, mode="no_website")
+        summary_text = human_summary("(no website)", {}, mode="no_website")
+        print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
+        conversion_loss = build_conversion_loss(
+            mode="no_website", signals={}, business_inputs=business_inputs
+        )
+        conversion_loss_findings = build_conversion_loss_findings(
+            mode="no_website",
+            signals={},
+            business_inputs=business_inputs,
+            lang=lang,
+        )
 
-    conversion_loss = build_conversion_loss(
-        mode="no_website", signals={}, business_inputs=business_inputs
-    )
-    conversion_loss_findings = build_conversion_loss_findings(
-        mode="no_website", signals={}, business_inputs=business_inputs
-    )
+        findings = enforce_policy_on_findings(conversion_loss_findings)
 
-    findings = enforce_policy_on_findings(conversion_loss_findings)
+        return {
+            "url": "(no website)",
+            "mode": "no_website",
+            "lang": lang,
+            "html": "",
+            "signals": {},
+            "findings": findings,
+            "meta": {"indexability_pack_version": INDEXABILITY_PACK_VERSION},
+            "business_inputs": business_inputs or {},
+            "conversion_loss": conversion_loss,
+            "summary": summary_text,
+            "summary_en": summary_text if lang == "en" else "",
+            "summary_ro": summary_text if lang == "ro" else summary_text,
+            "client_narrative": client_narrative_for_mode("no_website", lang, {}),
+            "user_insights_en": {
+                "primary_issue": "No website is available to audit.",
+                "secondary_issues": [],
+                "confidence": "High",
+                "recommended_focus": "Create a simple one-page site with clear services, contact, and a call-to-action.",
+                "steps": [
+                    "Create a basic one-page website with services + location + contact.",
+                    "Add a clear call-to-action (Call / Book / Request info).",
+                    "Retest once the site is live.",
+                ],
+            },
 
-    return {
-        "url": "(no website)",
-        "mode": "no_website",
-        "lang": lang,
-        "html": "",
-        "signals": {},
-        "findings": findings,
-        "meta": {"indexability_pack_version": INDEXABILITY_PACK_VERSION},
-        "business_inputs": business_inputs or {},
-        "conversion_loss": conversion_loss,
-        "summary_ro": summary,
-        "client_narrative": client_narrative_for_mode("no_website", lang, {}),
-        "user_insights_en": {
-            "primary_issue": "No website is available to audit.",
-            "secondary_issues": [],
-            "confidence": "High",
-            "recommended_focus": "Create a simple one-page site with clear services, contact, and a call-to-action.",
-            "steps": [
-                "Create a basic one-page website with services + location + contact.",
-                "Add a clear call-to-action (Call / Book / Request info).",
-                "Retest once the site is live.",
+            "audit_type": "critical_risk",
+            "audit_state": "critical_failure_detected",
+            "blocks": [
+                "organic_search",
+                "google_business_profile",
+                "direct_and_referral",
+                "user_trust_security",
+                "all_conversions",
             ],
-        },
+            "blocked_checks": [
+                "indexability_and_crawlability",
+                "internal_linking",
+                "conversion_paths",
+                "contact_and_booking_clarity",
+            ],
+        }
 
-        "audit_type": "critical_risk",
-        "audit_state": "critical_failure_detected",
-        "blocks": [
-            "organic_search",
-            "google_business_profile",
-            "direct_and_referral",
-            "user_trust_security",
-            "all_conversions",
-        ],
-        "blocked_checks": [
-            "indexability_and_crawlability",
-            "internal_linking",
-            "conversion_paths",
-            "contact_and_booking_clarity",
-        ],
-    }
 
 
 
@@ -256,19 +264,31 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
 
         # Findings
         findings = (
-            build_social_findings(signals)
-            + build_share_meta_findings(signals)
-            + build_indexability_findings(idx_signals, important_urls=idx_signals.get("important_urls", []))
-            + build_conversion_loss_findings(mode="ok", signals=signals, business_inputs=business_inputs)
-      )
+            build_social_findings(signals, lang=lang)
+            + build_share_meta_findings(signals, lang=lang)
+            + build_indexability_findings(
+                idx_signals,
+                important_urls=idx_signals.get("important_urls", []),
+                lang=lang,
+            )
+            + build_conversion_loss_findings(
+                mode="ok",
+                signals=signals,
+                business_inputs=business_inputs,
+                lang=lang,
+            )
+        )
 
         findings = enforce_policy_on_findings(findings)
         audit_type, audit_state = classify_audit("ok", findings)
-        conversion_loss = build_conversion_loss(mode="ok", signals=signals, business_inputs=business_inputs)
+        conversion_loss = build_conversion_loss(
+            mode="ok", signals=signals, business_inputs=business_inputs
+        )
 
         client_narrative = build_client_narrative(signals, lang=lang)
         insights = user_insights(signals)
-        summary = human_summary(u, signals, mode="ok")
+        summary_text = human_summary(u, signals, mode="ok")
+        print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
 
         return {
             "url": u,
@@ -280,27 +300,98 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
             "meta": {"indexability_pack_version": INDEXABILITY_PACK_VERSION},
             "business_inputs": business_inputs or {},
             "conversion_loss": conversion_loss,
-            "summary_ro": summary,
+            "summary": summary_text,
+            "summary_en": summary_text if lang == "en" else "",
+            "summary_ro": summary_text if lang == "ro" else summary_text,
             "client_narrative": client_narrative,
             "user_insights_en": insights,
             "audit_type": audit_type,
             "audit_state": audit_state,
             "blocks": [],
             "blocked_checks": [],
-
         }
 
+    # 🔴 WEBSITE UNREACHABLE (SSL / DNS / timeout / 4xx / 5xx)
+    except (
+        requests.exceptions.ConnectionError,
+        requests.exceptions.SSLError,
+        requests.exceptions.Timeout,
+        requests.exceptions.HTTPError,
+    ) as e:
+        reason = str(e)
+        summary_text = human_summary(u, {"reason": reason}, mode="broken")
+        print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
+
+        conversion_loss = build_conversion_loss(
+            mode="broken", signals={"reason": reason}, business_inputs=business_inputs
+        )
+        conversion_loss_findings = build_conversion_loss_findings(
+            mode="broken",
+            signals={"reason": reason},
+            business_inputs=business_inputs,
+            lang=lang,
+        )
+        findings = enforce_policy_on_findings(conversion_loss_findings)
+
+        return {
+            "url": u,
+            "mode": "broken",  # ← unreachable website
+            "lang": lang,
+            "html": "",
+            "signals": {"reason": reason},
+            "findings": findings,
+            "meta": {"indexability_pack_version": INDEXABILITY_PACK_VERSION},
+            "business_inputs": business_inputs or {},
+            "conversion_loss": conversion_loss,
+            "summary": summary_text,
+            "summary_en": summary_text if lang == "en" else "",
+            "summary_ro": summary_text if lang == "ro" else summary_text,
+            "client_narrative": client_narrative_for_mode("broken", lang, {"reason": reason}),
+            "user_insights_en": {
+                "primary_issue": "Website unreachable.",
+                "secondary_issues": [],
+                "confidence": "High",
+                "recommended_focus": "Fix hosting/domain/SSL and rerun.",
+                "steps": [
+                    "Fix DNS/hosting/SSL so the homepage loads consistently.",
+                    "Rerun the audit after the fix.",
+                ],
+            },
+            "audit_type": "critical_risk",
+            "audit_state": "critical_failure_detected",
+            "blocks": [
+                "organic_search",
+                "google_business_profile",
+                "direct_and_referral",
+                "user_trust_security",
+                "all_conversions",
+            ],
+            "blocked_checks": [
+                "indexability_and_crawlability",
+                "internal_linking",
+                "conversion_paths",
+                "contact_and_booking_clarity",
+            ],
+        }
+
+    # 🔴 INTERNAL TOOL CRASH (real bug)
     except Exception as e:
         import traceback
 
         reason = str(e)
         tb = traceback.format_exc()
+        summary_text = human_summary(u, {"reason": reason}, mode="broken")
+        print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
 
-        summary = human_summary(u, {"reason": reason}, mode="broken")
-
-        conversion_loss = build_conversion_loss(mode="broken", signals={"reason": reason}, business_inputs=business_inputs)
-        conversion_loss_findings = build_conversion_loss_findings(mode="broken", signals={"reason": reason}, business_inputs=business_inputs)
-
+        conversion_loss = build_conversion_loss(
+            mode="broken", signals={"reason": reason}, business_inputs=business_inputs
+        )
+        conversion_loss_findings = build_conversion_loss_findings(
+            mode="broken",
+            signals={"reason": reason},
+            business_inputs=business_inputs,
+            lang=lang,
+        )
         findings = enforce_policy_on_findings(conversion_loss_findings)
 
         return {
@@ -313,7 +404,9 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
             "meta": {"indexability_pack_version": INDEXABILITY_PACK_VERSION},
             "business_inputs": business_inputs or {},
             "conversion_loss": conversion_loss,
-            "summary_ro": summary,
+            "summary": summary_text,
+            "summary_en": summary_text if lang == "en" else "",
+            "summary_ro": summary_text if lang == "ro" else summary_text,
             "client_narrative": client_narrative_for_mode("broken", lang, {"reason": reason}),
             "user_insights_en": {
                 "primary_issue": "Audit crashed internally.",
@@ -341,6 +434,7 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
                 "contact_and_booking_clarity",
             ],
         }
+    
 
 
 

@@ -20,7 +20,7 @@ def _first(meta_first: dict[str, str], key: str) -> str:
     return v if isinstance(v, str) else ""
 
 
-def build_share_meta_findings(signals: dict) -> list[dict[str, Any]]:
+def build_share_meta_findings(signals: dict, lang: str = "en") -> list[dict[str, Any]]:
     """Create Findings related to share previews (Open Graph + Twitter cards).
 
     Deterministic, evidence-based.

@@ -68,6 +68,7 @@ def build_conversion_loss_findings(
     mode: str,
     signals: Dict[str, Any],
     business_inputs: Optional[Dict[str, Any]] = None,
+    lang: str = "en",
 ) -> List[Dict[str, Any]]:
     """Build Findings objects (EN/RO) from conversion loss estimates."""
     estimates = build_conversion_loss(mode=mode, signals=signals, business_inputs=business_inputs)
@@ -138,16 +139,21 @@ def build_conversion_loss_findings(
         rec_en = "Address the underlying issue first, then retest and compare results over time."
         rec_ro = "Rezolvați mai întâi cauza, apoi retestați și comparați rezultatele în timp."
 
+        use_ro = lang.strip().lower() == "ro"
+        title_en_out = title_ro if use_ro else title_en
+        desc_en_out = desc_ro if use_ro else desc_en
+        rec_en_out = rec_ro if use_ro else rec_en
+
         findings.append(
             {
                 "id": issue_id,
                 "category": "conversion_loss",
                 "severity": severity,
-                "title_en": title_en,
+                "title_en": title_en_out,
                 "title_ro": title_ro,
-                "description_en": desc_en,
+                "description_en": desc_en_out,
                 "description_ro": desc_ro,
-                "recommendation_en": rec_en,
+                "recommendation_en": rec_en_out,
                 "recommendation_ro": rec_ro,
                 "evidence": {
                     "impact_pct_low": lo,

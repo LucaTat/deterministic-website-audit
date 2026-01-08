@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 CATEGORY = "indexability_technical_access"
 
 
-def build_indexability_findings(idx_signals: dict[str, Any], important_urls: list[str]) -> list[dict[str, Any]]:
+def build_indexability_findings(idx_signals: dict[str, Any], important_urls: list[str], lang: str = "en") -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     important_set = set(important_urls or [])
 
@@ -616,6 +616,14 @@ def build_indexability_findings(idx_signals: dict[str, Any], important_urls: lis
                 })
 
 
+    if lang.strip().lower() == "ro":
+        for f in findings:
+            if "title_ro" in f:
+                f["title_en"] = f["title_ro"]
+            if "description_ro" in f:
+                f["description_en"] = f["description_ro"]
+            if "recommendation_ro" in f:
+                f["recommendation_en"] = f["recommendation_ro"]
     return findings
 
 def _blocked_important_urls(important_urls: list[str], ua_rules: dict[str, list[str]]) -> list[dict[str, Any]]:

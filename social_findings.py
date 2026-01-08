@@ -8,7 +8,7 @@ SOCIAL_PLATFORMS = ["instagram", "facebook", "linkedin", "tiktok", "youtube", "x
 CONTACT_PLATFORMS = ["whatsapp"]
 
 
-def build_social_findings(signals: dict) -> list[dict[str, Any]]:
+def build_social_findings(signals: dict, lang: str = "en") -> list[dict[str, Any]]:
     """
     Convert deterministic social signals into agency-friendly Findings.
 

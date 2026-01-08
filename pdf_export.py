@@ -21,15 +21,27 @@ AGENCY_CONTACT = "contact@digitalaudit.ro"
 
 
 def _register_font() -> str:
-    mac_fonts = [
-        "/System/Library/Fonts/HelveticaNeue.ttc",
+    candidates = [
+        # macOS – BEST for Romanian
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Unicode MS.ttf",
+
+        # Linux / fallback
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
+
+        # Last resort
+        "/System/Library/Fonts/HelveticaNeue.ttc",
     ]
-    for path in mac_fonts:
+    
+    for path in candidates:
         if os.path.exists(path):
-            pdfmetrics.registerFont(TTFont("MacFont", path))
-            return "MacFont"
+            pdfmetrics.registerFont(TTFont("AuditFont", path))
+            return "AuditFont"
+
     return "Helvetica"
+
+
 
 
 def quick_wins_en(mode: str, signals: dict) -> list[str]:
@@ -123,6 +135,33 @@ def export_audit_pdf(audit_result: dict, out_path: str) -> str:
                 "broken": "Website unreachable / broken",
                 "ok": "Website reachable",
             },
+            "audit_type": "Audit type",
+            "audit_type_map": {
+                "critical_risk": "Critical Risk Audit",
+                "opportunity": "Opportunity Audit",
+            },
+            "banner_critical": "CRITICAL FAILURE DETECTED",
+            "banner_ok": "NO CRITICAL FAILURES DETECTED",
+            "banner_critical_sub": "This issue blocks meaningful traffic and conversions. Fix this before SEO or marketing work.",
+            "banner_ok_sub": "No blocking failures detected. Focus on conversion and clarity opportunities.",
+            "what_blocks": "What this blocks",
+            "could_not_audit": "What could not be audited",
+            "blocks_map": {
+                "organic_search": "Google Search traffic",
+                "google_business_profile": "Google Business Profile traffic",
+                "direct_and_referral": "Direct and referral traffic",
+                "user_trust_security": "User trust and security signals",
+                "all_conversions": "Any conversion or lead generation",
+                "audit_delivery": "Audit delivery",
+                "audit_coverage": "Audit coverage",
+                "client_reporting": "Client reporting",
+            },
+            "blocked_checks_map": {
+                "indexability_and_crawlability": "Indexability and crawlability",
+                "internal_linking": "Internal linking",
+                "conversion_paths": "Conversion paths",
+                "contact_and_booking_clarity": "Contact and booking clarity",
+            },
             "date_fmt": lambda: dt.date.today().strftime("%Y-%m-%d"),
         },
         "ro": {
@@ -170,7 +209,34 @@ def export_audit_pdf(audit_result: dict, out_path: str) -> str:
                 "no_website": "Fără website",
                 "broken": "Website nefuncțional / inaccesibil",
                 "ok": "Website funcțional",
-            },
+            },"audit_type": "Tip audit",
+        "audit_type_map": {
+            "critical_risk": "Audit de Risc Critic",
+            "opportunity": "Audit de Oportunități",
+        },
+        "banner_critical": "PROBLEMĂ CRITICĂ DETECTATĂ",
+        "banner_ok": "NU AU FOST DETECTATE PROBLEME CRITICE",
+        "banner_critical_sub": "Această problemă blochează traficul și conversiile relevante. Rezolvați înainte de SEO/marketing.",
+        "banner_ok_sub": "Nu au fost detectate blocaje majore. Concentrați-vă pe oportunități de conversie și claritate.",
+        "what_blocks": "Ce blochează această problemă",
+        "could_not_audit": "Ce nu s-a putut audita",
+        "blocks_map": {
+            "organic_search": "Trafic din Google Search",
+            "google_business_profile": "Trafic din Google Business Profile",
+            "direct_and_referral": "Trafic direct și din linkuri externe",
+            "user_trust_security": "Încrederea utilizatorilor și semnalele de securitate",
+            "all_conversions": "Orice conversie sau generare de lead-uri",
+            "audit_delivery": "Livrarea auditului",
+            "audit_coverage": "Acoperirea auditului",
+            "client_reporting": "Raportare către client",
+        },
+        "blocked_checks_map": {
+            "indexability_and_crawlability": "Indexare și crawlabilitate",
+            "internal_linking": "Linkuri interne",
+            "conversion_paths": "Fluxuri de conversie",
+            "contact_and_booking_clarity": "Claritatea contactului și rezervării",
+        },
+
             "date_fmt": lambda: dt.date.today().strftime("%d.%m.%Y"),
         },
     }[lang]
@@ -186,11 +252,46 @@ def export_audit_pdf(audit_result: dict, out_path: str) -> str:
         author="Website Audit Tool",
     )
 
+    font_name = _register_font()
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="H1", fontName=font, fontSize=18, leading=22, textColor=colors.HexColor("#111827")))
-    styles.add(ParagraphStyle(name="H2", fontName=font, fontSize=12, leading=15, textColor=colors.HexColor("#111827"), spaceBefore=10))
-    styles.add(ParagraphStyle(name="Body", fontName=font, fontSize=10, leading=14, textColor=colors.HexColor("#111827")))
-    styles.add(ParagraphStyle(name="Small", fontName=font, fontSize=9, leading=12, textColor=colors.HexColor("#374151")))
+
+    # Force all default styles to use the registered font
+    for s in styles.byName.values():
+        s.fontName = font_name
+
+    # Custom styles must also use the same font_name
+    styles.add(ParagraphStyle(
+        name="H1",
+        fontName=font_name,
+        fontSize=18,
+        leading=22,
+        textColor=colors.HexColor("#111827"),
+    ))
+
+    styles.add(ParagraphStyle(
+        name="H2",
+        fontName=font_name,
+        fontSize=12,
+        leading=15,
+        textColor=colors.HexColor("#111827"),
+        spaceBefore=10,
+    ))
+
+    styles.add(ParagraphStyle(
+        name="Body",
+        fontName=font_name,
+        fontSize=10,
+        leading=14,
+        textColor=colors.HexColor("#111827"),
+    ))
+
+    styles.add(ParagraphStyle(
+        name="Small",
+        fontName=font_name,
+        fontSize=9,
+        leading=12,
+        textColor=colors.HexColor("#374151"),
+    ))
 
     url = audit_result.get("url", "")
     mode = audit_result.get("mode", "ok")
