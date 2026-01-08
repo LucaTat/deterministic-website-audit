@@ -208,6 +208,55 @@ def humanize_fetch_error(reason: str, lang: str = "ro") -> str:
         return "Eroare de server (5xx)." if is_ro else "Server error (5xx)."
     return "Website-ul nu a putut fi accesat." if is_ro else "The website could not be reached."
 
+
+def humanize_fetch_error_bullets(reason: str, lang: str = "ro") -> list[str]:
+    text = (reason or "").lower()
+    is_ro = (lang or "").lower().strip() == "ro"
+    bullets: list[str] = []
+
+    def add_pair(cause_ro: str, action_ro: str, cause_en: str, action_en: str) -> list[str]:
+        if is_ro:
+            return [f"Cauză probabilă: {cause_ro}", f"Ce să faceți: {action_ro}"]
+        return [f"Likely cause: {cause_en}", f"What to do: {action_en}"]
+
+    if "ssl" in text or "certificate" in text or "cert" in text:
+        bullets = add_pair(
+            "certificat invalid sau necompatibil.",
+            "Reînnoiți certificatul SSL și verificați lanțul de certificate.",
+            "invalid or incompatible certificate.",
+            "Renew the SSL certificate and verify the full certificate chain.",
+        )
+    elif "dns" in text or "name or service not known" in text or "nodename nor servname" in text:
+        bullets = add_pair(
+            "domeniu inexistent sau DNS neconfigurat.",
+            "Verificați DNS-ul domeniului și configurarea hostingului.",
+            "domain missing or DNS misconfigured.",
+            "Check domain DNS records and hosting configuration.",
+        )
+    elif "timeout" in text or "timed out" in text:
+        bullets = add_pair(
+            "server lent sau indisponibil temporar.",
+            "Verificați serverul și timpul de răspuns; încercați din nou.",
+            "server slow or temporarily unavailable.",
+            "Check server health and response time; retry later.",
+        )
+    elif "connection refused" in text or "refused" in text:
+        bullets = add_pair(
+            "serverul refuză conexiunea.",
+            "Verificați firewall-ul, hostingul și statusul serverului.",
+            "server is refusing the connection.",
+            "Check firewall rules, hosting status, and server availability.",
+        )
+    elif "redirect" in text and ("loop" in text or "too many" in text):
+        bullets = add_pair(
+            "lanț de redirect-uri greșit configurat.",
+            "Corectați regulile de redirect pentru a evita buclele.",
+            "misconfigured redirect chain.",
+            "Fix redirect rules to eliminate loops.",
+        )
+
+    return bullets[:2]
+
 def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
     u = (url or "").strip()
     summary_text = ""
