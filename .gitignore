@@ -1,3 +1,7 @@
+urls.txt
+run_audit.sh
+targets_default.txt
+reports/
 # Python cache
 __pycache__/
 *.pyc
