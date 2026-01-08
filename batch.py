@@ -156,6 +156,7 @@ def client_narrative_for_mode(mode: str, lang: str, signals: dict) -> dict:
 
     if mode == "broken":
         reason = (signals or {}).get("reason", "")
+        human_reason = humanize_fetch_error(reason, lang=lang) if reason else ""
         if lang == "ro":
             return {
                 "overview": [
@@ -163,7 +164,7 @@ def client_narrative_for_mode(mode: str, lang: str, signals: dict) -> dict:
                     "Orice vizitator care vede o eroare pleacă imediat."
                 ],
                 "primary_issue": {"title": "Website inaccesibil", "impact": "Se pierd lead-uri și scade încrederea din Google/Maps."},
-                "secondary_issues": [f"Detalii eroare: {reason}"] if reason else [],
+                "secondary_issues": [human_reason] if human_reason else [],
                 "plan": [
                     "Reparați accesul (domeniu/hosting/SSL) astfel încât homepage-ul să se încarce constant.",
                     "Retestați după fix și apoi îmbunătățiți programarea/contactul.",
@@ -177,7 +178,7 @@ def client_narrative_for_mode(mode: str, lang: str, signals: dict) -> dict:
                 "Any visitor who hits an error is likely to leave immediately."
             ],
             "primary_issue": {"title": "Website unreachable", "impact": "Lost leads and reduced trust from Google/Maps visitors."},
-            "secondary_issues": [f"Error details: {reason}"] if reason else [],
+            "secondary_issues": [human_reason] if human_reason else [],
             "plan": [
                 "Fix hosting/domain/SSL so the homepage loads consistently.",
                 "Retest after the fix and then improve booking/contact clarity.",
@@ -189,6 +190,23 @@ def client_narrative_for_mode(mode: str, lang: str, signals: dict) -> dict:
     # ok mode
     return build_client_narrative(signals or {}, lang=lang)
 
+
+def humanize_fetch_error(reason: str, lang: str = "ro") -> str:
+    text = (reason or "").lower()
+    is_ro = (lang or "").lower().strip() == "ro"
+    if "ssl" in text or "certificate" in text or "cert" in text:
+        return "Eroare SSL / certificat invalid." if is_ro else "SSL error / invalid certificate."
+    if "dns" in text or "name or service not known" in text or "nodename nor servname" in text:
+        return "Eroare DNS (domeniu inexistent sau neconfigurat)." if is_ro else "DNS error (domain missing or misconfigured)."
+    if "timeout" in text or "timed out" in text:
+        return "Timeout la încărcarea website-ului." if is_ro else "Website load timed out."
+    if "connection" in text or "refused" in text:
+        return "Conexiunea la website a eșuat." if is_ro else "Connection to the website failed."
+    if "404" in text or "not found" in text:
+        return "Pagina nu a fost găsită (404)." if is_ro else "Page not found (404)."
+    if "5" in text and "http" in text or "server error" in text:
+        return "Eroare de server (5xx)." if is_ro else "Server error (5xx)."
+    return "Website-ul nu a putut fi accesat." if is_ro else "The website could not be reached."
 
 def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
     u = (url or "").strip()

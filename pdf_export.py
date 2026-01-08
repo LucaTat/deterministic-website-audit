@@ -21,23 +21,16 @@ AGENCY_CONTACT = "contact@digitalaudit.ro"
 
 
 def _register_font() -> str:
-    candidates = [
-        # macOS – BEST for Romanian
-        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-        "/System/Library/Fonts/Supplemental/Arial Unicode MS.ttf",
+    import os
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
 
-        # Linux / fallback
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
+    here = os.path.dirname(os.path.abspath(__file__))
+    font_path = os.path.join(here, "fonts", "DejaVuSans.ttf")
 
-        # Last resort
-        "/System/Library/Fonts/HelveticaNeue.ttc",
-    ]
-    
-    for path in candidates:
-        if os.path.exists(path):
-            pdfmetrics.registerFont(TTFont("AuditFont", path))
-            return "AuditFont"
+    if os.path.exists(font_path):
+        pdfmetrics.registerFont(TTFont("AuditFont", font_path))
+        return "AuditFont"
 
     return "Helvetica"
 
