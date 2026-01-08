@@ -31,6 +31,30 @@ from proof_completeness_shadow import write_proof_completeness_shadow
 
 CAMPAIGN = "2025-Q1-outreach"
 
+CRITICAL_FINDING_PREFIXES = ("IDX_",)
+CRITICAL_FINDING_IDS = {
+    "CONVLOSS_SITE_UNREACHABLE",
+}
+CRITICAL_SEVERITIES = {"critical", "warning"}
+
+def classify_audit(mode: str, findings: list[dict]) -> tuple[str, str]:
+    """
+    Returns (audit_type, audit_state)
+    """
+    if mode in ("broken", "no_website"):
+        return ("critical_risk", "critical_failure_detected")
+
+    # mode == ok:
+    for f in (findings or []):
+        fid = (f.get("id") or "").strip()
+        sev = (f.get("severity") or "").strip().lower()
+        if fid in CRITICAL_FINDING_IDS:
+            return ("critical_risk", "critical_failure_detected")
+        if fid.startswith(CRITICAL_FINDING_PREFIXES) and sev in CRITICAL_SEVERITIES:
+            return ("critical_risk", "critical_failure_detected")
+
+    return ("opportunity", "no_critical_failures")
+
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -170,33 +194,59 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
 
     # No website case
     if u.lower() in ["none", "no", "no website", "n/a", "na", ""]:
-        summary = human_summary("(no website)", {}, mode="no_website")
-        conversion_loss = build_conversion_loss(mode="no_website", signals={}, business_inputs=business_inputs)
-        conversion_loss_findings = build_conversion_loss_findings(mode="no_website", signals={}, business_inputs=business_inputs)
-        return {
-            "url": "(no website)",
-            "mode": "no_website",
-            "lang": lang,
-            "html": "",
-            "signals": {},
-            "findings": conversion_loss_findings,
-            "meta": {"indexability_pack_version": INDEXABILITY_PACK_VERSION},
-            "business_inputs": business_inputs or {},
-            "conversion_loss": conversion_loss,
-            "summary_ro": summary,
-            "client_narrative": client_narrative_for_mode("no_website", lang, {}),
-            "user_insights_en": {
-                "primary_issue": "No website is available to audit.",
-                "secondary_issues": [],
-                "confidence": "High",
-                "recommended_focus": "Create a simple one-page site with clear services, contact, and a call-to-action.",
-                "steps": [
-                    "Create a basic one-page website with services + location + contact.",
-                    "Add a clear call-to-action (Call / Book / Request info).",
-                    "Retest once the site is live.",
-                ],
-            },
-        }
+       summary = human_summary("(no website)", {}, mode="no_website")
+
+    conversion_loss = build_conversion_loss(
+        mode="no_website", signals={}, business_inputs=business_inputs
+    )
+    conversion_loss_findings = build_conversion_loss_findings(
+        mode="no_website", signals={}, business_inputs=business_inputs
+    )
+
+    findings = enforce_policy_on_findings(conversion_loss_findings)
+
+    return {
+        "url": "(no website)",
+        "mode": "no_website",
+        "lang": lang,
+        "html": "",
+        "signals": {},
+        "findings": findings,
+        "meta": {"indexability_pack_version": INDEXABILITY_PACK_VERSION},
+        "business_inputs": business_inputs or {},
+        "conversion_loss": conversion_loss,
+        "summary_ro": summary,
+        "client_narrative": client_narrative_for_mode("no_website", lang, {}),
+        "user_insights_en": {
+            "primary_issue": "No website is available to audit.",
+            "secondary_issues": [],
+            "confidence": "High",
+            "recommended_focus": "Create a simple one-page site with clear services, contact, and a call-to-action.",
+            "steps": [
+                "Create a basic one-page website with services + location + contact.",
+                "Add a clear call-to-action (Call / Book / Request info).",
+                "Retest once the site is live.",
+            ],
+        },
+
+        "audit_type": "critical_risk",
+        "audit_state": "critical_failure_detected",
+        "blocks": [
+            "organic_search",
+            "google_business_profile",
+            "direct_and_referral",
+            "user_trust_security",
+            "all_conversions",
+        ],
+        "blocked_checks": [
+            "indexability_and_crawlability",
+            "internal_linking",
+            "conversion_paths",
+            "contact_and_booking_clarity",
+        ],
+    }
+
+
 
     try:
         html = fetch_html(u)
@@ -213,7 +263,7 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
       )
 
         findings = enforce_policy_on_findings(findings)
-
+        audit_type, audit_state = classify_audit("ok", findings)
         conversion_loss = build_conversion_loss(mode="ok", signals=signals, business_inputs=business_inputs)
 
         client_narrative = build_client_narrative(signals, lang=lang)
@@ -233,6 +283,11 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
             "summary_ro": summary,
             "client_narrative": client_narrative,
             "user_insights_en": insights,
+            "audit_type": audit_type,
+            "audit_state": audit_state,
+            "blocks": [],
+            "blocked_checks": [],
+
         }
 
     except Exception as e:
@@ -267,9 +322,24 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
                 "recommended_focus": "Fix internal error and rerun.",
                 "steps": [
                     "Open the saved traceback and fix the crashing line.",
-                    "Rerun the audit."
+                    "Rerun the audit.",
                 ],
             },
+
+            # NEW: audit classification + impact (TOP-LEVEL)
+            "audit_type": "critical_risk",
+            "audit_state": "critical_failure_detected",
+            "blocks": [
+                "audit_delivery",
+                "audit_coverage",
+                "client_reporting",
+            ],
+            "blocked_checks": [
+                "indexability_and_crawlability",
+                "internal_linking",
+                "conversion_paths",
+                "contact_and_booking_clarity",
+            ],
         }
 
 
