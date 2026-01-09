@@ -1,0 +1,4 @@
+(no website),none
+SSL Test,https://wrong.host.badssl.com/
+OK Test,https://example.com/
+DNS Test,https://nonexistent-subdomain-xyz-12345.example.invalid/
