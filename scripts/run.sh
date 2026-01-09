@@ -32,4 +32,12 @@ echo "lang: $LANG"
 echo "targets: $TARGETS"
 echo "campaign: $CAMPAIGN"
 
-python3 "$ROOT/batch.py" --lang "$LANG" --targets "$ROOT/$TARGETS" --campaign "$CAMPAIGN"
+RESOLVED_TARGETS="$ROOT/$TARGETS"
+if [[ ! -f "$RESOLVED_TARGETS" ]]; then
+  echo "Missing targets file: $RESOLVED_TARGETS"
+  echo "Create it first. Example:"
+  echo "Example,https://example.com/"
+  exit 1
+fi
+
+python3 "$ROOT/batch.py" --lang "$LANG" --targets "$RESOLVED_TARGETS" --campaign "$CAMPAIGN"
