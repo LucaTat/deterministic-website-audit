@@ -280,7 +280,8 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
     # No website case
     if u.lower() in ["none", "no", "no website", "n/a", "na", ""]:
         summary_text = human_summary("(no website)", {}, mode="no_website")
-        print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
+        if os.environ.get("AUDIT_DEBUG") == "1":
+            print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
         conversion_loss = build_conversion_loss(
             mode="no_website", signals={}, business_inputs=business_inputs
         )
@@ -371,7 +372,8 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
         client_narrative = build_client_narrative(signals, lang=lang)
         insights = user_insights(signals)
         summary_text = human_summary(u, signals, mode="ok")
-        print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
+        if os.environ.get("AUDIT_DEBUG") == "1":
+            print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
 
         return {
             "url": u,
@@ -403,7 +405,8 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
     ) as e:
         reason = str(e)
         summary_text = human_summary(u, {"reason": reason}, mode="broken")
-        print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
+        if os.environ.get("AUDIT_DEBUG") == "1":
+            print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
 
         conversion_loss = build_conversion_loss(
             mode="broken", signals={"reason": reason}, business_inputs=business_inputs
@@ -464,7 +467,8 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
         reason = str(e)
         tb = traceback.format_exc()
         summary_text = human_summary(u, {"reason": reason}, mode="broken")
-        print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
+        if os.environ.get("AUDIT_DEBUG") == "1":
+            print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
 
         conversion_loss = build_conversion_loss(
             mode="broken", signals={"reason": reason}, business_inputs=business_inputs
