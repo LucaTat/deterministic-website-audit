@@ -103,7 +103,7 @@ def _fetch_with_redirects(url: str, method: str = "GET", max_hops: int = 8) -> d
                 method,
                 current_url,
                 headers=HEADERS,
-                timeout=15,
+                timeout=10,
                 allow_redirects=False,
             )
         except Exception as exc:
