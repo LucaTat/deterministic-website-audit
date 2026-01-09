@@ -166,9 +166,9 @@ def client_narrative_for_mode(mode: str, lang: str, signals: dict) -> dict:
                 "primary_issue": {"title": "Website inaccesibil", "impact": "Se pierd lead-uri și scade încrederea din Google/Maps."},
                 "secondary_issues": secondary_issues[:2],
                 "plan": [
-                    "Reparați accesul (domeniu/hosting/SSL) astfel încât homepage-ul să se încarce constant.",
-                    "Retestați după fix și apoi îmbunătățiți programarea/contactul.",
-                    "Verificați ca Google Business Profile să trimită către URL-ul corect."
+                    "Verificați dacă domeniul trimite corect către site și că pagina principală se deschide mereu.",
+                    "Corectați orice probleme de acces sau redirecționare care blochează vizitatorii.",
+                    "După ce site-ul se deschide constant, actualizați linkurile din profilele publice."
                 ],
                 "confidence": "Ridicată"
             }
@@ -180,9 +180,9 @@ def client_narrative_for_mode(mode: str, lang: str, signals: dict) -> dict:
             "primary_issue": {"title": "Website unreachable", "impact": "Lost leads and reduced trust from Google/Maps visitors."},
             "secondary_issues": secondary_issues[:2],
             "plan": [
-                "Fix hosting/domain/SSL so the homepage loads consistently.",
-                "Retest after the fix and then improve booking/contact clarity.",
-                "Ensure Google Business Profile points to the working URL."
+                "Confirm the domain points correctly and the homepage opens consistently.",
+                "Fix any access or redirect issues that block visitors.",
+                "Once the site is stable, update public profile links to the working URL."
             ],
             "confidence": "High"
         }
