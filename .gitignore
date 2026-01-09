@@ -1,4 +1,5 @@
 urls.txt
+smoke_urls.txt
 run_audit.sh
 targets_default.txt
 reports/
