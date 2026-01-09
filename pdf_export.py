@@ -580,7 +580,12 @@ def export_audit_pdf(audit_result: dict, out_path: str) -> str:
         if reason:
             story.append(Spacer(1, 10))
             story.append(Paragraph(labels["error_details"], styles["H2"]))
-            story.append(Paragraph(reason, styles["Body"]))
+            safe_reason = (
+                "Website-ul nu a putut fi accesat în timpul auditului. Detaliile tehnice sunt păstrate în audit.json."
+                if lang == "ro"
+                else "The website could not be accessed during the audit. Technical details are preserved in audit.json."
+            )
+            story.append(Paragraph(safe_reason, styles["Body"]))
 
     story.append(Spacer(1, 12))
     story.append(HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=1, width="100%"))
