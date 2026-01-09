@@ -7,6 +7,7 @@ import argparse
 import datetime as dt 
 import time
 import subprocess
+import sys
 import requests
 from urllib.parse import urlparse
 from datetime import datetime, timezone
@@ -612,7 +613,7 @@ def main():
     print(f"Deterministic Website Audit (batch) — {total} target(s)")
     if not targets:
         print("Done — 0 OK, 0 BROKEN")
-        return
+        return 0
 
     ok_count = 0
     broken_count = 0
@@ -698,7 +699,16 @@ def main():
     else:
         print(f"Done — {ok_count} OK, {broken_count} BROKEN")
 
+    if broken_count > 0 or unknown_count > 0:
+        return 1
+    return 0
+
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        sys.exit(main())
+    except Exception as e:
+        if os.environ.get("AUDIT_DEBUG") == "1":
+            print(f"[FATAL] {type(e).__name__}: {e}", file=sys.stderr)
+        sys.exit(2)
