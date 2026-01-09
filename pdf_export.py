@@ -264,17 +264,17 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     styles.add(ParagraphStyle(
         name="H2",
         fontName=font_name,
-        fontSize=12,
-        leading=15,
+        fontSize=13,
+        leading=16,
         textColor=colors.HexColor("#111827"),
-        spaceBefore=10,
+        spaceBefore=12,
     ))
 
     styles.add(ParagraphStyle(
         name="Body",
         fontName=font_name,
         fontSize=10,
-        leading=14,
+        leading=15,
         textColor=colors.HexColor("#111827"),
     ))
 
@@ -282,7 +282,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         name="Small",
         fontName=font_name,
         fontSize=9,
-        leading=12,
+        leading=13,
         textColor=colors.HexColor("#374151"),
     ))
 
@@ -317,8 +317,8 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f9fafb")),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
     story.append(meta_table)
 
@@ -429,8 +429,8 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f9fafb")),
             ("LEFTPADDING", (0, 0), (-1, -1), 6),
             ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ]))
         story.append(checks)
 
@@ -460,8 +460,8 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f9fafb")),
                 ("LEFTPADDING", (0, 0), (-1, -1), 6),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
             ]))
             story.append(tbl)
 
@@ -491,8 +491,8 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f9fafb")),
                 ("LEFTPADDING", (0, 0), (-1, -1), 6),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
             ]))
             story.append(tbl)
 
@@ -529,8 +529,8 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f9fafb")),
                 ("LEFTPADDING", (0, 0), (-1, -1), 6),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
             ]))
             story.append(tbl)
 
@@ -570,8 +570,8 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f9fafb")),
             ("LEFTPADDING", (0, 0), (-1, -1), 6),
             ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ]))
         story.append(tbl)
 
@@ -613,6 +613,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         story.append(Spacer(1, 8))
         story.append(Paragraph(scope_note, styles["Small"]))
 
+    story.append(Spacer(1, 6))
     story.append(Paragraph(f"Tool version: {tool_version}", styles["Small"]))
     story.append(Paragraph(labels["note"], styles["Small"]))
 
