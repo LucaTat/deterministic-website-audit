@@ -160,8 +160,8 @@ def client_narrative_for_mode(mode: str, lang: str, signals: dict) -> dict:
         if lang == "ro":
             return {
                 "overview": [
-                    "Există un link de website, dar pagina nu a putut fi accesată în mod fiabil.",
-                    "Orice vizitator care vede o eroare pleacă imediat."
+                    "Clienții nu pot ajunge constant la site, ceea ce taie din încredere.",
+                    "Cereri și programări se pierd în momentul în care pagina nu se deschide."
                 ],
                 "primary_issue": {"title": "Website inaccesibil", "impact": "Se pierd lead-uri și scade încrederea din Google/Maps."},
                 "secondary_issues": secondary_issues[:2],
@@ -174,8 +174,8 @@ def client_narrative_for_mode(mode: str, lang: str, signals: dict) -> dict:
             }
         return {
             "overview": [
-                "A website link exists but the page could not be accessed reliably.",
-                "Any visitor who hits an error is likely to leave immediately."
+                "Customers can’t consistently reach the site, which erodes trust fast.",
+                "Inquiries are lost whenever the page fails to open."
             ],
             "primary_issue": {"title": "Website unreachable", "impact": "Lost leads and reduced trust from Google/Maps visitors."},
             "secondary_issues": secondary_issues[:2],
