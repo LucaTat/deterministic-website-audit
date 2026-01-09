@@ -665,9 +665,10 @@ def main():
             "lang": lang,
         })
 
-        mode = result.get("mode", "unknown")
-        status = "OK" if mode == "ok" else ("BROKEN" if mode == "broken" else "UNKNOWN")
         display = result.get("url", "<unknown>")
+        mode = result.get("mode", "unknown")
+        missing_target = not (url or "").strip() or display == "(no website)"
+        status = "BROKEN" if missing_target else ("OK" if mode == "ok" else ("BROKEN" if mode == "broken" else "UNKNOWN"))
         duration = time.perf_counter() - start_time
         if status == "OK":
             ok_count += 1
