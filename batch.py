@@ -160,6 +160,10 @@ def client_narrative_for_mode(mode: str, lang: str, signals: dict) -> dict:
     if mode == "broken":
         reason = (signals or {}).get("reason", "")
         secondary_issues = humanize_fetch_error_bullets(reason, lang=lang) if reason else []
+        secondary_issues = [
+            item for item in secondary_issues
+            if "Cauză probabilă" not in item and "Likely cause" not in item
+        ]
         if lang == "ro":
             return {
                 "overview": [
