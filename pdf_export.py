@@ -463,10 +463,9 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
 
         # Social findings (agency-friendly, evidence-based)
         social_findings = [f for f in findings if (f or {}).get("category") == "social"]
+        story.append(Spacer(1, 10))
+        story.append(Paragraph(labels["social_findings"], styles["H2"]))
         if social_findings:
-            story.append(Spacer(1, 10))
-            story.append(Paragraph(labels["social_findings"], styles["H2"]))
-
             rows = [[labels["severity"], labels["finding_col"], labels["recommendation_col"]]]
             for f in social_findings:
                 sev = (f.get("severity") or "").capitalize()
@@ -491,6 +490,13 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
             ]))
             story.append(tbl)
+        else:
+            note = (
+                "Nu au fost detectate semnale sociale clare."
+                if lang == "ro"
+                else "No clear social signals were detected."
+            )
+            story.append(Paragraph(note, styles["Body"]))
 
         # Share preview & social metadata findings (Open Graph / Twitter)
         share_meta_findings = [f for f in findings if (f or {}).get("category") == "share_meta"]
