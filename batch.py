@@ -198,18 +198,18 @@ def humanize_fetch_error(reason: str, lang: str = "ro") -> str:
     text = (reason or "").lower()
     is_ro = (lang or "").lower().strip() == "ro"
     if "ssl" in text or "certificate" in text or "cert" in text:
-        return "Eroare SSL / certificat invalid." if is_ro else "SSL error / invalid certificate."
+        return "Problemă SSL: certificatul nu este valid." if is_ro else "SSL error / invalid certificate."
     if "dns" in text or "name or service not known" in text or "nodename nor servname" in text:
-        return "Eroare DNS (domeniu inexistent sau neconfigurat)." if is_ro else "DNS error (domain missing or misconfigured)."
+        return "Problemă DNS: domeniul nu este configurat corect." if is_ro else "DNS error (domain missing or misconfigured)."
     if "timeout" in text or "timed out" in text:
-        return "Timeout la încărcarea website-ului." if is_ro else "Website load timed out."
+        return "Încărcarea site-ului a expirat (timeout)." if is_ro else "Website load timed out."
     if "connection" in text or "refused" in text:
-        return "Conexiunea la website a eșuat." if is_ro else "Connection to the website failed."
+        return "Conexiunea către site a eșuat." if is_ro else "Connection to the website failed."
     if "404" in text or "not found" in text:
         return "Pagina nu a fost găsită (404)." if is_ro else "Page not found (404)."
     if "5" in text and "http" in text or "server error" in text:
         return "Eroare de server (5xx)." if is_ro else "Server error (5xx)."
-    return "Website-ul nu a putut fi accesat." if is_ro else "The website could not be reached."
+        return "Site-ul nu a putut fi accesat." if is_ro else "The website could not be reached."
 
 
 def humanize_fetch_error_bullets(reason: str, lang: str = "ro") -> list[str]:
