@@ -6,6 +6,7 @@ import csv
 import argparse
 import datetime as dt 
 import time
+import subprocess
 import requests
 from urllib.parse import urlparse
 from datetime import datetime, timezone
@@ -271,6 +272,34 @@ def humanize_fetch_error_bullets(reason: str, lang: str = "ro") -> list[str]:
         "check domain, hosting, and SSL configuration",
     )
 
+def get_tool_version() -> str:
+    start_dir = os.path.abspath(os.path.dirname(__file__))
+    repo_root = None
+    current = start_dir
+    for _ in range(6):
+        if os.path.isdir(os.path.join(current, ".git")):
+            repo_root = current
+            break
+        parent = os.path.abspath(os.path.join(current, ".."))
+        if parent == current:
+            break
+        current = parent
+    if not repo_root:
+        return "unknown"
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=repo_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=0.3,
+            check=False,
+        )
+        return (result.stdout or "").strip() or "unknown"
+    except Exception:
+        return "unknown"
+
 def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
     lang = (lang or "en").lower().strip()
     if lang not in ("en", "ro"):
@@ -528,6 +557,8 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
 
 
 def save_json(audit_result: dict, out_path: str) -> None:
+    if "tool_version" not in audit_result:
+        audit_result["tool_version"] = get_tool_version()
     payload = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         **audit_result,
@@ -586,6 +617,7 @@ def main():
     broken_count = 0
     unknown_count = 0
 
+    tool_version = get_tool_version()
     for i, t in enumerate(targets, start=1):
         client_name = t["client_name"]
         url = t["url"]
@@ -593,6 +625,7 @@ def main():
 
         result = audit_one(url, lang=lang, business_inputs=business_inputs)
         result["client_name"] = client_name
+        result["tool_version"] = tool_version
 
         ai_advisory = build_ai_advisory(result)
         if ai_advisory:
@@ -612,7 +645,7 @@ def main():
         pdf_path = os.path.join(out_folder, "audit.pdf")
         json_path = os.path.join(out_folder, "audit.json")
 
-        export_audit_pdf(result, pdf_path)
+        export_audit_pdf(result, pdf_path, tool_version=tool_version)
         save_json(result, json_path)
 
         if proof_spec == "shadow":

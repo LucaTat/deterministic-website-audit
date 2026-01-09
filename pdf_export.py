@@ -71,7 +71,7 @@ def quick_wins_ro(mode: str, signals: dict) -> list[str]:
     return wins[:3]
 
 
-def export_audit_pdf(audit_result: dict, out_path: str) -> str:
+def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unknown") -> str:
     font = _register_font()
 
     if not out_path.lower().endswith(".pdf"):
@@ -613,6 +613,7 @@ def export_audit_pdf(audit_result: dict, out_path: str) -> str:
         story.append(Spacer(1, 8))
         story.append(Paragraph(scope_note, styles["Small"]))
 
+    story.append(Paragraph(f"Tool version: {tool_version}", styles["Small"]))
     story.append(Paragraph(labels["note"], styles["Small"]))
 
     doc.build(story)
