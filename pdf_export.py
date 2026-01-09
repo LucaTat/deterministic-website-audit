@@ -581,9 +581,9 @@ def export_audit_pdf(audit_result: dict, out_path: str) -> str:
             story.append(Spacer(1, 10))
             story.append(Paragraph(labels["error_details"], styles["H2"]))
             safe_reason = (
-                "Website-ul nu a putut fi accesat în timpul auditului. Detaliile tehnice sunt păstrate în audit.json."
+                "Website-ul nu a putut fi accesat în timpul auditului. Detaliile tehnice sunt disponibile la cerere."
                 if lang == "ro"
-                else "The website could not be accessed during the audit. Technical details are preserved in audit.json."
+                else "The website could not be accessed during the audit. Technical details are available on request."
             )
             story.append(Paragraph(safe_reason, styles["Body"]))
 
