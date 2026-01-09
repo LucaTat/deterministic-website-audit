@@ -1,43 +1,30 @@
+# Local targets / inputs
 urls.txt
 smoke_urls.txt
-run_audit.sh
+targets.txt
 targets_default.txt
+targets_ok*.txt
+
+# Generated reports & outputs
 reports/
+*.pdf
+*.csv
+coverage.json
+
 # Python cache
 __pycache__/
 *.pyc
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+.env
+
+# Archives & temp
+*.zip
+*.tmp
 
 # macOS junk
 .DS_Store
-
-# Virtual environments (future-proof)
-.venv/
-venv/
-
-# Generated reports (keep code clean)
-reports/
-
-# PDFs generated manually
-*.pdf
-
-# CSV exports
-*.csv
-
-# Temporary files
-*.tmp
-__pycache__/
-*.pyc
-*.zip
-.pytest_cache/
-.mypy_cache/
-.env
-.venv/
-__pycache__/
-*.pyc
-
-# Local-only artifacts
-coverage.json
-targets.txt
-
-# Local target lists
-targets_ok*.txt
