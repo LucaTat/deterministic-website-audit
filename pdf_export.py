@@ -70,6 +70,25 @@ def quick_wins_ro(mode: str, signals: dict) -> list[str]:
         wins.append("Nu am detectat lipsuri majore la aceste verificări de bază.")
     return wins[:3]
 
+def humanize_fetch_error_label(reason: str, lang: str = "en") -> str:
+    text = (reason or "").lower()
+    is_ro = (lang or "").lower().strip() == "ro"
+    if "ssl" in text or "certificate" in text or "cert" in text:
+        return "Problemă SSL: certificatul nu este valid." if is_ro else "SSL issue: certificate is not valid."
+    if "dns" in text or "name or service not known" in text or "nodename nor servname" in text:
+        return "Problemă DNS: domeniul nu este configurat corect." if is_ro else "DNS issue: domain is not configured correctly."
+    if "timeout" in text or "timed out" in text:
+        return "Încărcarea site-ului a expirat (timeout)." if is_ro else "The site load timed out."
+    if "forbidden" in text or "403" in text:
+        return "Acces restricționat (posibile protecții/filtrare)." if is_ro else "Access restricted (possible protection/filtering)."
+    if "connection" in text or "refused" in text:
+        return "Conexiunea către site a eșuat." if is_ro else "Connection to the site failed."
+    if "404" in text or "not found" in text:
+        return "Pagina nu a fost găsită (404)." if is_ro else "Page not found (404)."
+    if ("http" in text and "5" in text) or "server error" in text:
+        return "Eroare de server (5xx)." if is_ro else "Server error (5xx)."
+    return "Site-ul nu a putut fi accesat." if is_ro else "The website could not be reached."
+
 
 def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unknown") -> str:
     font = _register_font()
@@ -334,6 +353,12 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
 
     story.append(Paragraph(labels["overview"], styles["H2"]))
     story.append(Paragraph("<br/>".join(overview) if overview else "N/A", styles["Body"]))
+    if mode == "broken":
+        reason = signals.get("reason", "")
+        label = humanize_fetch_error_label(reason, lang)
+        if label:
+            prefix = "Cauză probabilă: " if lang == "ro" else "Probable cause: "
+            story.append(Paragraph(f"{prefix}{label}", styles["Small"]))
     story.append(Spacer(1, 10))
 
     story.append(Paragraph(labels["primary"], styles["H2"]))
