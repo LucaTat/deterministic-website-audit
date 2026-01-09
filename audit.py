@@ -217,7 +217,6 @@ def human_summary(url: str, signals: dict, mode: str) -> str:
         )
 
     if mode == "broken":
-        reason = signals.get("reason", "")
         return (
             "Pe scurt: Există un link de website, dar pare nefuncțional / inaccesibil.\n"
             "Ce am observat:\n"
@@ -225,7 +224,8 @@ def human_summary(url: str, signals: dict, mode: str) -> str:
             "De ce contează:\n"
             "Orice click din Google/Maps care ajunge la eroare înseamnă lead pierdut + scade încrederea.\n"
             "Ce urmează:\n"
-            f"Rezolvați întâi partea de disponibilitate (hosting/domeniu/SSL). Detalii: {reason}"
+            "Rezolvați întâi partea de disponibilitate (hosting/domeniu/SSL).\n"
+            "Detaliile tehnice sunt păstrate pentru verificare internă."
         )
 
     score = signals.get("score", 0)
