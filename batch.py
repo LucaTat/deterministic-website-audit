@@ -560,6 +560,7 @@ def save_json(audit_result: dict, out_path: str) -> None:
     if "tool_version" not in audit_result:
         audit_result["tool_version"] = get_tool_version()
     payload = {
+        "schema_version": "1",
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         **audit_result,
     }
