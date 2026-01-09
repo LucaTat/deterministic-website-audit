@@ -162,7 +162,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             "date": "Data",
             "website": "Website",
             "status": "Status",
-            "score": "Scor",
+            "score": "Scor claritate conversie",
             "overview": "Prezentare generală",
             "primary": "Problema principală",
             "secondary": "Probleme secundare",
@@ -309,7 +309,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         [labels["status"], labels["status_map"].get(mode, mode)],
         [labels["score"], f"{score}/100"],
     ]
-    meta_table = Table(meta, colWidths=[35 * mm, 137 * mm], hAlign="LEFT")
+    meta_table = Table(meta, colWidths=[55 * mm, 117 * mm], hAlign="LEFT")
     meta_table.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (-1, -1), font),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
@@ -364,6 +364,8 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         story.append(Spacer(1, 10))
 
     story.append(Paragraph(labels["quickwins"], styles["H2"]))
+    if lang == "ro":
+        story.append(Paragraph("Aceste îmbunătățiri pot fi implementate rapid, fără redesign complet.", styles["Small"]))
     wins = quick_wins_ro(mode, signals) if lang == "ro" else quick_wins_en(mode, signals)
     wins_html = "<br/>".join([f"• {w}" for w in wins]) if wins else "N/A"
     story.append(Paragraph(wins_html, styles["Body"]))
@@ -499,6 +501,11 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         # Indexability & Technical Access findings (always show section)
         index_findings = [f for f in findings if (f or {}).get("category") == "indexability_technical_access"]
         story.append(Spacer(1, 10))
+        if lang == "ro":
+            story.append(Paragraph(
+                "Următoarele verificări susțin stabilitatea și accesibilitatea website-ului, dar nu reprezintă probleme directe de conversie.",
+                styles["Small"],
+            ))
         story.append(Paragraph(labels["indexability_findings"], styles["H2"]))
 
         if not index_findings:
