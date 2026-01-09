@@ -6,21 +6,25 @@ echo "== Smoke test started =="
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATE="$(date +%Y-%m-%d)"
 
-SMOKE_FILE="$ROOT/smoke_urls.txt"
-
-cat > "$SMOKE_FILE" <<EOF
-(no website),none
-SSL Test,https://wrong.host.badssl.com/
-OK Test,https://example.com/
-DNS Test,https://nonexistent-subdomain-xyz-12345.example.invalid/
-EOF
+SMOKE_FILE="$ROOT/scripts/smoke_targets.txt"
 
 run_and_check () {
   LANG="$1"
   CAMPAIGN="$2"
 
   echo "-- Running $LANG / $CAMPAIGN"
+  set +e
   python3 batch.py --lang "$LANG" --targets "$SMOKE_FILE" --campaign "$CAMPAIGN"
+  EXIT_CODE=$?
+  set -e
+  if [[ "$EXIT_CODE" -ne 1 ]]; then
+    if [[ "$EXIT_CODE" -eq 2 ]]; then
+      echo "Batch run failed fatally ($LANG/$CAMPAIGN)"
+      exit 1
+    fi
+    echo "Unexpected exit code $EXIT_CODE ($LANG/$CAMPAIGN)"
+    exit 1
+  fi
 
   for SITE in no_website ssl_test ok_test dns_test; do
     BASE="$ROOT/reports/$CAMPAIGN/$SITE/$DATE"
@@ -47,7 +51,5 @@ run_and_check () {
 
 run_and_check ro smoke_ro
 run_and_check en smoke_en
-
-rm -f "$SMOKE_FILE"
 
 echo "== Smoke test PASSED =="
