@@ -271,6 +271,9 @@ def humanize_fetch_error_bullets(reason: str, lang: str = "ro") -> list[str]:
     )
 
 def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
+    lang = (lang or "en").lower().strip()
+    if lang not in ("en", "ro"):
+        lang = "en"
     u = (url or "").strip()
     summary_text = ""
 
