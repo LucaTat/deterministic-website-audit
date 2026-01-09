@@ -5,6 +5,7 @@ import re
 import csv
 import argparse
 import datetime as dt 
+import time
 import requests
 from urllib.parse import urlparse
 from datetime import datetime, timezone
@@ -575,13 +576,20 @@ def main():
     csv_path = os.path.join(reports_root, "summary.csv")
 
     targets = read_targets(targets_path)
-    print(f"[INFO] Targets found: {len(targets)} | lang={lang} | campaign={campaign}")
+    total = len(targets)
+    print(f"Deterministic Website Audit (batch) — {total} target(s)")
     if not targets:
+        print("Done — 0 OK, 0 BROKEN")
         return
+
+    ok_count = 0
+    broken_count = 0
+    unknown_count = 0
 
     for i, t in enumerate(targets, start=1):
         client_name = t["client_name"]
         url = t["url"]
+        start_time = time.perf_counter()
 
         result = audit_one(url, lang=lang, business_inputs=business_inputs)
         result["client_name"] = client_name
@@ -625,9 +633,24 @@ def main():
         })
 
         mode = result.get("mode", "unknown")
-        tag = "OK" if mode == "ok" else ("BROKEN" if mode == "broken" else mode.upper())
+        status = "OK" if mode == "ok" else ("BROKEN" if mode == "broken" else "UNKNOWN")
         display = result.get("url", "<unknown>")
-        print(f"[{tag}] {display} → {out_folder}")
+        duration = time.perf_counter() - start_time
+        if status == "OK":
+            ok_count += 1
+        elif status == "BROKEN":
+            broken_count += 1
+        else:
+            unknown_count += 1
+
+        print(f"[{i}/{total}] {display}")
+        print(f"  status: {status}")
+        print(f"  pdf:   {pdf_path}")
+        print(f"  json:  {json_path}")
+        evidence_path = os.path.join(out_folder, "evidence")
+        if os.path.isdir(evidence_path):
+            print(f"  ev:    {evidence_path}")
+        print(f"  time:  {duration:.1f}s")
 
         # If broken mode includes a traceback, write it next to the outputs for debugging.
         tb = ((result.get("signals") or {}).get("traceback"))
@@ -635,6 +658,10 @@ def main():
             with open(os.path.join(out_folder, "error_traceback.txt"), "w", encoding="utf-8") as f:
                f.write(tb)
 
+    if unknown_count > 0:
+        print(f"Done — {ok_count} OK, {broken_count} BROKEN, {unknown_count} UNKNOWN")
+    else:
+        print(f"Done — {ok_count} OK, {broken_count} BROKEN")
 
 
 
