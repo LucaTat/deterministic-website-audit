@@ -9,21 +9,31 @@ set -euo pipefail
 #   deliverables/out/<CAMPANIE>.zip
 
 CLEANUP=0
-ARGS=()
+TARGETS_FILE="${1:-}"
+CAMPAIGN=""
+
+shifted=0
+if [[ -n "${TARGETS_FILE}" ]]; then
+  shifted=1
+  shift
+fi
+
 for arg in "$@"; do
   if [[ "${arg}" == "--cleanup" ]]; then
     CLEANUP=1
-  else
-    ARGS+=("${arg}")
+  elif [[ -z "${CAMPAIGN}" ]]; then
+    CAMPAIGN="${arg}"
   fi
 done
 
-TARGETS_FILE="${ARGS[0]:-}"
-CAMPAIGN="${ARGS[1]:-}"
-
-if [[ -z "${TARGETS_FILE}" || -z "${CAMPAIGN}" ]]; then
+if [[ -z "${TARGETS_FILE}" ]]; then
   echo "Usage: ./scripts/ship_ro.sh <targets_file.txt> <CAMPAIGN_NAME> [--cleanup]"
   exit 2
+fi
+
+if [[ -z "${CAMPAIGN}" ]]; then
+  CAMPAIGN="$(date +%Y-%m-%d_%H%M)"
+  echo "Auto-generated campaign name: ${CAMPAIGN}"
 fi
 
 # Move to repo root (script is in scripts/)
