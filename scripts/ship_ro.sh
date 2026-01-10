@@ -22,7 +22,7 @@ TARGETS_FILE="${ARGS[0]:-}"
 CAMPAIGN="${ARGS[1]:-}"
 
 if [[ -z "${TARGETS_FILE}" || -z "${CAMPAIGN}" ]]; then
-  echo "Usage: ./scripts/ship_ro.sh <targets_file.txt> <CAMPAIGN_NAME>"
+  echo "Usage: ./scripts/ship_ro.sh <targets_file.txt> <CAMPAIGN_NAME> [--cleanup]"
   exit 2
 fi
 
@@ -139,6 +139,7 @@ echo "ZIP ready: ${REPO_ROOT}/${ZIP_PATH}"
 if [[ "${CLEANUP}" -eq 1 ]]; then
   TODAY="$(date +%Y-%m-%d)"
   ARCHIVE_DIR="deliverables/archive/${TODAY}/${CAMPAIGN}"
+  echo "== Archiving to ${ARCHIVE_DIR} =="
   mkdir -p "${ARCHIVE_DIR}"
   cp -f "${ZIP_PATH}" "${ARCHIVE_DIR}/${CAMPAIGN}.zip"
   cp -f "${TARGETS_FILE}" "${ARCHIVE_DIR}/targets.txt"
@@ -148,10 +149,14 @@ if [[ "${CLEANUP}" -eq 1 ]]; then
   if [[ -f "${RUN_LOG}" ]]; then
     cp -f "${RUN_LOG}" "${ARCHIVE_DIR}/run.log"
   fi
-  if [[ -f "${TARGETS_FILE}" && "${TARGETS_FILE}" == *.txt ]]; then
+  TARGETS_ABS="$(cd "$(dirname "${TARGETS_FILE}")" && pwd)/$(basename "${TARGETS_FILE}")"
+  DELIVERABLES_ABS="$(cd "${REPO_ROOT}/deliverables" && pwd)"
+  if [[ -f "${TARGETS_FILE}" && "${TARGETS_FILE}" == *.txt && "${TARGETS_ABS}" != "${DELIVERABLES_ABS}"/* ]]; then
     rm -f "${TARGETS_FILE}"
+    echo "Deleted targets file: ${TARGETS_FILE}"
   fi
   rm -f "${OUT_DIR}/run.log" "${OUT_DIR}/pdf_list.txt"
+  echo "Cleaned internal files from: ${OUT_DIR}"
 fi
 
 # Open output folder in Finder (macOS)
