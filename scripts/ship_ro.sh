@@ -8,8 +8,18 @@ set -euo pipefail
 #   deliverables/out/<CAMPANIE>/  (PDF-urile + decision brief template)
 #   deliverables/out/<CAMPANIE>.zip
 
-TARGETS_FILE="${1:-}"
-CAMPAIGN="${2:-}"
+CLEANUP=0
+ARGS=()
+for arg in "$@"; do
+  if [[ "${arg}" == "--cleanup" ]]; then
+    CLEANUP=1
+  else
+    ARGS+=("${arg}")
+  fi
+done
+
+TARGETS_FILE="${ARGS[0]:-}"
+CAMPAIGN="${ARGS[1]:-}"
 
 if [[ -z "${TARGETS_FILE}" || -z "${CAMPAIGN}" ]]; then
   echo "Usage: ./scripts/ship_ro.sh <targets_file.txt> <CAMPAIGN_NAME>"
@@ -124,6 +134,25 @@ fi
 echo "== Creating ZIP =="
 ( cd "deliverables/out" && rm -f "${CAMPAIGN}.zip" && zip -r "${CAMPAIGN}.zip" "${CAMPAIGN}" >/dev/null )
 echo "ZIP ready: ${REPO_ROOT}/${ZIP_PATH}"
+
+# Optional cleanup + archive
+if [[ "${CLEANUP}" -eq 1 ]]; then
+  TODAY="$(date +%Y-%m-%d)"
+  ARCHIVE_DIR="deliverables/archive/${TODAY}/${CAMPAIGN}"
+  mkdir -p "${ARCHIVE_DIR}"
+  cp -f "${ZIP_PATH}" "${ARCHIVE_DIR}/${CAMPAIGN}.zip"
+  cp -f "${TARGETS_FILE}" "${ARCHIVE_DIR}/targets.txt"
+  if [[ -f "${OUT_DIR}/DECISION_BRIEF_RO.txt" ]]; then
+    cp -f "${OUT_DIR}/DECISION_BRIEF_RO.txt" "${ARCHIVE_DIR}/DECISION_BRIEF_RO.txt"
+  fi
+  if [[ -f "${RUN_LOG}" ]]; then
+    cp -f "${RUN_LOG}" "${ARCHIVE_DIR}/run.log"
+  fi
+  if [[ -f "${TARGETS_FILE}" && "${TARGETS_FILE}" == *.txt ]]; then
+    rm -f "${TARGETS_FILE}"
+  fi
+  rm -f "${OUT_DIR}/run.log" "${OUT_DIR}/pdf_list.txt"
+fi
 
 # Open output folder in Finder (macOS)
 echo "== Opening output folder =="
