@@ -38,8 +38,6 @@ def _register_font() -> str:
     return "Helvetica"
 
 
-
-
 def quick_wins_en(mode: str, signals: dict) -> list[str]:
     if mode != "ok":
         return []
@@ -51,7 +49,7 @@ def quick_wins_en(mode: str, signals: dict) -> list[str]:
     if not signals.get("services_keywords_detected"):
         wins.append("Clarify the offer: a short, scannable list of services with outcomes (what the customer gets).")
     if not signals.get("pricing_keywords_detected"):
-        wins.append("Add pricing ranges or starting prices (“from…”, packages) to reduce hesitation and increase trust.")
+        wins.append("Add pricing ranges or starting prices (\"from…\", packages) to reduce hesitation and increase trust.")
     if not wins:
         wins.append("No major gaps detected in these basic checks.")
     return wins[:3]
@@ -72,6 +70,7 @@ def quick_wins_ro(mode: str, signals: dict) -> list[str]:
     if not wins:
         wins.append("Nu am detectat lipsuri majore la aceste verificări de bază.")
     return wins[:3]
+
 
 def humanize_fetch_error_label(reason: str, lang: str = "en") -> str:
     text = (reason or "").lower()
@@ -94,7 +93,7 @@ def humanize_fetch_error_label(reason: str, lang: str = "en") -> str:
 
 
 def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unknown") -> str:
-    font = _register_font()
+    _register_font()
 
     if not out_path.lower().endswith(".pdf"):
         out_path += ".pdf"
@@ -224,34 +223,34 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 "no_website": "Fără website",
                 "broken": "Website nefuncțional / inaccesibil",
                 "ok": "Website funcțional",
-            },"audit_type": "Tip audit",
-        "audit_type_map": {
-            "critical_risk": "Audit de Risc Critic",
-            "opportunity": "Audit de Oportunități",
-        },
-        "banner_critical": "PROBLEMĂ CRITICĂ DETECTATĂ",
-        "banner_ok": "NU AU FOST DETECTATE PROBLEME CRITICE",
-        "banner_critical_sub": "Această problemă blochează traficul și conversiile relevante. Rezolvați înainte de SEO/marketing.",
-        "banner_ok_sub": "Nu au fost detectate blocaje majore. Concentrați-vă pe oportunități de conversie și claritate.",
-        "what_blocks": "Ce blochează această problemă",
-        "could_not_audit": "Ce nu s-a putut audita",
-        "blocks_map": {
-            "organic_search": "Trafic din Google Search",
-            "google_business_profile": "Trafic din Google Business Profile",
-            "direct_and_referral": "Trafic direct și din linkuri externe",
-            "user_trust_security": "Încrederea utilizatorilor și semnalele de securitate",
-            "all_conversions": "Orice conversie sau generare de lead-uri",
-            "audit_delivery": "Livrarea auditului",
-            "audit_coverage": "Acoperirea auditului",
-            "client_reporting": "Raportare către client",
-        },
-        "blocked_checks_map": {
-            "indexability_and_crawlability": "Indexare și crawlabilitate",
-            "internal_linking": "Linkuri interne",
-            "conversion_paths": "Fluxuri de conversie",
-            "contact_and_booking_clarity": "Claritatea contactului și rezervării",
-        },
-
+            },
+            "audit_type": "Tip audit",
+            "audit_type_map": {
+                "critical_risk": "Audit de Risc Critic",
+                "opportunity": "Audit de Oportunități",
+            },
+            "banner_critical": "PROBLEMĂ CRITICĂ DETECTATĂ",
+            "banner_ok": "NU AU FOST DETECTATE PROBLEME CRITICE",
+            "banner_critical_sub": "Această problemă blochează traficul și conversiile relevante. Rezolvați înainte de SEO/marketing.",
+            "banner_ok_sub": "Nu au fost detectate blocaje majore. Concentrați-vă pe oportunități de conversie și claritate.",
+            "what_blocks": "Ce blochează această problemă",
+            "could_not_audit": "Ce nu s-a putut audita",
+            "blocks_map": {
+                "organic_search": "Trafic din Google Search",
+                "google_business_profile": "Trafic din Google Business Profile",
+                "direct_and_referral": "Trafic direct și din linkuri externe",
+                "user_trust_security": "Încrederea utilizatorilor și semnalele de securitate",
+                "all_conversions": "Orice conversie sau generare de lead-uri",
+                "audit_delivery": "Livrarea auditului",
+                "audit_coverage": "Acoperirea auditului",
+                "client_reporting": "Raportare către client",
+            },
+            "blocked_checks_map": {
+                "indexability_and_crawlability": "Indexare și crawlabilitate",
+                "internal_linking": "Linkuri interne",
+                "conversion_paths": "Fluxuri de conversie",
+                "contact_and_booking_clarity": "Claritatea contactului și rezervării",
+            },
             "date_fmt": lambda: dt.date.today().strftime("%d.%m.%Y"),
         },
     }[lang]
@@ -270,11 +269,9 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     font_name = _register_font()
     styles = getSampleStyleSheet()
 
-    # Force all default styles to use the registered font
     for s in styles.byName.values():
         s.fontName = font_name
 
-    # Custom styles must also use the same font_name
     styles.add(ParagraphStyle(
         name="H1",
         fontName=font_name,
@@ -286,10 +283,11 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     styles.add(ParagraphStyle(
         name="H2",
         fontName=font_name,
-        fontSize=13,
-        leading=16,
+        fontSize=14,
+        leading=18,
         textColor=colors.HexColor("#111827"),
         spaceBefore=12,
+        spaceAfter=4,
     ))
 
     styles.add(ParagraphStyle(
@@ -307,6 +305,21 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         leading=13,
         textColor=colors.HexColor("#374151"),
     ))
+    styles.add(ParagraphStyle(
+        name="Meta",
+        fontName=font_name,
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#6b7280"),
+    ))
+    styles.add(ParagraphStyle(
+        name="CardTitle",
+        fontName=font_name,
+        fontSize=15,
+        leading=19,
+        textColor=colors.HexColor("#111827"),
+        spaceAfter=4,
+    ))
 
     url = audit_result.get("url", "")
     mode = audit_result.get("mode", "ok")
@@ -320,6 +333,48 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
 
     story = []
 
+    def _style_table(tbl: Table, rows: list, header: bool = False, zebra: bool = False) -> None:
+        style = [
+            ("FONTNAME", (0, 0), (-1, -1), font_name),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("GRID", (0, 0), (-1, -1), 0.2, colors.HexColor("#e5e7eb")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]
+        if header:
+            style.append(("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")))
+            style.append(("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"))
+        if zebra and len(rows) > 2:
+            for i in range(1, len(rows), 2):
+                style.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#f7f7f7")))
+        tbl.setStyle(TableStyle(style))
+
+    def _card(title: str, body: list) -> Table:
+        cell = [
+            Paragraph(title, styles["CardTitle"]),
+            HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=0.6, width="100%"),
+            Spacer(1, 4),
+        ] + body
+        card_table = Table([[cell]], colWidths=[160 * mm])
+        card_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f9fafb")),
+            ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#e5e7eb")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ("TOPPADDING", (0, 0), (-1, -1), 10),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ]))
+        return card_table
+
+    def _section_heading(title: str) -> list:
+        return [
+            Paragraph(title, styles["H2"]),
+            HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=0.6, width="100%"),
+            Spacer(1, 4),
+        ]
+
     summary_items = []
     for f in findings:
         title = f.get("title_ro") if lang == "ro" else f.get("title_en")
@@ -328,6 +383,19 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         if len(summary_items) >= 3:
             break
     summary_html = "<br/>".join([f"• {s}" for s in summary_items[:3]]) if summary_items else "N/A"
+
+    snapshot_checks = [
+        ("Contact detectat", bool(signals.get("contact_detected"))),
+        ("Booking detectat", bool(signals.get("booking_detected"))),
+        ("Servicii detectate (keywords)", bool(signals.get("services_keywords_detected"))),
+        ("Prețuri detectate (keywords)", bool(signals.get("pricing_keywords_detected"))),
+        ("Linkuri sociale detectate", any((f or {}).get("category") == "social" for f in findings)),
+        ("Metadate share detectate", any((f or {}).get("category") == "share_meta" for f in findings)),
+    ]
+    snapshot_lines = [
+        f"{label}: {'✔️' if present else '❌'}"
+        for label, present in snapshot_checks
+    ]
 
     cover_status = "OK" if mode == "ok" else "BROKEN"
     cover_date = labels["date_fmt"]()
@@ -376,6 +444,24 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         ("ALIGN", (0, 0), (0, 0), "LEFT"),
         ("ALIGN", (1, 0), (1, 0), "RIGHT"),
     ]))
+    snapshot_table = Table(
+        [[
+            Paragraph("Snapshot audit (detectat la momentul rulării)", styles["H2"]),
+            Spacer(1, 4),
+            Paragraph("<br/>".join(snapshot_lines), styles["Small"]),
+        ]],
+        colWidths=[155 * mm],
+        hAlign="LEFT",
+    )
+    snapshot_table.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fafafa")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+
     cover_block = [
         Paragraph("Deterministic Website Audit", styles["H1"]),
         Paragraph("Evaluare decizională, client-safe", styles["Small"]),
@@ -386,6 +472,8 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         Spacer(1, 12),
         Paragraph("Rezumat executiv", styles["H2"]),
         Paragraph(summary_html, styles["Body"]),
+        Spacer(1, 8),
+        snapshot_table,
         Spacer(1, 14),
         cover_footer,
     ]
@@ -405,16 +493,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         [labels["score"], f"{score}/100"],
     ]
     meta_table = Table(meta, colWidths=[55 * mm, 117 * mm], hAlign="LEFT")
-    meta_table.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (-1, -1), font),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#e5e7eb")),
-        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f9fafb")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-    ]))
+    _style_table(meta_table, meta, header=False, zebra=False)
     story.append(meta_table)
 
     story.append(Spacer(1, 10))
@@ -427,17 +506,17 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     plan = client_narrative.get("plan", []) or []
     confidence = client_narrative.get("confidence", "") or ""
 
-    story.append(Paragraph(labels["overview"], styles["H2"]))
-    story.append(Paragraph("<br/>".join(overview) if overview else "N/A", styles["Body"]))
+    overview_body = [Paragraph("<br/>".join(overview) if overview else "N/A", styles["Body"])]
     if mode == "broken":
         reason = signals.get("reason", "")
         label = humanize_fetch_error_label(reason, lang)
         if label:
             prefix = "Cauză probabilă: " if lang == "ro" else "Probable cause: "
-            story.append(Paragraph(f"{prefix}{label}", styles["Small"]))
-    story.append(Spacer(1, 10))
+            overview_body.append(Spacer(1, 4))
+            overview_body.append(Paragraph(f"{prefix}{label}", styles["Small"]))
+    story.append(_card(labels["overview"], overview_body))
+    story.append(Spacer(1, 12))
 
-    story.append(Paragraph(labels["primary"], styles["H2"]))
     p_title = primary.get("title", "")
     p_impact = primary.get("impact", "")
     primary_lines = []
@@ -445,38 +524,42 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         primary_lines.append(f"<b>{p_title}</b>")
     if p_impact:
         primary_lines.append(p_impact)
-    story.append(Paragraph("<br/>".join(primary_lines) if primary_lines else "N/A", styles["Body"]))
-    story.append(Spacer(1, 10))
+    story.append(_card(labels["primary"], [Paragraph("<br/>".join(primary_lines) if primary_lines else "N/A", styles["Body"])]))
+    story.append(Spacer(1, 12))
 
     if secondary:
-        story.append(Paragraph(labels["secondary"], styles["H2"]))
+        for flow in _section_heading(labels["secondary"]):
+            story.append(flow)
         sec_html = "<br/>".join([f"• {s}" for s in secondary])
         story.append(Paragraph(sec_html, styles["Body"]))
         story.append(Spacer(1, 10))
 
-    story.append(Paragraph(labels["plan"], styles["H2"]))
     plan_html = "<br/>".join([f"• {s}" for s in plan]) if plan else "N/A"
-    story.append(Paragraph(plan_html, styles["Body"]))
-    story.append(Spacer(1, 10))
+    story.append(_card(labels["plan"], [Paragraph(plan_html, styles["Body"])]))
+    story.append(Spacer(1, 12))
 
     if confidence:
-        story.append(Paragraph(labels["confidence"], styles["H2"]))
+        for flow in _section_heading(labels["confidence"]):
+            story.append(flow)
         story.append(Paragraph(confidence, styles["Body"]))
         story.append(Spacer(1, 10))
 
-    story.append(Paragraph(labels["quickwins"], styles["H2"]))
+    quickwins_body = []
     if lang == "ro":
-        story.append(Paragraph("Aceste îmbunătățiri pot fi implementate rapid, fără redesign complet.", styles["Small"]))
+        quickwins_body.append(Paragraph("Aceste îmbunătățiri pot fi implementate rapid, fără redesign complet.", styles["Small"]))
+        quickwins_body.append(Spacer(1, 4))
     wins = quick_wins_ro(mode, signals) if lang == "ro" else quick_wins_en(mode, signals)
     wins_html = "<br/>".join([f"• {w}" for w in wins]) if wins else "N/A"
-    story.append(Paragraph(wins_html, styles["Body"]))
-    story.append(Spacer(1, 10))
+    quickwins_body.append(Paragraph(wins_html, styles["Body"]))
+    story.append(_card(labels["quickwins"], quickwins_body))
+    story.append(Spacer(1, 12))
 
     ai_advisory = audit_result.get("ai_advisory") or {}
     if isinstance(ai_advisory, dict) and ai_advisory:
         ai_status = (ai_advisory.get("ai_status") or "").strip()
         if ai_status in ("ok", "fallback"):
-            story.append(Paragraph(labels["ai_advisory"], styles["H2"]))
+            for flow in _section_heading(labels["ai_advisory"]):
+                story.append(flow)
             story.append(Paragraph(f"<b>{labels['ai_status']}:</b> {ai_status}", styles["Body"]))
             if ai_status == "fallback":
                 story.append(Paragraph(labels["ai_fallback_note"], styles["Body"]))
@@ -487,7 +570,8 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             priorities = ai_advisory.get("priorities") or []
             if isinstance(priorities, list) and priorities:
                 story.append(Spacer(1, 6))
-                story.append(Paragraph(labels["ai_priorities"], styles["H2"]))
+                for flow in _section_heading(labels["ai_priorities"]):
+                    story.append(flow)
 
                 findings_by_id = {f.get("id"): f for f in findings if f.get("id")}
                 level_labels = labels["ai_levels"]
@@ -524,22 +608,9 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             [labels["pricing"], labels["yes"] if signals.get("pricing_keywords_detected") else labels["no"]],
         ]
         checks = Table(rows, colWidths=[80 * mm, 92 * mm], hAlign="LEFT")
-        checks.setStyle(TableStyle([
-            ("FONTNAME", (0, 0), (-1, -1), font),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#e5e7eb")),
-            ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f9fafb")),
-            ("LEFTPADDING", (0, 0), (-1, -1), 6),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-            ("TOPPADDING", (0, 0), (-1, -1), 5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ]))
-        story.append(KeepTogether([
-            Paragraph(labels["checks"], styles["H2"]),
-            checks,
-        ]))
+        _style_table(checks, rows, header=False, zebra=False)
+        story.append(KeepTogether(_section_heading(labels["checks"]) + [checks]))
 
-        # Social findings (agency-friendly, evidence-based)
         social_findings = [f for f in findings if (f or {}).get("category") == "social"]
         story.append(Spacer(1, 10))
         if social_findings:
@@ -550,41 +621,23 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 rec = f.get("recommendation_ro") if lang == "ro" else f.get("recommendation_en")
 
                 rows.append([
-                    Paragraph(sev, styles["Body"]),
+                    Paragraph(sev, styles["Meta"]),
                     Paragraph(title or "", styles["Body"]),
                     Paragraph(rec or "", styles["Body"]),
                 ])
 
             tbl = Table(rows, colWidths=[22 * mm, 78 * mm, 72 * mm], hAlign="LEFT")
-            tbl.setStyle(TableStyle([
-                ("FONTNAME", (0, 0), (-1, -1), font),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
-                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#e5e7eb")),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f9fafb")),
-                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ]))
-            social_block = [
-                Paragraph(labels["social_findings"], styles["H2"]),
-                Spacer(1, 4),
-                tbl,
-            ]
+            _style_table(tbl, rows, header=True, zebra=True)
+            social_block = _section_heading(labels["social_findings"]) + [tbl]
         else:
             note = (
                 "Nu au fost detectate semnale sociale clare."
                 if lang == "ro"
                 else "No clear social signals were detected."
             )
-            social_block = [
-                Paragraph(labels["social_findings"], styles["H2"]),
-                Spacer(1, 4),
-                Paragraph(note, styles["Body"]),
-            ]
+            social_block = _section_heading(labels["social_findings"]) + [Paragraph(note, styles["Body"])]
         story.append(KeepTogether(social_block))
 
-        # Share preview & social metadata findings (Open Graph / Twitter)
         share_meta_findings = [f for f in findings if (f or {}).get("category") == "share_meta"]
         if share_meta_findings:
             story.append(Spacer(1, 10))
@@ -595,28 +648,15 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 rec = f.get("recommendation_ro") if lang == "ro" else f.get("recommendation_en")
 
                 rows.append([
-                    Paragraph(sev, styles["Body"]),
+                    Paragraph(sev, styles["Meta"]),
                     Paragraph(title or "", styles["Body"]),
                     Paragraph(rec or "", styles["Body"]),
                 ])
 
             tbl = Table(rows, colWidths=[22 * mm, 78 * mm, 72 * mm], hAlign="LEFT")
-            tbl.setStyle(TableStyle([
-                ("FONTNAME", (0, 0), (-1, -1), font),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
-                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#e5e7eb")),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f9fafb")),
-                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ]))
-            story.append(KeepTogether([
-                Paragraph(labels["share_meta_findings"], styles["H2"]),
-                tbl,
-            ]))
+            _style_table(tbl, rows, header=True, zebra=True)
+            story.append(KeepTogether(_section_heading(labels["share_meta_findings"]) + [tbl]))
 
-        # Indexability & Technical Access findings (always show section)
         index_findings = [f for f in findings if (f or {}).get("category") == "indexability_technical_access"]
         story.append(Spacer(1, 10))
         if lang == "ro":
@@ -624,7 +664,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 "Următoarele verificări susțin stabilitatea și accesibilitatea website-ului, dar nu reprezintă probleme directe de conversie.",
                 styles["Small"],
             ))
-        index_block = [Paragraph(labels["indexability_findings"], styles["H2"])]
+        index_block = _section_heading(labels["indexability_findings"])
         if not index_findings:
             no_issues = (
                 "No issues detected in this section based on the checks performed."
@@ -640,26 +680,16 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 rec = f.get("recommendation_ro") if lang == "ro" else f.get("recommendation_en")
 
                 rows.append([
-                    Paragraph(sev, styles["Body"]),
+                    Paragraph(sev, styles["Meta"]),
                     Paragraph(title or "", styles["Body"]),
                     Paragraph(rec or "", styles["Body"]),
                 ])
 
             tbl = Table(rows, colWidths=[22 * mm, 78 * mm, 72 * mm], hAlign="LEFT")
-            tbl.setStyle(TableStyle([
-                ("FONTNAME", (0, 0), (-1, -1), font),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
-                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#e5e7eb")),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f9fafb")),
-                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ]))
+            _style_table(tbl, rows, header=True, zebra=True)
             index_block.append(tbl)
         story.append(KeepTogether(index_block))
 
-    # Conversion loss (conservative) - show for all modes if present
     conv_findings = [f for f in findings if (f or {}).get("category") == "conversion_loss"]
     if conv_findings:
         story.append(Spacer(1, 10))
@@ -671,6 +701,12 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             except Exception:
                 return ""
 
+        impact_note = (
+            "Estimările sunt orientative și reflectă intervale de impact observate frecvent atunci când elemente similare "
+            "lipsesc sau sunt optimizate în site-uri comerciale comparabile. Nu reprezintă o predicție bazată pe datele "
+            "interne ale business-ului."
+        )
+
         rows = [[labels["severity"], labels["finding_col"], labels["estimate_col"], labels["confidence_col"]]]
         for f in conv_findings:
             sev = (f.get("severity") or "").capitalize()
@@ -679,33 +715,26 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             est = pct_range(ev)
             conf = ev.get("confidence") or ""
             rows.append([
-                Paragraph(sev, styles["Body"]),
+                Paragraph(sev, styles["Meta"]),
                 Paragraph(title or "", styles["Body"]),
                 Paragraph(est, styles["Body"]),
                 Paragraph(str(conf), styles["Body"]),
             ])
 
         tbl = Table(rows, colWidths=[18 * mm, 80 * mm, 32 * mm, 42 * mm], hAlign="LEFT")
-        tbl.setStyle(TableStyle([
-            ("FONTNAME", (0, 0), (-1, -1), font),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#e5e7eb")),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f9fafb")),
-            ("LEFTPADDING", (0, 0), (-1, -1), 6),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-            ("TOPPADDING", (0, 0), (-1, -1), 5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ]))
-        story.append(KeepTogether([
-            Paragraph(labels["conversion_loss_findings"], styles["H2"]),
-            tbl,
-        ]))
+        _style_table(tbl, rows, header=True, zebra=True)
+        conv_block = _section_heading(labels["conversion_loss_findings"])
+        if lang == "ro":
+            conv_block.append(Paragraph(impact_note, styles["Small"]))
+        conv_block.append(tbl)
+        story.append(KeepTogether(conv_block))
 
     if mode == "broken":
         reason = signals.get("reason", "")
         if reason:
             story.append(Spacer(1, 10))
-            story.append(Paragraph(labels["error_details"], styles["H2"]))
+            for flow in _section_heading(labels["error_details"]):
+                story.append(flow)
             safe_reason = (
                 "Website-ul nu a putut fi accesat în timpul auditului. Detaliile tehnice sunt disponibile la cerere."
                 if lang == "ro"
@@ -716,9 +745,12 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     story.append(Spacer(1, 12))
     story.append(HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=1, width="100%"))
 
-    # --- Next steps CTA ---
     story.append(Spacer(1, 10))
-    story.append(Paragraph("Next steps" if lang == "en" else "Pașii următori", styles["H2"]))
+    next_steps_block = [
+        Paragraph("Next steps" if lang == "en" else "Pașii următori", styles["CardTitle"]),
+        HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=0.6, width="100%"),
+        Spacer(1, 4),
+    ]
 
     if lang == "en":
         cta_text = (
@@ -731,13 +763,21 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             "Am aborda mai întâi problema principală, apoi punctele rămase care influențează direct cererile și programările."
         )
 
-    story.append(Paragraph(cta_text, styles["Body"]))
-    story.append(Spacer(1, 6))
-    # Scope note (from client_narrative)
+    next_steps_block.append(Paragraph(cta_text, styles["Body"]))
     scope_note = client_narrative.get("scope_note", "") or ""
     if scope_note:
-        story.append(Spacer(1, 8))
-        story.append(Paragraph(scope_note, styles["Small"]))
+        next_steps_block.append(Spacer(1, 8))
+        next_steps_block.append(Paragraph(scope_note, styles["Small"]))
+    next_steps_card = Table([[next_steps_block]], colWidths=[160 * mm])
+    next_steps_card.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f9fafb")),
+        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#e5e7eb")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    story.append(KeepTogether([next_steps_card]))
 
     story.append(Spacer(1, 6))
     story.append(Paragraph(f"Tool version: {tool_version}", styles["Small"]))
@@ -866,6 +906,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         canvas.setStrokeColor(colors.HexColor("#e5e7eb"))
         canvas.setLineWidth(0.5)
         canvas.line(left, footer_y + 4 * mm, right, footer_y + 4 * mm)
+        canvas.drawString(left, footer_y, f"Deterministic Website Audit • v{tool_version}")
         canvas.drawRightString(right, footer_y, f"Pagina {canvas.getPageNumber()}")
         canvas.restoreState()
 

@@ -732,6 +732,7 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception as e:
-        if os.environ.get("AUDIT_DEBUG") == "1":
+        if globals().get("verbose", False):
             print(f"[FATAL] {type(e).__name__}: {e}", file=sys.stderr)
         sys.exit(2)
+
