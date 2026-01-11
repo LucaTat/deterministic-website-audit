@@ -1,0 +1,22 @@
+DECISION BRIEF (EN) — filled by operator
+
+Client:
+Website:
+Audit date:
+Goal (what we want in 30 days):
+
+Verdict (OK / BROKEN):
+Meaning (1 sentence):
+
+Top 3 recommended actions (next 7 days):
+1)
+2)
+3)
+
+Recommended decision (choose one):
+- Proceed with implementation (quick wins)
+- Request access / whitelist and re-run the audit
+- Do not proceed (not a priority now)
+
+Next step + deadline:
+Owner:

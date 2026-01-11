@@ -1,0 +1,22 @@
+DECISION BRIEF (RO) — completat de operator
+
+Client:
+Website:
+Data auditului:
+Obiectiv (ce vrem să obținem în 30 zile):
+
+Verdict pe scurt (OK / BROKEN):
+Ce înseamnă asta (1 propoziție):
+
+Top 3 acțiuni recomandate (max. 7 zile):
+1)
+2)
+3)
+
+Decizie recomandată (alege una):
+- Continuăm cu implementare (quick wins)
+- Cerem acces / whitelist și refacem auditul
+- Nu continuăm (nu e prioritar acum)
+
+Următorul pas + deadline:
+Responsabil:
