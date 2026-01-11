@@ -13,6 +13,7 @@ from reportlab.platypus import (
     TableStyle,
     HRFlowable,
     ListFlowable,
+    KeepTogether,
     PageBreak,
 )
 from reportlab.pdfbase import pdfmetrics
@@ -319,6 +320,79 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
 
     story = []
 
+    summary_items = []
+    for f in findings:
+        title = f.get("title_ro") if lang == "ro" else f.get("title_en")
+        if title and title not in summary_items:
+            summary_items.append(title)
+        if len(summary_items) >= 3:
+            break
+    summary_html = "<br/>".join([f"• {s}" for s in summary_items[:3]]) if summary_items else "N/A"
+
+    cover_status = "OK" if mode == "ok" else "BROKEN"
+    cover_date = labels["date_fmt"]()
+    campaign = (audit_result.get("campaign") or "").strip() or "-"
+
+    status_table = Table(
+        [[Paragraph(cover_status, styles["Body"])]],
+        colWidths=[45 * mm],
+        hAlign="LEFT",
+    )
+    status_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f9fafb")),
+        ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#111827")),
+        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#d1d5db")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    cover_meta = [
+        [Paragraph("Domeniu auditat:", styles["Small"]), Paragraph(url or "-", styles["Body"])],
+        [Paragraph("Data:", styles["Small"]), Paragraph(cover_date, styles["Body"])],
+        [Paragraph("Campanie:", styles["Small"]), Paragraph(campaign, styles["Body"])],
+        [Paragraph("Status:", styles["Small"]), status_table],
+    ]
+    cover_meta_table = Table(cover_meta, colWidths=[35 * mm, 120 * mm], hAlign="LEFT")
+    cover_meta_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    cover_footer = Table(
+        [[Paragraph(url or "-", styles["Small"]), Paragraph(cover_date, styles["Small"])]],
+        colWidths=[80 * mm, 75 * mm],
+        hAlign="LEFT",
+    )
+    cover_footer.setStyle(TableStyle([
+        ("LINEABOVE", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("ALIGN", (0, 0), (0, 0), "LEFT"),
+        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+    ]))
+    cover_block = [
+        Paragraph("Deterministic Website Audit", styles["H1"]),
+        Paragraph("Evaluare decizională, client-safe", styles["Small"]),
+        Spacer(1, 10),
+        HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=0.6, width="100%"),
+        Spacer(1, 10),
+        cover_meta_table,
+        Spacer(1, 12),
+        Paragraph("Rezumat executiv", styles["H2"]),
+        Paragraph(summary_html, styles["Body"]),
+        Spacer(1, 14),
+        cover_footer,
+    ]
+    story.append(Spacer(1, 55 * mm))
+    story.append(KeepTogether(cover_block))
+    story.append(PageBreak())
+
     client_name = (audit_result.get("client_name") or "").strip()
     title = labels["title"] + (f" - {client_name}" if client_name else "")
     story.append(Paragraph(title, styles["H1"]))
@@ -443,7 +517,6 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             story.append(Spacer(1, 10))
 
     if mode == "ok":
-        story.append(Paragraph(labels["checks"], styles["H2"]))
         rows = [
             [labels["booking"], labels["yes"] if signals.get("booking_detected") else labels["no"]],
             [labels["contact"], labels["yes"] if signals.get("contact_detected") else labels["no"]],
@@ -461,12 +534,14 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             ("TOPPADDING", (0, 0), (-1, -1), 5),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ]))
-        story.append(checks)
+        story.append(KeepTogether([
+            Paragraph(labels["checks"], styles["H2"]),
+            checks,
+        ]))
 
         # Social findings (agency-friendly, evidence-based)
         social_findings = [f for f in findings if (f or {}).get("category") == "social"]
         story.append(Spacer(1, 10))
-        story.append(Paragraph(labels["social_findings"], styles["H2"]))
         if social_findings:
             rows = [[labels["severity"], labels["finding_col"], labels["recommendation_col"]]]
             for f in social_findings:
@@ -491,21 +566,28 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 ("TOPPADDING", (0, 0), (-1, -1), 5),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
             ]))
-            story.append(tbl)
+            social_block = [
+                Paragraph(labels["social_findings"], styles["H2"]),
+                Spacer(1, 4),
+                tbl,
+            ]
         else:
             note = (
                 "Nu au fost detectate semnale sociale clare."
                 if lang == "ro"
                 else "No clear social signals were detected."
             )
-            story.append(Paragraph(note, styles["Body"]))
+            social_block = [
+                Paragraph(labels["social_findings"], styles["H2"]),
+                Spacer(1, 4),
+                Paragraph(note, styles["Body"]),
+            ]
+        story.append(KeepTogether(social_block))
 
         # Share preview & social metadata findings (Open Graph / Twitter)
         share_meta_findings = [f for f in findings if (f or {}).get("category") == "share_meta"]
         if share_meta_findings:
             story.append(Spacer(1, 10))
-            story.append(Paragraph(labels["share_meta_findings"], styles["H2"]))
-
             rows = [[labels["severity"], labels["finding_col"], labels["recommendation_col"]]]
             for f in share_meta_findings:
                 sev = (f.get("severity") or "").capitalize()
@@ -529,7 +611,10 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 ("TOPPADDING", (0, 0), (-1, -1), 5),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
             ]))
-            story.append(tbl)
+            story.append(KeepTogether([
+                Paragraph(labels["share_meta_findings"], styles["H2"]),
+                tbl,
+            ]))
 
         # Indexability & Technical Access findings (always show section)
         index_findings = [f for f in findings if (f or {}).get("category") == "indexability_technical_access"]
@@ -539,15 +624,14 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 "Următoarele verificări susțin stabilitatea și accesibilitatea website-ului, dar nu reprezintă probleme directe de conversie.",
                 styles["Small"],
             ))
-        story.append(Paragraph(labels["indexability_findings"], styles["H2"]))
-
+        index_block = [Paragraph(labels["indexability_findings"], styles["H2"])]
         if not index_findings:
             no_issues = (
                 "No issues detected in this section based on the checks performed."
                 if lang != "ro"
                 else "Nu au fost detectate probleme în această secțiune pe baza verificărilor efectuate."
             )
-            story.append(Paragraph(no_issues, styles["Body"]))
+            index_block.append(Paragraph(no_issues, styles["Body"]))
         else:
             rows = [[labels["severity"], labels["finding_col"], labels["recommendation_col"]]]
             for f in index_findings:
@@ -572,14 +656,13 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 ("TOPPADDING", (0, 0), (-1, -1), 5),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
             ]))
-            story.append(tbl)
+            index_block.append(tbl)
+        story.append(KeepTogether(index_block))
 
     # Conversion loss (conservative) - show for all modes if present
     conv_findings = [f for f in findings if (f or {}).get("category") == "conversion_loss"]
     if conv_findings:
         story.append(Spacer(1, 10))
-        story.append(Paragraph(labels["conversion_loss_findings"], styles["H2"]))
-
         def pct_range(ev: dict) -> str:
             try:
                 lo = float(ev.get("impact_pct_low", 0) or 0)
@@ -613,7 +696,10 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             ("TOPPADDING", (0, 0), (-1, -1), 5),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ]))
-        story.append(tbl)
+        story.append(KeepTogether([
+            Paragraph(labels["conversion_loss_findings"], styles["H2"]),
+            tbl,
+        ]))
 
     if mode == "broken":
         reason = signals.get("reason", "")
@@ -763,5 +849,25 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             styles["Body"],
         ))
 
-    doc.build(story)
+    def draw_header_footer(canvas, doc_obj):
+        canvas.saveState()
+        width, height = A4
+        left = doc_obj.leftMargin
+        right = width - doc_obj.rightMargin
+        header_y = height - 12 * mm
+        footer_y = 10 * mm
+
+        canvas.setFont(font_name, 8)
+        canvas.setFillColor(colors.HexColor("#6b7280"))
+        canvas.drawString(left, header_y, url or "")
+        header_right = campaign if campaign != "-" else cover_date
+        canvas.drawRightString(right, header_y, header_right)
+
+        canvas.setStrokeColor(colors.HexColor("#e5e7eb"))
+        canvas.setLineWidth(0.5)
+        canvas.line(left, footer_y + 4 * mm, right, footer_y + 4 * mm)
+        canvas.drawRightString(right, footer_y, f"Pagina {canvas.getPageNumber()}")
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=draw_header_footer, onLaterPages=draw_header_footer)
     return out_path
