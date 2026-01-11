@@ -30,3 +30,6 @@ venv/
 .DS_Store
 test_10_sites.txt
 test_10_sites.txt
+
+# Never commit deliverables outputs
+deliverables/
