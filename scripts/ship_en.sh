@@ -9,14 +9,35 @@ set -euo pipefail
 #   deliverables/out/<CAMPANIE>.zip
 
 CLEANUP=0
-TARGETS_FILE="${1:-}"
+TARGETS_FILE=""
 CAMPAIGN=""
 
-shifted=0
-if [[ -n "${TARGETS_FILE}" ]]; then
-  shifted=1
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --cleanup) CLEANUP=1; shift ;;
+    --campaign)
+  if [[ -z "${2:-}" ]]; then
+    echo "FATAL: --campaign requires a value"
+    exit 2
+  fi
+  CAMPAIGN="$2"
+  shift 2
+  ;;
+    *)
+  if [[ -z "${TARGETS_FILE}" ]]; then
+    if [[ "$1" == -* ]]; then
+      echo "FATAL: Unknown option: $1"
+      exit 2
+    fi
+    TARGETS_FILE="$1"
+  fi
   shift
-fi
+  ;;
+
+  esac
+done
+
+
 
 for arg in "$@"; do
   if [[ "${arg}" == "--cleanup" ]]; then
@@ -55,8 +76,10 @@ fi
 OUT_DIR="deliverables/out/${CAMPAIGN}"
 ZIP_PATH="deliverables/out/${CAMPAIGN}.zip"
 mkdir -p "${OUT_DIR}"
+LANG_TAG="EN"
+SAFE_CAMPAIGN="$(echo "${CAMPAIGN}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g' | sed -E 's/^-+//; s/-+$//')"
 
-echo "== Running audit (RO) =="
+echo "== Running audit (EN) =="
 RUN_LOG="${OUT_DIR}/run.log"
 
 # Output live + log, fără să omoare scriptul din cauza pipefail
@@ -73,55 +96,50 @@ fi
 
 echo "== Collecting PDFs from run output =="
 
-LIST_FILE="${OUT_DIR}/pdf_list.txt"
+LIST_FILE="$(mktemp "${OUT_DIR}/pdf_list.XXXXXX")"
 
-awk '
-  /^\[[0-9]+\/[0-9]+\]/ {
-    target=$0
-    sub(/^\[[0-9]+\/[0-9]+\][[:space:]]+/, "", target)
-    gsub(/[[:space:]]+$/, "", target)
-    status=""
-    pdf=""
-    next
-  }
-  /^[[:space:]]+status:/ {
-    status=$0
-    sub(/^[[:space:]]+status:[[:space:]]+/, "", status)
-    gsub(/[[:space:]]+$/, "", status)
-    next
-  }
-  /^[[:space:]]+pdf:/ {
-    pdf=$0
-    sub(/^[[:space:]]+pdf:[[:space:]]+/, "", pdf)
-    gsub(/[[:space:]]+$/, "", pdf)
-    if (target != "" && status != "" && pdf != "") {
-      safe=target
-      gsub(/^https?:\/\//, "", safe)
-      gsub(/\/$/, "", safe)
-      gsub(/[^A-Za-z0-9._-]+/, "_", safe)
-      print safe, status, pdf
-    }
-    next
-  }
-' "${RUN_LOG}" > "${LIST_FILE}"
+grep -E "^[[:space:]]+pdf:" "${RUN_LOG}" | sed -E "s/^[[:space:]]*pdf:[[:space:]]+//" > "${LIST_FILE}"
+PDF_COUNT="$(wc -l < "${LIST_FILE}" | tr -d " ")"
 
-if [[ ! -s "${LIST_FILE}" ]]; then
-  echo "FATAL: No PDFs found in run log. Check: ${RUN_LOG}"
+if [[ "${PDF_COUNT}" -eq 0 ]]; then
+  echo "FATAL: No PDFs found in run log: ${RUN_LOG}"
   exit 2
 fi
 
 COPIED_COUNT=0
-while read -r SAFE STATUS PDF_PATH; do
+while read -r PDF_PATH; do
   if [[ ! -f "${PDF_PATH}" ]]; then
     echo "WARN: PDF not found (skipping): ${PDF_PATH}"
     continue
+  fi
+  DATE_TAG="$(basename "$(dirname "${PDF_PATH}")")"
+  CLIENT_DIR="$(basename "$(dirname "$(dirname "${PDF_PATH}")")")"
+  SAFE="$(echo "${CLIENT_DIR}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g' | sed -E 's/^-+//; s/-+$//')"
+  JSON_PATH="$(dirname "${PDF_PATH}")/audit.json"
+  STATUS="UNKNOWN"
+  if [[ -f "${JSON_PATH}" ]]; then
+    MODE="$(python3 - <<'PY' "${JSON_PATH}"
+import json,sys
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    print((json.load(f).get("mode") or "").strip())
+PY
+)"
+    if [[ "${MODE}" == "ok" ]]; then
+      STATUS="OK"
+    elif [[ "${MODE}" == "broken" ]]; then
+      STATUS="BROKEN"
+    fi
   fi
 
   COUNT="$(find "${OUT_DIR}" -maxdepth 1 -name "*.pdf" -print 2>/dev/null | wc -l | tr -d " ")"
   NUM=$((COUNT + 1))
   printf -v PREFIX "%02d" "${NUM}"
 
-  DEST="${OUT_DIR}/${PREFIX}_${SAFE}_${STATUS}.pdf"
+  DEST="${OUT_DIR}/${PREFIX}_${SAFE}-${DATE_TAG}-${LANG_TAG}"
+  if [[ -n "${SAFE_CAMPAIGN}" ]]; then
+    DEST="${DEST}-${SAFE_CAMPAIGN}"
+  fi
+  DEST="${DEST}.pdf"
   cp -f "${PDF_PATH}" "${DEST}"
   echo "Copied: ${DEST}"
   COPIED_COUNT=$((COPIED_COUNT + 1))
@@ -133,17 +151,33 @@ if [[ "$COPIED_COUNT" -eq 0 ]]; then
 fi
 
 # Copy Decision Brief template (TXT) for the operator to fill
-if [[ -f "deliverables/templates/DECISION_BRIEF_RO.txt" ]]; then
-  cp -f "deliverables/templates/DECISION_BRIEF_RO.txt" "${OUT_DIR}/DECISION_BRIEF_RO.txt"
-  echo "Added template: ${OUT_DIR}/DECISION_BRIEF_RO.txt"
+if [[ -f "deliverables/templates/DECISION_BRIEF_EN.txt" ]]; then
+  cp -f "deliverables/templates/DECISION_BRIEF_EN.txt" "${OUT_DIR}/DECISION_BRIEF_EN.txt"
+  echo "Added template: ${OUT_DIR}/DECISION_BRIEF_EN.txt"
 else
-  echo "NOTE: Decision brief template not found at deliverables/templates/DECISION_BRIEF_RO.txt"
+  echo "NOTE: Decision brief template not found at deliverables/templates/DECISION_BRIEF_EN.txt"
 fi
+
 
 # Create ZIP
 echo "== Creating ZIP =="
-( cd "deliverables/out" && rm -f "${CAMPAIGN}.zip" && zip -r "${CAMPAIGN}.zip" "${CAMPAIGN}" >/dev/null )
+if ! ( cd "deliverables/out" && rm -f "${CAMPAIGN}.zip" && zip -r "${CAMPAIGN}.zip" "${CAMPAIGN}" >/dev/null ); then
+  echo "FATAL: ZIP packaging failed"
+  exit 2
+fi
 echo "ZIP ready: ${REPO_ROOT}/${ZIP_PATH}"
+
+# End summary (safe with pipefail when there are 0 matches)
+TOTAL_COUNT="$( (grep -E "^\[[0-9]+/[0-9]+\] " "${RUN_LOG}" || true) | wc -l | tr -d " " )"
+OK_COUNT="$( (grep -E "^[[:space:]]+status:[[:space:]]+OK" "${RUN_LOG}" || true) | wc -l | tr -d " " )"
+BROKEN_COUNT="$( (grep -E "^[[:space:]]+status:[[:space:]]+BROKEN" "${RUN_LOG}" || true) | wc -l | tr -d " " )"
+echo "== Summary =="
+echo "Total: ${TOTAL_COUNT} | OK: ${OK_COUNT} | BROKEN: ${BROKEN_COUNT}"
+echo "Output folder: ${REPO_ROOT}/${OUT_DIR}"
+echo "ZIP: ${REPO_ROOT}/${ZIP_PATH}"
+if [[ "$RUN_EXIT" -eq 1 ]]; then
+  echo "Run completed; some sites were BROKEN (non-fatal)."
+fi
 
 # Optional cleanup + archive
 if [[ "${CLEANUP}" -eq 1 ]]; then
@@ -153,11 +187,11 @@ if [[ "${CLEANUP}" -eq 1 ]]; then
   mkdir -p "${ARCHIVE_DIR}"
   cp -f "${ZIP_PATH}" "${ARCHIVE_DIR}/${CAMPAIGN}.zip"
   cp -f "${TARGETS_FILE}" "${ARCHIVE_DIR}/targets.txt"
-  if [[ -f "${OUT_DIR}/DECISION_BRIEF_RO.txt" ]]; then
-    cp -f "${OUT_DIR}/DECISION_BRIEF_RO.txt" "${ARCHIVE_DIR}/DECISION_BRIEF_RO.txt"
-  fi
+if [[ -f "${OUT_DIR}/DECISION_BRIEF_EN.txt" ]]; then
+  cp -f "${OUT_DIR}/DECISION_BRIEF_EN.txt" "${ARCHIVE_DIR}/DECISION_BRIEF_EN.txt"
+fi
   if [[ -f "${RUN_LOG}" ]]; then
-    cp -f "${RUN_LOG}" "${ARCHIVE_DIR}/run.log"
+  cp -f "${RUN_LOG}" "${ARCHIVE_DIR}/run.log"
   fi
   TARGETS_ABS="$(cd "$(dirname "${TARGETS_FILE}")" && pwd)/$(basename "${TARGETS_FILE}")"
   DELIVERABLES_ABS="$(cd "${REPO_ROOT}/deliverables" && pwd)"
@@ -165,7 +199,7 @@ if [[ "${CLEANUP}" -eq 1 ]]; then
     rm -f "${TARGETS_FILE}"
     echo "Deleted targets file: ${TARGETS_FILE}"
   fi
-  rm -f "${OUT_DIR}/run.log" "${OUT_DIR}/pdf_list.txt"
+  rm -f "${OUT_DIR}/run.log" "${LIST_FILE}"
   echo "Cleaned internal files from: ${OUT_DIR}"
 fi
 
@@ -174,3 +208,4 @@ echo "== Opening output folder =="
 open "${OUT_DIR}" || true
 
 echo "DONE."
+exit "$RUN_EXIT"
