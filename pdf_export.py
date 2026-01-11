@@ -113,9 +113,10 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             "primary": "Primary issue",
             "secondary": "Secondary issues",
             "plan": "Recommended plan",
-            "confidence": "Confidence",
+            "confidence": "Assessment confidence",
             "quickwins": "Top 3 quick wins",
             "checks": "Basic checks",
+            "scope_limits": "Scope and limits",
             "social_findings": "Social signals",
             "share_meta_findings": "Share preview & social metadata",
             "indexability_findings": "Indexability & Technical Access",
@@ -135,7 +136,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             "finding_col": "Finding",
             "recommendation_col": "Recommendation",
             "estimate_col": "Estimated impact",
-            "confidence_col": "Confidence",
+            "confidence_col": "Assessment confidence",
             "booking": "Booking detected",
             "contact": "Contact detected",
             "services": "Services detected (keywords)",
@@ -188,9 +189,10 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             "primary": "Problema principală",
             "secondary": "Probleme secundare",
             "plan": "Plan recomandat",
-            "confidence": "Încredere",
+            "confidence": "Certitudine evaluare",
             "quickwins": "Top 3 „Quick Wins”",
             "checks": "Verificări de bază",
+            "scope_limits": "Scop și limite",
             "social_findings": "Semnale sociale",
             "share_meta_findings": "Previzualizare share & metadate sociale",
             "indexability_findings": "Indexare & Acces Tehnic",
@@ -210,7 +212,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             "finding_col": "Constatare",
             "recommendation_col": "Recomandare",
             "estimate_col": "Impact estimat",
-            "confidence_col": "Încredere",
+            "confidence_col": "Certitudine evaluare",
             "booking": "Booking detectat",
             "contact": "Contact detectat",
             "services": "Servicii detectate (keywords)",
@@ -326,6 +328,13 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     signals = audit_result.get("signals", {}) or {}
     client_narrative = audit_result.get("client_narrative", {}) or {}
     findings = audit_result.get("findings", []) or []
+    overview = client_narrative.get("overview", []) or []
+    primary = client_narrative.get("primary_issue", {}) or {}
+    secondary = client_narrative.get("secondary_issues", []) or []
+    plan = client_narrative.get("plan", []) or []
+    confidence = client_narrative.get("confidence", "") or ""
+    p_title = primary.get("title", "")
+    primary_title = p_title.strip() if isinstance(p_title, str) and p_title.strip() else "N/A"
 
     score = int(signals.get("score", 0) or 0)
     if mode in ("no_website", "broken"):
@@ -383,19 +392,27 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         if len(summary_items) >= 3:
             break
     summary_html = "<br/>".join([f"• {s}" for s in summary_items[:3]]) if summary_items else "N/A"
-
-    snapshot_checks = [
-        ("Contact detectat", bool(signals.get("contact_detected"))),
-        ("Booking detectat", bool(signals.get("booking_detected"))),
-        ("Servicii detectate (keywords)", bool(signals.get("services_keywords_detected"))),
-        ("Prețuri detectate (keywords)", bool(signals.get("pricing_keywords_detected"))),
-        ("Linkuri sociale detectate", any((f or {}).get("category") == "social" for f in findings)),
-        ("Metadate share detectate", any((f or {}).get("category") == "share_meta" for f in findings)),
-    ]
-    snapshot_lines = [
-        f"{label}: {'✔️' if present else '❌'}"
-        for label, present in snapshot_checks
-    ]
+    primary_text = primary_title.lower() if isinstance(primary_title, str) else ""
+    no_major_issues = ("nu am detectat probleme majore" in primary_text) or ("no major issues detected" in primary_text)
+    expert_context = (
+        (
+            ("Primary findings highlight optimization opportunities to improve clarity and response rates.<br/>"
+             if no_major_issues else
+             "Primary findings point to a bottleneck that shapes how visitors decide and act.<br/>")
+            + "Resolving the top issue typically improves clarity, reduces friction, and raises response rates.<br/>"
+            + "This interpretation is based on observable page elements, not internal business data.<br/>"
+            + f"This context refers to the primary issue: {primary_title}."
+        )
+        if lang == "en"
+        else (
+            ("Constatările principale indică oportunități de optimizare pentru claritate și răspuns.<br/>"
+             if no_major_issues else
+             "Constatările principale indică un blocaj care influențează decizia și acțiunea vizitatorilor.<br/>")
+            + "Rezolvarea problemei de top crește claritatea, reduce fricțiunea și îmbunătățește răspunsul.<br/>"
+            + "Interpretarea se bazează pe elemente observabile, nu pe date interne de business.<br/>"
+            + f"Acest context se referă la problema principală: {primary_title}."
+        )
+    )
 
     cover_status = "OK" if mode == "ok" else "BROKEN"
     cover_date = labels["date_fmt"]()
@@ -444,24 +461,6 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         ("ALIGN", (0, 0), (0, 0), "LEFT"),
         ("ALIGN", (1, 0), (1, 0), "RIGHT"),
     ]))
-    snapshot_table = Table(
-        [[
-            Paragraph("Snapshot audit (detectat la momentul rulării)", styles["H2"]),
-            Spacer(1, 4),
-            Paragraph("<br/>".join(snapshot_lines), styles["Small"]),
-        ]],
-        colWidths=[155 * mm],
-        hAlign="LEFT",
-    )
-    snapshot_table.setStyle(TableStyle([
-        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fafafa")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-    ]))
-
     cover_block = [
         Paragraph("Deterministic Website Audit", styles["H1"]),
         Paragraph("Evaluare decizională, client-safe", styles["Small"]),
@@ -472,9 +471,9 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         Spacer(1, 12),
         Paragraph("Rezumat executiv", styles["H2"]),
         Paragraph(summary_html, styles["Body"]),
-        Spacer(1, 8),
-        snapshot_table,
-        Spacer(1, 14),
+        Spacer(1, 6),
+        Paragraph("Expert interpretation (context)" if lang == "en" else "Interpretare expert (context)", styles["H2"]),
+        Paragraph(expert_context, styles["Body"]),
         cover_footer,
     ]
     story.append(Spacer(1, 55 * mm))
@@ -500,12 +499,6 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     story.append(HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=1, width="100%"))
     story.append(Spacer(1, 10))
 
-    overview = client_narrative.get("overview", []) or []
-    primary = client_narrative.get("primary_issue", {}) or {}
-    secondary = client_narrative.get("secondary_issues", []) or []
-    plan = client_narrative.get("plan", []) or []
-    confidence = client_narrative.get("confidence", "") or ""
-
     overview_body = [Paragraph("<br/>".join(overview) if overview else "N/A", styles["Body"])]
     if mode == "broken":
         reason = signals.get("reason", "")
@@ -517,7 +510,18 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     story.append(_card(labels["overview"], overview_body))
     story.append(Spacer(1, 12))
 
-    p_title = primary.get("title", "")
+    scope_note = (
+        "This is a decision and prioritization audit based on observable page elements. "
+        "It is not a full UX/CRO strategy, research program, or conversion experiment plan."
+        if lang == "en"
+        else "Acesta este un audit de decizie și prioritizare bazat pe elemente observabile. "
+             "Nu este o strategie completă de UX/CRO, cercetare sau plan de experimente de conversie."
+    )
+    for flow in _section_heading(labels["scope_limits"]):
+        story.append(flow)
+    story.append(Paragraph(scope_note, styles["Body"]))
+    story.append(Spacer(1, 10))
+
     p_impact = primary.get("impact", "")
     primary_lines = []
     if p_title:
@@ -541,6 +545,12 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     if confidence:
         for flow in _section_heading(labels["confidence"]):
             story.append(flow)
+        conf_note = (
+            "Refers to confidence in the assessment and impact estimate, not brand trust."
+            if lang == "en"
+            else "Se referă la certitudinea evaluării și impactului estimat, nu la încrederea în brand."
+        )
+        story.append(Paragraph(conf_note, styles["Small"]))
         story.append(Paragraph(confidence, styles["Body"]))
         story.append(Spacer(1, 10))
 
@@ -549,6 +559,16 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         quickwins_body.append(Paragraph("Aceste îmbunătățiri pot fi implementate rapid, fără redesign complet.", styles["Small"]))
         quickwins_body.append(Spacer(1, 4))
     wins = quick_wins_ro(mode, signals) if lang == "ro" else quick_wins_en(mode, signals)
+    if no_major_issues:
+        wins = [
+            "Clarificați CTA-ul principal: un singur mesaj dominant, vizibil imediat.",
+            "Reduceți fricțiunea pe mobil: spații, butoane, viteză și formular simplu.",
+            "Adăugați elemente de încredere lângă CTA: recenzii, certificări, rezultate."
+        ] if lang == "ro" else [
+            "Clarify the primary CTA: one dominant message, visible immediately.",
+            "Reduce mobile friction: spacing, button size, speed, and a short form.",
+            "Add trust elements near the CTA: reviews, certifications, outcomes."
+        ]
     wins_html = "<br/>".join([f"• {w}" for w in wins]) if wins else "N/A"
     quickwins_body.append(Paragraph(wins_html, styles["Body"]))
     story.append(_card(labels["quickwins"], quickwins_body))
@@ -619,6 +639,10 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 sev = (f.get("severity") or "").capitalize()
                 title = f.get("title_ro") if lang == "ro" else f.get("title_en")
                 rec = f.get("recommendation_ro") if lang == "ro" else f.get("recommendation_en")
+                if isinstance(title, str):
+                    title = title.replace("Twitter/X", "Twitter")
+                if isinstance(rec, str):
+                    rec = rec.replace("Twitter/X", "Twitter")
 
                 rows.append([
                     Paragraph(sev, styles["Meta"]),
@@ -646,6 +670,10 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 sev = (f.get("severity") or "").capitalize()
                 title = f.get("title_ro") if lang == "ro" else f.get("title_en")
                 rec = f.get("recommendation_ro") if lang == "ro" else f.get("recommendation_en")
+                if isinstance(title, str):
+                    title = title.replace("Twitter/X", "Twitter")
+                if isinstance(rec, str):
+                    rec = rec.replace("Twitter/X", "Twitter")
 
                 rows.append([
                     Paragraph(sev, styles["Meta"]),
@@ -714,6 +742,8 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             ev = f.get("evidence", {}) or {}
             est = pct_range(ev)
             conf = ev.get("confidence") or ""
+            if lang == "ro" and conf == "High" and est == "0%–0%" and isinstance(title, str) and "Nu am detectat probleme majore" in title:
+                conf = "Scăzută"
             rows.append([
                 Paragraph(sev, styles["Meta"]),
                 Paragraph(title or "", styles["Body"]),
@@ -751,6 +781,22 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=0.6, width="100%"),
         Spacer(1, 4),
     ]
+    primary_action = p_title if isinstance(p_title, str) and p_title.strip() else ""
+    if not primary_action:
+        primary_action = (
+            "address the primary issue highlighted in this report"
+            if lang == "en"
+            else "rezolvați problema principală evidențiată în acest raport"
+        )
+    action_prefix = "If you do one thing now:" if lang == "en" else "Dacă faceți un singur lucru acum:"
+    action_line = f"{action_prefix} {primary_action}"
+    if lang == "ro" and isinstance(primary_action, str) and primary_action.startswith("Nu am detectat probleme majore"):
+        action_line = "Dacă faceți un singur lucru acum: Mențineți structura actuală, dar accentuați CTA-ul principal pentru a maximiza conversiile."
+    if lang == "en" and isinstance(primary_action, str) and primary_action.startswith("No major issues detected"):
+        action_line = "If you do one thing now: Keep the current structure, but emphasize the primary CTA to maximize conversions."
+    if not action_line.endswith("."):
+        action_line += "."
+    next_steps_block.append(Paragraph(action_line, styles["Body"]))
 
     if lang == "en":
         cta_text = (
