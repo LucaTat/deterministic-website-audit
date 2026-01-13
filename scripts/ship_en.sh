@@ -112,7 +112,6 @@ while read -r PDF_PATH; do
     echo "WARN: PDF not found (skipping): ${PDF_PATH}"
     continue
   fi
-  DATE_TAG="$(basename "$(dirname "${PDF_PATH}")")"
   CLIENT_DIR="$(basename "$(dirname "$(dirname "${PDF_PATH}")")")"
   SAFE="$(echo "${CLIENT_DIR}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g' | sed -E 's/^-+//; s/-+$//')"
   JSON_PATH="$(dirname "${PDF_PATH}")/audit.json"
@@ -135,11 +134,8 @@ PY
   NUM=$((COUNT + 1))
   printf -v PREFIX "%02d" "${NUM}"
 
-  DEST="${OUT_DIR}/${PREFIX}_${SAFE}-${DATE_TAG}-${LANG_TAG}"
-  if [[ -n "${SAFE_CAMPAIGN}" ]]; then
-    DEST="${DEST}-${SAFE_CAMPAIGN}"
-  fi
-  DEST="${DEST}.pdf"
+  DATE_ONLY="$(date +%F)"
+  DEST="${OUT_DIR}/${PREFIX}_Website Audit - ${SAFE} - ${LANG_TAG} - ${DATE_ONLY}.pdf"
   cp -f "${PDF_PATH}" "${DEST}"
   echo "Copied: ${DEST}"
   COPIED_COUNT=$((COPIED_COUNT + 1))
