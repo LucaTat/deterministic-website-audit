@@ -505,7 +505,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         label = humanize_fetch_error_label(reason, lang)
         if label:
             prefix = "Cauză probabilă: " if lang == "ro" else "Probable cause: "
-            overview_body.append(Spacer(1, 4))
+            story.append(Spacer(1, 4))
             overview_body.append(Paragraph(f"{prefix}{label}", styles["Small"]))
     story.append(_card(labels["overview"], overview_body))
     story.append(Spacer(1, 12))
