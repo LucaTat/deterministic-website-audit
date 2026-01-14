@@ -159,13 +159,28 @@ else
   echo "NOTE: Decision brief template not found at deliverables/templates/DECISION_BRIEF_EN.txt"
 fi
 
+# Add client README
+README_CLIENT="${OUT_DIR}/README_CLIENT_EN.txt"
+cat > "${README_CLIENT}" <<'EOF'
+This PDF is a client-safe decision audit of your website.
+Status shows whether critical blockers were found; next steps summarize priorities.
+Start with the Executive Summary and the top findings.
+If status is OK, focus on quick wins to lift conversion and clarity.
+If issues are found, fix the highest-impact items first, then re-run.
+We recommend a short follow-up call to discuss priorities and timing.
+EOF
+echo "Added README: ${README_CLIENT}"
+
 
 # Create ZIP
 echo "== Creating ZIP =="
-if ! ( cd "deliverables/out" && rm -f "${CAMPAIGN}.zip" && zip -r "${CAMPAIGN}.zip" "${CAMPAIGN}" >/dev/null ); then
+ZIP_LIST="$(mktemp "${OUT_DIR}/zip_list.XXXXXX")"
+find "${OUT_DIR}" -maxdepth 1 -type f \( -name "*.pdf" -o -name "DECISION_BRIEF_*.txt" -o -name "README_CLIENT_*.txt" \) -print > "${ZIP_LIST}"
+if ! ( rm -f "${ZIP_PATH}" && zip -j "${ZIP_PATH}" -@ < "${ZIP_LIST}" >/dev/null ); then
   echo "FATAL: ZIP packaging failed"
   exit 2
 fi
+rm -f "${ZIP_LIST}"
 echo "ZIP ready: ${REPO_ROOT}/${ZIP_PATH}"
 
 # End summary (safe with pipefail when there are 0 matches)
@@ -195,13 +210,8 @@ if [[ "${CLEANUP}" -eq 1 ]]; then
   mkdir -p "${ARCHIVE_DIR}"
   ARCHIVE_ZIP_NAME="${BASE_CAMPAIGN}_en.zip"
   cp -f "${ZIP_PATH}" "${ARCHIVE_DIR}/${ARCHIVE_ZIP_NAME}"
-  cp -f "${TARGETS_FILE}" "${ARCHIVE_DIR}/targets.txt"
-if [[ -f "${OUT_DIR}/DECISION_BRIEF_EN.txt" ]]; then
-  cp -f "${OUT_DIR}/DECISION_BRIEF_EN.txt" "${ARCHIVE_DIR}/DECISION_BRIEF_EN.txt"
-fi
-  if [[ -f "${RUN_LOG}" ]]; then
-  cp -f "${RUN_LOG}" "${ARCHIVE_DIR}/run.log"
-  fi
+  find "${OUT_DIR}" -maxdepth 1 -type f \( -name "*.pdf" -o -name "DECISION_BRIEF_*.txt" -o -name "README_CLIENT_*.txt" \) -print0 | \
+    xargs -0 -I{} cp -f "{}" "${ARCHIVE_DIR}/"
   TARGETS_ABS="$(cd "$(dirname "${TARGETS_FILE}")" && pwd)/$(basename "${TARGETS_FILE}")"
   DELIVERABLES_ABS="$(cd "${REPO_ROOT}/deliverables" && pwd)"
   if [[ -f "${TARGETS_FILE}" && "${TARGETS_FILE}" == *.txt && "${TARGETS_ABS}" != "${DELIVERABLES_ABS}"/* ]]; then
