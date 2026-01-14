@@ -183,10 +183,18 @@ fi
 # Optional cleanup + archive
 if [[ "${CLEANUP}" -eq 1 ]]; then
   TODAY="$(date +%Y-%m-%d)"
-  ARCHIVE_DIR="deliverables/archive/${TODAY}/${CAMPAIGN}"
+  BASE_CAMPAIGN="${CAMPAIGN}"
+  shopt -s nocasematch
+  if [[ "${BASE_CAMPAIGN}" =~ ^(.*)_(ro|en)$ ]]; then
+    BASE_CAMPAIGN="${BASH_REMATCH[1]}"
+  fi
+  shopt -u nocasematch
+  ARCHIVE_ROOT="deliverables/archive/${TODAY}/${BASE_CAMPAIGN}"
+  ARCHIVE_DIR="${ARCHIVE_ROOT}/EN"
   echo "== Archiving to ${ARCHIVE_DIR} =="
   mkdir -p "${ARCHIVE_DIR}"
-  cp -f "${ZIP_PATH}" "${ARCHIVE_DIR}/${CAMPAIGN}.zip"
+  ARCHIVE_ZIP_NAME="${BASE_CAMPAIGN}_en.zip"
+  cp -f "${ZIP_PATH}" "${ARCHIVE_DIR}/${ARCHIVE_ZIP_NAME}"
   cp -f "${TARGETS_FILE}" "${ARCHIVE_DIR}/targets.txt"
 if [[ -f "${OUT_DIR}/DECISION_BRIEF_EN.txt" ]]; then
   cp -f "${OUT_DIR}/DECISION_BRIEF_EN.txt" "${ARCHIVE_DIR}/DECISION_BRIEF_EN.txt"
@@ -203,21 +211,21 @@ fi
   rm -f "${OUT_DIR}/run.log" "${LIST_FILE}"
   echo "Cleaned internal files from: ${OUT_DIR}"
 
+  ARCHIVE_ROOT_ABS="$(cd "${ARCHIVE_ROOT}" && pwd)"
   ARCHIVE_DIR_ABS="$(cd "${ARCHIVE_DIR}" && pwd)"
-  ARCHIVE_ZIP_ABS="${ARCHIVE_DIR_ABS}/${CAMPAIGN}.zip"
-  OUT_ZIP_ABS="$(cd "$(dirname "${ZIP_PATH}")" && pwd)/$(basename "${ZIP_PATH}")"
-  if [[ -f "${ARCHIVE_ZIP_ABS}" ]]; then
-    SHIP_ZIP_ABS="${ARCHIVE_ZIP_ABS}"
-  else
-    SHIP_ZIP_ABS="${OUT_ZIP_ABS}"
-  fi
+  ARCHIVE_ZIP_ABS="${ARCHIVE_DIR_ABS}/${ARCHIVE_ZIP_NAME}"
+  echo "SCOPE_SHIP_ROOT=${ARCHIVE_ROOT_ABS}"
   echo "SCOPE_SHIP_DIR_en=${ARCHIVE_DIR_ABS}"
-  echo "SCOPE_SHIP_ZIP_en=${SHIP_ZIP_ABS}"
+  echo "SCOPE_SHIP_ZIP_en=${ARCHIVE_ZIP_ABS}"
 fi
 
-# Open output folder in Finder (macOS)
-echo "== Opening output folder =="
-open "${OUT_DIR}" || true
+# Open output folder in Finder (macOS) if explicitly enabled
+if [[ "${SCOPE_AUTO_OPEN:-0}" == "1" ]]; then
+  echo "== Opening output folder =="
+  open "${OUT_DIR}" || true
+else
+  echo "Auto-open disabled (set SCOPE_AUTO_OPEN=1 to enable)"
+fi
 
 echo "DONE."
 exit "$RUN_EXIT"

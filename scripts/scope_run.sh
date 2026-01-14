@@ -20,6 +20,7 @@ fi
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="$ROOT_DIR/deliverables/logs"
 TS="$(date +"%Y-%m-%d_%H-%M-%S")"
+TODAY="$(date +%Y-%m-%d)"
 mkdir -p "$LOG_DIR"
 
 SAFE_CAMPAIGN="$(echo "$CAMPAIGN" | tr ' /' '__' | tr -cd '[:alnum:]_-.')"
@@ -139,5 +140,25 @@ esac
 log ""
 log "SCOPE runner finished with code: $overall"
 echo "SCOPE_LOG_FILE=$LOG_FILE"
+
+if [[ "$overall" -eq 0 || "$overall" -eq 1 ]]; then
+  BASE_CAMPAIGN="${CAMPAIGN}"
+  shopt -s nocasematch
+  if [[ "${BASE_CAMPAIGN}" =~ ^(.*)_(ro|en)$ ]]; then
+    BASE_CAMPAIGN="${BASH_REMATCH[1]}"
+  fi
+  shopt -u nocasematch
+
+  ARCHIVE_ROOT="$ROOT_DIR/deliverables/archive/${TODAY}/${BASE_CAMPAIGN}"
+  ARCHIVE_LOG_DIR="${ARCHIVE_ROOT}/logs"
+  mkdir -p "${ARCHIVE_LOG_DIR}"
+  ARCHIVE_LOG_PATH="${ARCHIVE_LOG_DIR}/scope_${BASE_CAMPAIGN}_${LANG_SEL}_${TS}.log"
+  cp -f "${LOG_FILE}" "${ARCHIVE_LOG_PATH}"
+
+  ARCHIVE_ROOT_ABS="$(cd "${ARCHIVE_ROOT}" && pwd)"
+  ARCHIVE_LOG_ABS="$(cd "${ARCHIVE_LOG_DIR}" && pwd)/$(basename "${ARCHIVE_LOG_PATH}")"
+  echo "SCOPE_SHIP_ROOT=${ARCHIVE_ROOT_ABS}"
+  echo "SCOPE_LOG_ARCHIVED=${ARCHIVE_LOG_ABS}"
+fi
 
 exit "$overall"
