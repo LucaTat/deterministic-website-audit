@@ -105,6 +105,10 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     labels = {
         "en": {
             "title": "Website Audit",
+            "cover_subtitle": "Decision-grade, client-safe audit",
+            "cover_audited_domain": "Audited domain",
+            "cover_campaign": "Campaign",
+            "cover_executive_summary": "Executive summary",
             "date": "Date",
             "website": "Website",
             "status": "Status",
@@ -181,6 +185,10 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         },
         "ro": {
             "title": "Audit Website",
+            "cover_subtitle": "Evaluare decizională, client-safe",
+            "cover_audited_domain": "Domeniu auditat",
+            "cover_campaign": "Campanie",
+            "cover_executive_summary": "Rezumat executiv",
             "date": "Data",
             "website": "Website",
             "status": "Status",
@@ -434,10 +442,10 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]))
     cover_meta = [
-        [Paragraph("Domeniu auditat:", styles["Small"]), Paragraph(url or "-", styles["Body"])],
-        [Paragraph("Data:", styles["Small"]), Paragraph(cover_date, styles["Body"])],
-        [Paragraph("Campanie:", styles["Small"]), Paragraph(campaign, styles["Body"])],
-        [Paragraph("Status:", styles["Small"]), status_table],
+        [Paragraph(f'{labels["cover_audited_domain"]}:', styles["Small"]), Paragraph(url or "-", styles["Body"])],
+        [Paragraph(f'{labels["date"]}:', styles["Small"]), Paragraph(cover_date, styles["Body"])],
+        [Paragraph(f'{labels["cover_campaign"]}:', styles["Small"]), Paragraph(campaign, styles["Body"])],
+        [Paragraph(f'{labels["status"]}:', styles["Small"]), status_table],
     ]
     cover_meta_table = Table(cover_meta, colWidths=[35 * mm, 120 * mm], hAlign="LEFT")
     cover_meta_table.setStyle(TableStyle([
@@ -463,13 +471,13 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     ]))
     cover_block = [
         Paragraph("Deterministic Website Audit", styles["H1"]),
-        Paragraph("Evaluare decizională, client-safe", styles["Small"]),
+        Paragraph(labels["cover_subtitle"], styles["Small"]),
         Spacer(1, 10),
         HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=0.6, width="100%"),
         Spacer(1, 10),
         cover_meta_table,
         Spacer(1, 12),
-        Paragraph("Rezumat executiv", styles["H2"]),
+        Paragraph(labels["cover_executive_summary"], styles["H2"]),
         Paragraph(summary_html, styles["Body"]),
         Spacer(1, 6),
         Paragraph("Expert interpretation (context)" if lang == "en" else "Interpretare expert (context)", styles["H2"]),
