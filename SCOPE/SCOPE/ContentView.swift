@@ -87,6 +87,7 @@ struct ContentView: View {
     @State private var result: ScopeResult? = nil
     @State private var selectedPDF: String? = nil
     @State private var selectedZIPLang: String = "ro"
+    @State private var showZipInfo: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -138,77 +139,116 @@ struct ContentView: View {
 
             Divider()
 
-            HStack(spacing: 10) {
-                Button("Run Audit") { runAudit() }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    Button { runAudit() } label: {
+                        Label("Run", systemImage: "play.fill")
+                    }
                     .disabled(isRunning || !hasAtLeastOneValidURL())
 
-                Button("Set Repo…") { setRepoPath() }
+                    Button { setRepoPath() } label: {
+                        Label("Set Repo", systemImage: "folder.badge.plus")
+                    }
                     .disabled(isRunning)
 
-                Button("Open Logs") { openLogs() }
+                    Spacer()
+
+                    statusPill
+                }
+
+                HStack(spacing: 10) {
+                    if lang == "both" {
+                        Button { openShipFolder(forLang: "ro") } label: {
+                            Label("Ship (RO)", systemImage: "shippingbox.fill")
+                        }
+                        .disabled(isRunning || shipDirPath(forLang: "ro") == nil)
+
+                        Button { openShipFolder(forLang: "en") } label: {
+                            Label("Ship (EN)", systemImage: "shippingbox.fill")
+                        }
+                        .disabled(isRunning || shipDirPath(forLang: "en") == nil)
+                    } else {
+                        Button { openShipFolder(forLang: lang) } label: {
+                            Label("Ship Folder", systemImage: "shippingbox.fill")
+                        }
+                        .disabled(isRunning || shipDirPath(forLang: lang) == nil)
+                    }
+
+                    if lang == "both" {
+                        Button { openZIP(forLang: "ro") } label: {
+                            Label("ZIP (RO)", systemImage: "archivebox.fill")
+                        }
+                        .disabled(isRunning || zipPath(forLang: "ro") == nil)
+
+                        Button { openZIP(forLang: "en") } label: {
+                            Label("ZIP (EN)", systemImage: "archivebox.fill")
+                        }
+                        .disabled(isRunning || zipPath(forLang: "en") == nil)
+                    } else {
+                        Button { openZIPIfAny() } label: {
+                            Label("ZIP", systemImage: "archivebox.fill")
+                        }
+                        .disabled(isRunning || currentZipPath() == nil)
+                    }
+
+                    Button { showZipInfo.toggle() } label: {
+                        Image(systemName: "info.circle")
+                            .accessibilityLabel("ZIP info")
+                    }
+                    .buttonStyle(.borderless)
+                    .popover(isPresented: $showZipInfo) {
+                        Text("Opens Finder and selects the ZIP file")
+                            .font(.footnote)
+                            .padding(12)
+                    }
+
+                    Button { openOutputFolder() } label: {
+                        Label("Out", systemImage: "folder.fill")
+                    }
+                    .disabled(isRunning || outputFolderPath() == nil)
+                }
+
+                HStack(spacing: 10) {
+                    Button { openLogs() } label: {
+                        Label("Logs", systemImage: "doc.text.magnifyingglass")
+                    }
                     .disabled(isRunning == false && (result?.logFile == nil))
 
-                Button("Open Evidence") { openEvidence() }
+                    Button { openEvidence() } label: {
+                        Label("Evidence", systemImage: "tray.full.fill")
+                    }
                     .disabled(isRunning == false && !canOpenEvidence())
 
-                if lang == "both" {
-                    Button("Open ZIP (RO)") { openZIP(forLang: "ro") }
-                        .disabled(isRunning || zipPath(forLang: "ro") == nil)
-                    Button("Open ZIP (EN)") { openZIP(forLang: "en") }
-                        .disabled(isRunning || zipPath(forLang: "en") == nil)
-                } else {
-                    Button("Open ZIP") { openZIPIfAny() }
-                        .disabled(isRunning || currentZipPath() == nil)
-                }
-
-                Text("Opens Finder and selects the ZIP file")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-
-                Button("Open Output Folder") { openOutputFolder() }
-                    .disabled(isRunning || outputFolderPath() == nil)
-
-                if lang == "both" {
-                    Button("Open Ship Folder (RO)") { openShipFolder(forLang: "ro") }
-                        .disabled(isRunning || shipDirPath(forLang: "ro") == nil)
-                    Button("Open Ship Folder (EN)") { openShipFolder(forLang: "en") }
-                        .disabled(isRunning || shipDirPath(forLang: "en") == nil)
-                } else {
-                    Button("Open Ship Folder") { openShipFolder(forLang: lang) }
-                        .disabled(isRunning || shipDirPath(forLang: lang) == nil)
-                }
-
-                // PDF picker + open
-                if let pdfs = result?.pdfPaths, !pdfs.isEmpty {
-                    if pdfs.count > 1 {
-                        Picker("", selection: $selectedPDF) {
-                            ForEach(pdfs, id: \.self) { path in
-                                Text(displayName(forPath: path))
-                                    .tag(Optional(path))
+                    if let pdfs = result?.pdfPaths, !pdfs.isEmpty {
+                        if pdfs.count > 1 {
+                            Picker("", selection: $selectedPDF) {
+                                ForEach(pdfs, id: \.self) { path in
+                                    Text(displayName(forPath: path))
+                                        .tag(Optional(path))
+                                }
+                            }
+                            .frame(maxWidth: 360)
+                        } else {
+                            Color.clear.onAppear {
+                                selectedPDF = pdfs.first
                             }
                         }
-                        .frame(maxWidth: 360)
+
+                        Button {
+                            if let p = selectedPDF ?? pdfs.first {
+                                revealAndOpenFile(p)
+                            }
+                        } label: {
+                            Label("PDF", systemImage: "doc.richtext")
+                        }
+                        .disabled(isRunning)
                     } else {
-                        // ensure selection
-                        Color.clear.onAppear {
-                            selectedPDF = pdfs.first
+                        Button { } label: {
+                            Label("PDF", systemImage: "doc.richtext")
                         }
-                    }
-
-                    Button("Open PDF") {
-                        if let p = selectedPDF ?? pdfs.first {
-                            revealAndOpenFile(p)
-                        }
-                    }
-                    .disabled(isRunning)
-                } else {
-                    Button("Open PDF") { }
                         .disabled(true)
+                    }
                 }
-
-                Spacer()
-
-                statusPill
             }
 
             VStack(alignment: .leading, spacing: 6) {
