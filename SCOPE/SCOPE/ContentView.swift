@@ -87,7 +87,6 @@ struct ContentView: View {
     @State private var result: ScopeResult? = nil
     @State private var selectedPDF: String? = nil
     @State private var selectedZIPLang: String = "ro"
-    @State private var showZipInfo: Bool = false
     @State private var readyToSend: Bool = false
     @State private var lastRunCampaign: String? = nil
     @State private var lastRunLang: String? = nil
@@ -178,13 +177,14 @@ struct ContentView: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 10) {
-                        Button { runAudit() } label: {
-                            Label("Run", systemImage: "play.fill")
-                        }
+                    Button { runAudit() } label: {
+                        Label("Run", systemImage: "play.fill")
+                    }
                         .buttonStyle(.bordered)
                         .tint(.accentColor)
-                        .disabled(isRunning || !hasAtLeastOneValidURL() || !campaignIsValid())
-                        .help(runHelpText())
+                    .disabled(isRunning || !hasAtLeastOneValidURL() || !campaignIsValid())
+                    .help(runHelpText())
+                    InfoButton(text: "Runs the audit engine and prepares deliverables. When finished, use Ship Folder to send the ZIP.")
 
                         Button { setRepoPath() } label: {
                             Label("Set Repo", systemImage: "folder.badge.plus")
@@ -221,6 +221,7 @@ struct ContentView: View {
                             .tint(readyToSend && lang == "both" ? .accentColor : .secondary)
                             .disabled(isRunning || shipDirPath(forLang: "ro") == nil)
                             .help(shipHelpText(forLang: "ro"))
+                            InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
 
                             Button { openShipFolder(forLang: "en") } label: {
                                 Label("Ship (EN)", systemImage: "shippingbox.fill")
@@ -229,6 +230,7 @@ struct ContentView: View {
                             .tint(readyToSend && lang == "both" ? .accentColor : .secondary)
                             .disabled(isRunning || shipDirPath(forLang: "en") == nil)
                             .help(shipHelpText(forLang: "en"))
+                            InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
                         } else {
                             Button { openShipFolder(forLang: lang) } label: {
                                 Label("Ship Folder", systemImage: "shippingbox.fill")
@@ -237,6 +239,7 @@ struct ContentView: View {
                             .tint(readyToSend ? .accentColor : .secondary)
                             .disabled(isRunning || shipDirPath(forLang: lang) == nil)
                             .help(shipHelpText(forLang: lang))
+                            InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
                         }
 
                         if lang == "both" {
@@ -246,6 +249,7 @@ struct ContentView: View {
                             .buttonStyle(.bordered)
                             .disabled(isRunning || zipPath(forLang: "ro") == nil)
                             .help(zipHelpText(forLang: "ro"))
+                            InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
 
                             Button { openZIP(forLang: "en") } label: {
                                 Label("ZIP (EN)", systemImage: "archivebox.fill")
@@ -253,6 +257,7 @@ struct ContentView: View {
                             .buttonStyle(.bordered)
                             .disabled(isRunning || zipPath(forLang: "en") == nil)
                             .help(zipHelpText(forLang: "en"))
+                            InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
                         } else {
                             Button { openZIPIfAny() } label: {
                                 Label("ZIP", systemImage: "archivebox.fill")
@@ -260,18 +265,7 @@ struct ContentView: View {
                             .buttonStyle(.bordered)
                             .disabled(isRunning || currentZipPath() == nil)
                             .help(zipHelpText(forLang: lang))
-                        }
-
-                        Button { showZipInfo.toggle() } label: {
-                            Image(systemName: "info.circle")
-                                .accessibilityLabel("ZIP info")
-                        }
-                        .buttonStyle(.borderless)
-                        .help("What happens when opening ZIP")
-                        .popover(isPresented: $showZipInfo) {
-                            Text("Opens Finder and selects the ZIP file")
-                                .font(.footnote)
-                                .padding(12)
+                            InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
                         }
 
                         Button { openOutputFolder() } label: {
@@ -313,6 +307,7 @@ struct ContentView: View {
                         .buttonStyle(.bordered)
                         .disabled(isRunning == false && (result?.logFile == nil))
                         .help(logsHelpText())
+                        InfoButton(text: "Opens the latest run log for troubleshooting.")
 
                         Button { openEvidence() } label: {
                             Label("Evidence", systemImage: "tray.full.fill")
@@ -320,6 +315,7 @@ struct ContentView: View {
                         .buttonStyle(.bordered)
                         .disabled(isRunning == false && !canOpenEvidence())
                         .help(evidenceHelpText())
+                        InfoButton(text: "Opens the raw audit output (PDF/JSON/evidence) under reports.")
 
                         if let pdfs = result?.pdfPaths, !pdfs.isEmpty {
                             if pdfs.count > 1 {
@@ -347,6 +343,7 @@ struct ContentView: View {
                             .buttonStyle(.bordered)
                             .disabled(isRunning)
                             .help(pdfHelpText())
+                            InfoButton(text: "Opens the generated audit PDF from the last run.")
                         } else {
                             Button { } label: {
                                 Label("PDF", systemImage: "doc.richtext")
@@ -354,6 +351,7 @@ struct ContentView: View {
                             .buttonStyle(.bordered)
                             .disabled(true)
                             .help(pdfHelpText())
+                            InfoButton(text: "Opens the generated audit PDF from the last run.")
                         }
                     }
 
@@ -426,7 +424,6 @@ struct ContentView: View {
         lastRunCampaign = nil
         lastRunLang = nil
         lastRunStatus = nil
-        showZipInfo = false
     }
 
     // MARK: - URL validation
@@ -548,6 +545,28 @@ struct ContentView: View {
             return "Open the selected PDF. No PDFs yet."
         }
         return "Open the selected PDF"
+    }
+
+    private struct InfoButton: View {
+        let text: String
+        @State private var isPresented: Bool = false
+
+        var body: some View {
+            Button {
+                isPresented.toggle()
+            } label: {
+                Image(systemName: "info.circle")
+                    .foregroundColor(.secondary)
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .popover(isPresented: $isPresented) {
+                Text(text)
+                    .font(.footnote)
+                    .frame(maxWidth: 320, alignment: .leading)
+                    .padding(12)
+            }
+        }
     }
 
     // MARK: - Helpers
@@ -962,4 +981,3 @@ struct ContentView: View {
         return pdfs
     }
 }
-
