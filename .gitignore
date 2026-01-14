@@ -33,3 +33,7 @@ test_10_sites.txt
 
 # Never commit deliverables outputs
 deliverables/
+# Xcode user UI state (local only)
+*.xcuserstate
+xcuserdata/
+
