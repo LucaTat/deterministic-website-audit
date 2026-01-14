@@ -67,6 +67,9 @@ struct ScopeResult {
     var zipByLang: [String: String] = [:]
     var outDirByLang: [String: String] = [:]
     var shipDirByLang: [String: String] = [:]
+    var shipZipByLang: [String: String] = [:]
+    var shipRoot: String? = nil
+    var archivedLogFile: String? = nil
 }
 
 // MARK: - ContentView
@@ -177,14 +180,14 @@ struct ContentView: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 10) {
-                    Button { runAudit() } label: {
-                        Label("Run", systemImage: "play.fill")
-                    }
+                        Button { runAudit() } label: {
+                            Label("Run", systemImage: "play.fill")
+                        }
                         .buttonStyle(.bordered)
                         .tint(.accentColor)
-                    .disabled(isRunning || !hasAtLeastOneValidURL() || !campaignIsValid())
-                    .help(runHelpText())
-                    InfoButton(text: "Runs the audit engine and prepares deliverables. When finished, use Ship Folder to send the ZIP.")
+                        .disabled(isRunning || !hasAtLeastOneValidURL() || !campaignIsValid())
+                        .help(runHelpText())
+                        InfoButton(text: "Runs the audit engine and prepares deliverables. When finished, use Ship Root to send the ZIP.")
 
                         Button { setRepoPath() } label: {
                             Label("Set Repo", systemImage: "folder.badge.plus")
@@ -213,12 +216,21 @@ struct ContentView: View {
                     }
 
                     HStack(spacing: 10) {
+                        Button { openShipRoot() } label: {
+                            Label("Ship Root", systemImage: "shippingbox.fill")
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(readyToSend ? .accentColor : .secondary)
+                        .disabled(isRunning || shipRootPath() == nil)
+                        .help(shipRootHelpText())
+                        InfoButton(text: "Opens the final delivery root folder for this campaign.")
+
                         if lang == "both" {
                             Button { openShipFolder(forLang: "ro") } label: {
                                 Label("Ship (RO)", systemImage: "shippingbox.fill")
                             }
                             .buttonStyle(.bordered)
-                            .tint(readyToSend && lang == "both" ? .accentColor : .secondary)
+                            .tint(.secondary)
                             .disabled(isRunning || shipDirPath(forLang: "ro") == nil)
                             .help(shipHelpText(forLang: "ro"))
                             InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
@@ -227,7 +239,7 @@ struct ContentView: View {
                                 Label("Ship (EN)", systemImage: "shippingbox.fill")
                             }
                             .buttonStyle(.bordered)
-                            .tint(readyToSend && lang == "both" ? .accentColor : .secondary)
+                            .tint(.secondary)
                             .disabled(isRunning || shipDirPath(forLang: "en") == nil)
                             .help(shipHelpText(forLang: "en"))
                             InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
@@ -236,7 +248,7 @@ struct ContentView: View {
                                 Label("Ship Folder", systemImage: "shippingbox.fill")
                             }
                             .buttonStyle(.bordered)
-                            .tint(readyToSend ? .accentColor : .secondary)
+                            .tint(.secondary)
                             .disabled(isRunning || shipDirPath(forLang: lang) == nil)
                             .help(shipHelpText(forLang: lang))
                             InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
@@ -247,7 +259,7 @@ struct ContentView: View {
                                 Label("ZIP (RO)", systemImage: "archivebox.fill")
                             }
                             .buttonStyle(.bordered)
-                            .disabled(isRunning || zipPath(forLang: "ro") == nil)
+                            .disabled(isRunning || shipZipPath(forLang: "ro") == nil)
                             .help(zipHelpText(forLang: "ro"))
                             InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
 
@@ -255,7 +267,7 @@ struct ContentView: View {
                                 Label("ZIP (EN)", systemImage: "archivebox.fill")
                             }
                             .buttonStyle(.bordered)
-                            .disabled(isRunning || zipPath(forLang: "en") == nil)
+                            .disabled(isRunning || shipZipPath(forLang: "en") == nil)
                             .help(zipHelpText(forLang: "en"))
                             InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
                         } else {
@@ -263,7 +275,7 @@ struct ContentView: View {
                                 Label("ZIP", systemImage: "archivebox.fill")
                             }
                             .buttonStyle(.bordered)
-                            .disabled(isRunning || currentZipPath() == nil)
+                            .disabled(isRunning || shipZipPath(forLang: lang) == nil)
                             .help(zipHelpText(forLang: lang))
                             InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
                         }
@@ -305,7 +317,7 @@ struct ContentView: View {
                             Label("Logs", systemImage: "doc.text.magnifyingglass")
                         }
                         .buttonStyle(.bordered)
-                        .disabled(isRunning == false && (result?.logFile == nil))
+                        .disabled(isRunning == false && (result?.logFile == nil) && (result?.archivedLogFile == nil))
                         .help(logsHelpText())
                         InfoButton(text: "Opens the latest run log for troubleshooting.")
 
@@ -464,13 +476,13 @@ struct ContentView: View {
 
     private func shipDisabledReason() -> String? {
         if isRunning { return "Ship disabled: Running…" }
-        if !hasShipForCurrentLang() { return "Ship disabled: Run first" }
+        if !hasShipForCurrentLang() { return "Ship disabled: No ship folder yet" }
         return nil
     }
 
     private func zipDisabledReason() -> String? {
         if isRunning { return "ZIP disabled: Running…" }
-        if !hasZipForCurrentLang() { return "ZIP disabled: Run first" }
+        if !hasZipForCurrentLang() { return "ZIP disabled: No ZIP yet" }
         return nil
     }
 
@@ -489,9 +501,9 @@ struct ContentView: View {
 
     private func hasZipForCurrentLang() -> Bool {
         if lang == "both" {
-            return zipPath(forLang: "ro") != nil || zipPath(forLang: "en") != nil
+            return shipZipPath(forLang: "ro") != nil || shipZipPath(forLang: "en") != nil
         }
-        return zipPath(forLang: lang) != nil
+        return shipZipPath(forLang: lang) != nil
     }
 
     private func runHelpText() -> String {
@@ -510,6 +522,13 @@ struct ContentView: View {
         return "Open the ship/archive folder"
     }
 
+    private func shipRootHelpText() -> String {
+        if shipRootPath() == nil {
+            return "Open delivery root. Run first."
+        }
+        return "Open the final delivery root folder for this campaign"
+    }
+
     private func zipHelpText(forLang lang: String) -> String {
         if let reason = zipDisabledReason() {
             return "Open ZIP for the last run. \(reason)"
@@ -521,13 +540,13 @@ struct ContentView: View {
 
     private func outputHelpText() -> String {
         if outputFolderPath() == nil {
-            return "Open deliverables/out. Run first."
+            return "Open archive root. Run first."
         }
-        return "Open deliverables/out"
+        return "Open archive root"
     }
 
     private func logsHelpText() -> String {
-        if result?.logFile == nil {
+        if (result?.archivedLogFile == nil) && (result?.logFile == nil) {
             return "Open logs folder. Run first."
         }
         return "Open the run log file or logs folder"
@@ -610,6 +629,10 @@ struct ContentView: View {
     // MARK: - Finder actions
 
     private func openLogs() {
+        if let archived = result?.archivedLogFile, FileManager.default.fileExists(atPath: archived) {
+            revealAndOpenFile(archived)
+            return
+        }
         if let log = result?.logFile, FileManager.default.fileExists(atPath: log) {
             revealAndOpenFile(log)
             return
@@ -645,12 +668,12 @@ struct ContentView: View {
     }
 
     private func openZIPIfAny() {
-        guard let zipPath = currentZipPath() else { return }
+        guard let zipPath = shipZipPath(forLang: lang) else { return }
         revealAndOpenFile(zipPath)
     }
 
     private func openZIP(forLang lang: String) {
-        guard let zipPath = zipPath(forLang: lang) else { return }
+        guard let zipPath = shipZipPath(forLang: lang) else { return }
         revealAndOpenFile(zipPath)
     }
 
@@ -755,6 +778,9 @@ struct ContentView: View {
                 r.zipByLang = hints.zipByLang
                 r.outDirByLang = hints.outDirByLang
                 r.shipDirByLang = hints.shipDirByLang
+                r.shipZipByLang = hints.shipZipByLang
+                r.shipRoot = hints.shipRoot
+                r.archivedLogFile = hints.archivedLogFile
 
                 // PDFs: find under reports + deliverables/out
                 let pdfs = self.discoverPDFs(repoRoot: repoRoot)
@@ -790,11 +816,14 @@ struct ContentView: View {
         }
     }
 
-    private func parseScopeHints(from output: String) -> (logFile: String?, zipByLang: [String: String], outDirByLang: [String: String], shipDirByLang: [String: String]) {
+    private func parseScopeHints(from output: String) -> (logFile: String?, zipByLang: [String: String], outDirByLang: [String: String], shipDirByLang: [String: String], shipZipByLang: [String: String], shipRoot: String?, archivedLogFile: String?) {
         var logFile: String? = nil
         var zipByLang: [String: String] = [:]
         var outDirByLang: [String: String] = [:]
         var shipDirByLang: [String: String] = [:]
+        var shipZipByLang: [String: String] = [:]
+        var shipRoot: String? = nil
+        var archivedLogFile: String? = nil
 
         for lineSub in output.split(separator: "\n") {
             let line = String(lineSub)
@@ -824,10 +853,26 @@ struct ContentView: View {
                     let key = String(parts[0].dropFirst("SCOPE_SHIP_DIR_".count)).lowercased()
                     shipDirByLang[key] = parts[1]
                 }
+                continue
+            }
+            if line.hasPrefix("SCOPE_SHIP_ZIP_") {
+                let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+                if parts.count == 2 {
+                    let key = String(parts[0].dropFirst("SCOPE_SHIP_ZIP_".count)).lowercased()
+                    shipZipByLang[key] = parts[1]
+                }
+                continue
+            }
+            if line.hasPrefix("SCOPE_SHIP_ROOT=") {
+                shipRoot = String(line.dropFirst("SCOPE_SHIP_ROOT=".count))
+                continue
+            }
+            if line.hasPrefix("SCOPE_LOG_ARCHIVED=") {
+                archivedLogFile = String(line.dropFirst("SCOPE_LOG_ARCHIVED=".count))
             }
         }
 
-        return (logFile, zipByLang, outDirByLang, shipDirByLang)
+        return (logFile, zipByLang, outDirByLang, shipDirByLang, shipZipByLang, shipRoot, archivedLogFile)
     }
 
     private func availableZipLangs() -> [String]? {
@@ -838,22 +883,15 @@ struct ContentView: View {
         return zips.keys.sorted()
     }
 
-    private func zipPath(forLang lang: String) -> String? {
-        guard let zips = result?.zipByLang, !zips.isEmpty else { return nil }
+    private func shipZipPath(forLang lang: String) -> String? {
+        guard let zips = result?.shipZipByLang, !zips.isEmpty else { return nil }
         guard let path = zips[lang], FileManager.default.fileExists(atPath: path) else { return nil }
         return path
     }
 
-    private func currentZipPath() -> String? {
-        guard let zips = result?.zipByLang, !zips.isEmpty else { return nil }
-        let key = (lang == "both") ? selectedZIPLang : lang
-        if let path = zips[key], FileManager.default.fileExists(atPath: path) {
-            return path
-        }
-        for (_, path) in zips where FileManager.default.fileExists(atPath: path) {
-            return path
-        }
-        return nil
+    private func shipRootPath() -> String? {
+        guard let root = result?.shipRoot, !root.isEmpty else { return nil }
+        return FileManager.default.fileExists(atPath: root) ? root : nil
     }
 
     private func shipDirPath(forLang lang: String) -> String? {
@@ -867,10 +905,13 @@ struct ContentView: View {
         openFolder(path)
     }
 
+    private func openShipRoot() {
+        guard let path = shipRootPath() else { return }
+        openFolder(path)
+    }
+
     private func outputFolderPath() -> String? {
-        guard let repo = try? ScopeRepoLocator.locateRepo() else { return nil }
-        let outDir = (repo as NSString).appendingPathComponent("deliverables/out")
-        return FileManager.default.fileExists(atPath: outDir) ? outDir : nil
+        return shipRootPath()
     }
 
     private func openOutputFolder() {
@@ -880,10 +921,7 @@ struct ContentView: View {
 
     private func readyToSendHint() -> String? {
         guard readyToSend else { return nil }
-        if lang == "both" {
-            return "Ready to send — open Ship Folder (RO/EN)"
-        }
-        return "Ready to send — open Ship Folder"
+        return "Ready to send — open Ship Root"
     }
 
     private func lastRunSummary() -> String? {
@@ -895,7 +933,7 @@ struct ContentView: View {
     }
 
     private func zipCountAvailable() -> Int {
-        guard let zips = result?.zipByLang else { return 0 }
+        guard let zips = result?.shipZipByLang else { return 0 }
         return zips.values.filter { FileManager.default.fileExists(atPath: $0) }.count
     }
 
