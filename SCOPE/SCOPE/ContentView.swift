@@ -125,7 +125,7 @@ struct ContentView: View {
                     Picker("", selection: $lang) {
                         Text("RO").tag("ro")
                         Text("EN").tag("en")
-                        Text("Both").tag("both")
+                        Text("RO + EN (2 deliverables)").tag("both")
                     }
                     .pickerStyle(.segmented)
                     .frame(maxWidth: 320)
@@ -150,24 +150,14 @@ struct ContentView: View {
                 Button("Open Evidence") { openEvidence() }
                     .disabled(isRunning == false && !canOpenEvidence())
 
-                Button("Open ZIP") { openZIPIfAny() }
-                    .disabled(isRunning || currentZipPath() == nil)
-
-                if let zipLangs = availableZipLangs(), !zipLangs.isEmpty {
-                    if lang == "both" && zipLangs.count > 1 {
-                        Picker("", selection: $selectedZIPLang) {
-                            ForEach(zipLangs, id: \.self) { l in
-                                Text("ZIP \(l.uppercased())").tag(l)
-                            }
-                        }
-                        .frame(maxWidth: 140)
-                    } else {
-                        Color.clear.onAppear {
-                            if let first = zipLangs.first {
-                                selectedZIPLang = first
-                            }
-                        }
-                    }
+                if lang == "both" {
+                    Button("Open ZIP (RO)") { openZIP(forLang: "ro") }
+                        .disabled(isRunning || zipPath(forLang: "ro") == nil)
+                    Button("Open ZIP (EN)") { openZIP(forLang: "en") }
+                        .disabled(isRunning || zipPath(forLang: "en") == nil)
+                } else {
+                    Button("Open ZIP") { openZIPIfAny() }
+                        .disabled(isRunning || currentZipPath() == nil)
                 }
 
                 // PDF picker + open
@@ -347,6 +337,11 @@ struct ContentView: View {
         revealAndOpenFile(zipPath)
     }
 
+    private func openZIP(forLang lang: String) {
+        guard let zipPath = zipPath(forLang: lang) else { return }
+        revealAndOpenFile(zipPath)
+    }
+
     // MARK: - Repo chooser
 
     private func setRepoPath() {
@@ -505,6 +500,12 @@ struct ContentView: View {
         let known = ordered.filter { zips[$0] != nil }
         if !known.isEmpty { return known }
         return zips.keys.sorted()
+    }
+
+    private func zipPath(forLang lang: String) -> String? {
+        guard let zips = result?.zipByLang, !zips.isEmpty else { return nil }
+        guard let path = zips[lang], FileManager.default.fileExists(atPath: path) else { return nil }
+        return path
     }
 
     private func currentZipPath() -> String? {
