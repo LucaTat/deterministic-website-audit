@@ -60,6 +60,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
+PYTHON_BIN="${REPO_ROOT}/.venv/bin/python3"
+if [[ ! -x "${PYTHON_BIN}" ]]; then
+  PYTHON_BIN="$(command -v python3)"
+fi
+
 if [[ ! -f "batch.py" ]]; then
   echo "FATAL: batch.py not found. Run this from the repo root."
   echo "Current: ${PWD}"
@@ -83,7 +88,7 @@ RUN_LOG="${OUT_DIR}/run.log"
 # Output live + log, fără să omoare scriptul din cauza pipefail
 set +e
 set +o pipefail
-python3 batch.py --lang ro --targets "${TARGETS_FILE}" 2>&1 | tee "${RUN_LOG}"
+"${PYTHON_BIN}" batch.py --lang ro --targets "${TARGETS_FILE}" 2>&1 | tee "${RUN_LOG}"
 RUN_EXIT=${PIPESTATUS[0]}
 set -o pipefail
 set -e
@@ -115,7 +120,7 @@ while read -r PDF_PATH; do
   JSON_PATH="$(dirname "${PDF_PATH}")/audit.json"
   STATUS="UNKNOWN"
   if [[ -f "${JSON_PATH}" ]]; then
-    MODE="$(python3 - <<'PY' "${JSON_PATH}"
+    MODE="$("${PYTHON_BIN}" - <<'PY' "${JSON_PATH}"
 import json,sys
 with open(sys.argv[1], "r", encoding="utf-8") as f:
     print((json.load(f).get("mode") or "").strip())

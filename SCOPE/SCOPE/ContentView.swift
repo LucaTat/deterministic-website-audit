@@ -1,90 +1,80 @@
 import SwiftUI
 import AppKit
 
-// MARK: - Models
-
-struct ScopeResult {
-    var pdfs: [String] = []
-    var evidenceDirs: [String] = []
-    var zip: String? = nil
-    var repoRoot: String
-    var runDir: String
-}
-
-// MARK: - Repo Locator (saved path + quick heuristics)
+// MARK: - Repo locator
 
 enum ScopeRepoError: Error {
     case notFound
     case invalidRepo
 }
 
-final class ScopeRepoLocator {
-    static let appSupportDir: URL = {
+struct ScopeRepoLocator {
+    static var appSupportDir: String {
         let fm = FileManager.default
-        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = base.appendingPathComponent("SCOPE", isDirectory: true)
-        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let base = (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true))?.path
+        let dir = (base ?? NSHomeDirectory() + "/Library/Application Support") + "/SCOPE"
+        try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
         return dir
-    }()
+    }
 
-    static let savedRepoPathFile: URL = {
-        appSupportDir.appendingPathComponent("repo_path.txt")
-    }()
+    static var savedRepoPathFile: String {
+        appSupportDir + "/repo_path.txt"
+    }
 
     static func isRepoRoot(_ path: String) -> Bool {
-        let root = URL(fileURLWithPath: path)
-        let batch = root.appendingPathComponent("batch.py").path
-        let shipRO = root.appendingPathComponent("scripts/ship_ro.sh").path
-        let shipEN = root.appendingPathComponent("scripts/ship_en.sh").path
-        let runner = root.appendingPathComponent("scripts/scope_run.sh").path
-
-        return FileManager.default.fileExists(atPath: batch)
-            && FileManager.default.fileExists(atPath: shipRO)
-            && FileManager.default.fileExists(atPath: shipEN)
-            && FileManager.default.fileExists(atPath: runner)
-    }
-
-    static func readSavedRepoPath() -> String? {
-        guard let data = try? Data(contentsOf: savedRepoPathFile),
-              let s = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-              !s.isEmpty else { return nil }
-        return s
-    }
-
-    static func saveRepoPath(_ path: String) {
-        let s = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        try? s.data(using: .utf8)?.write(to: savedRepoPathFile, options: .atomic)
-    }
-
-    static func defaultCandidates() -> [String] {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return [
-            "\(home)/Desktop/deterministic-website-audit",
-            "\(home)/Documents/deterministic-website-audit",
-            "\(home)/deterministic-website-audit"
+        let fm = FileManager.default
+        let required = [
+            "batch.py",
+            "scripts/scope_run.sh",
+            "scripts/ship_ro.sh",
+            "scripts/ship_en.sh"
         ]
+        for r in required {
+            if !fm.fileExists(atPath: (path as NSString).appendingPathComponent(r)) { return false }
+        }
+        return true
     }
 
     static func locateRepo() throws -> String {
-        if let saved = readSavedRepoPath(), isRepoRoot(saved) {
+        // 1) saved
+        if let saved = try? String(contentsOfFile: savedRepoPathFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
+           !saved.isEmpty,
+           isRepoRoot(saved) {
             return saved
         }
-        for c in defaultCandidates() where isRepoRoot(c) {
-            return c
-        }
+
+        // 2) heuristics
+        let candidates = [
+            NSHomeDirectory() + "/Desktop/deterministic-website-audit",
+            NSHomeDirectory() + "/Documents/deterministic-website-audit"
+        ]
+        for c in candidates where isRepoRoot(c) { return c }
+
         throw ScopeRepoError.notFound
     }
+
+    static func saveRepoPath(_ path: String) throws {
+        guard isRepoRoot(path) else { throw ScopeRepoError.invalidRepo }
+        try path.write(toFile: savedRepoPathFile, atomically: true, encoding: .utf8)
+    }
+}
+
+// MARK: - Result model
+
+struct ScopeResult {
+    var pdfPaths: [String] = []
+    var logFile: String? = nil
+    var zipByLang: [String: String] = [:]
+    var outDirByLang: [String: String] = [:]
 }
 
 // MARK: - ContentView
 
 struct ContentView: View {
-
     // Inputs
-    @State private var urls: String = ""
+    @State private var urlsText: String = ""
     @State private var campaign: String = ""
-    @State private var lang: String = "ro"      // ro|en|both
+    @State private var lang: String = "ro" // ro|en|both
     @State private var cleanup: Bool = true
 
     // Runtime state
@@ -95,37 +85,201 @@ struct ContentView: View {
     // Results
     @State private var result: ScopeResult? = nil
     @State private var selectedPDF: String? = nil
+    @State private var selectedZIPLang: String = "ro"
 
-    // Run dirs
-    @State private var currentRunDir: String? = nil
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Audit decizional – operator mode")
+                    .font(.title3)
+                    .foregroundColor(.primary)
 
-    // MARK: - Helpers (UI)
+                Divider()
+            }
 
-    func alert(_ title: String, _ message: String) {
-        let a = NSAlert()
-        a.messageText = title
-        a.informativeText = message
-        a.alertStyle = .warning
-        a.runModal()
-    }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("URL-uri (un URL pe linie)")
+                    .font(.headline)
 
-    func statusLabel(for code: Int32) -> String {
-        switch code {
-        case 0: return "OK"
-        case 1: return "BROKEN"
-        case 2: return "FATAL"
-        default: return "UNKNOWN"
+                TextEditor(text: $urlsText)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 220)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.gray.opacity(0.35), lineWidth: 1)
+                    )
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Campaign")
+                        .frame(width: 80, alignment: .leading)
+                    TextField("ex: Client ABC", text: $campaign)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                HStack(spacing: 12) {
+                    Text("Language")
+                        .frame(width: 80, alignment: .leading)
+
+                    Picker("", selection: $lang) {
+                        Text("RO").tag("ro")
+                        Text("EN").tag("en")
+                        Text("Both").tag("both")
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 320)
+
+                    Toggle("Cleanup temporary files", isOn: $cleanup)
+                        .toggleStyle(.checkbox)
+                }
+            }
+
+            Divider()
+
+            HStack(spacing: 10) {
+                Button("Run Audit") { runAudit() }
+                    .disabled(isRunning || !hasAtLeastOneValidURL())
+
+                Button("Set Repo…") { setRepoPath() }
+                    .disabled(isRunning)
+
+                Button("Open Logs") { openLogs() }
+                    .disabled(isRunning == false && (result?.logFile == nil))
+
+                Button("Open Evidence") { openEvidence() }
+                    .disabled(isRunning == false && !canOpenEvidence())
+
+                Button("Open ZIP") { openZIPIfAny() }
+                    .disabled(isRunning || currentZipPath() == nil)
+
+                if let zipLangs = availableZipLangs(), !zipLangs.isEmpty {
+                    if lang == "both" && zipLangs.count > 1 {
+                        Picker("", selection: $selectedZIPLang) {
+                            ForEach(zipLangs, id: \.self) { l in
+                                Text("ZIP \(l.uppercased())").tag(l)
+                            }
+                        }
+                        .frame(maxWidth: 140)
+                    } else {
+                        Color.clear.onAppear {
+                            if let first = zipLangs.first {
+                                selectedZIPLang = first
+                            }
+                        }
+                    }
+                }
+
+                // PDF picker + open
+                if let pdfs = result?.pdfPaths, !pdfs.isEmpty {
+                    if pdfs.count > 1 {
+                        Picker("", selection: $selectedPDF) {
+                            ForEach(pdfs, id: \.self) { path in
+                                Text(displayName(forPath: path))
+                                    .tag(Optional(path))
+                            }
+                        }
+                        .frame(maxWidth: 360)
+                    } else {
+                        // ensure selection
+                        Color.clear.onAppear {
+                            selectedPDF = pdfs.first
+                        }
+                    }
+
+                    Button("Open PDF") {
+                        if let p = selectedPDF ?? pdfs.first {
+                            revealAndOpenFile(p)
+                        }
+                    }
+                    .disabled(isRunning)
+                } else {
+                    Button("Open PDF") { }
+                        .disabled(true)
+                }
+
+                Spacer()
+
+                statusPill
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Log")
+                    .font(.headline)
+
+                TextEditor(text: .constant(logOutput))
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 180)
+                    .disabled(true)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.gray.opacity(0.35), lineWidth: 1)
+                    )
+            }
         }
+        .padding(16)
+        .frame(minWidth: 980, minHeight: 720)
     }
 
-    // MARK: - Finder actions
+    // MARK: - Status UI
 
-    func openFolder(_ path: String) {
+    private var statusPill: some View {
+        let (text, color) = statusTextAndColor()
+        return Text(text)
+            .font(.headline)
+            .foregroundColor(color)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(color.opacity(0.10))
+            .cornerRadius(10)
+    }
+
+    private func statusTextAndColor() -> (String, Color) {
+        guard let code = lastExitCode else { return ("—", .secondary) }
+        if code == 0 { return ("OK", .green) }
+        if code == 1 { return ("BROKEN", .orange) }
+        if code == 2 { return ("FATAL", .red) }
+        return ("CODE \(code)", .secondary)
+    }
+
+    // MARK: - URL validation
+
+    private func extractURLs(from text: String) -> [String] {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+        var urls: [String] = []
+        urls.reserveCapacity(lines.count)
+
+        for raw in lines {
+            let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.isEmpty { continue }
+
+            guard let u = URL(string: line) else { continue }
+            guard let scheme = u.scheme, (scheme == "http" || scheme == "https") else { continue }
+            guard u.host != nil else { continue }
+
+            urls.append(line)
+        }
+
+        return urls
+    }
+
+    private func hasAtLeastOneValidURL() -> Bool {
+        !extractURLs(from: urlsText).isEmpty
+    }
+
+    // MARK: - Helpers
+
+    private func displayName(forPath path: String, tailComponents: Int = 3) -> String {
+        let parts = (path as NSString).pathComponents
+        let tail = parts.suffix(tailComponents)
+        return tail.joined(separator: "/")
+    }
+
+    private func openFolder(_ path: String) {
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 
-    /// Variant B: reveal in Finder + open in default PDF viewer (Preview)
-    func revealAndOpenPDF(_ path: String) {
+    private func revealAndOpenFile(_ path: String) {
         let url = URL(fileURLWithPath: path)
         NSWorkspace.shared.activateFileViewerSelecting([url])
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -133,343 +287,310 @@ struct ContentView: View {
         }
     }
 
-    func openLogsFolder() {
-        // 1) If we have a run dir, open logs folder
-        if let runDir = currentRunDir {
-            let logsDir = URL(fileURLWithPath: runDir).appendingPathComponent("logs")
-            if FileManager.default.fileExists(atPath: logsDir.path) {
-                NSWorkspace.shared.open(logsDir)
+    private func alert(title: String, message: String) {
+        let a = NSAlert()
+        a.messageText = title
+        a.informativeText = message
+        a.addButton(withTitle: "OK")
+        a.runModal()
+    }
+
+    private func writeTargetsTempFile() -> String {
+        let urls = extractURLs(from: urlsText)
+        let content = urls.joined(separator: "\n") + "\n"
+
+        let tmp = FileManager.default.temporaryDirectory
+        let path = tmp.appendingPathComponent("scope_targets.txt").path
+        try? content.write(toFile: path, atomically: true, encoding: .utf8)
+        return path
+    }
+
+    // MARK: - Finder actions
+
+    private func openLogs() {
+        if let log = result?.logFile, FileManager.default.fileExists(atPath: log) {
+            revealAndOpenFile(log)
+            return
+        }
+
+        // fallback: repo deliverables/logs
+        if let repo = try? ScopeRepoLocator.locateRepo() {
+            let logsDir = (repo as NSString).appendingPathComponent("deliverables/logs")
+            if FileManager.default.fileExists(atPath: logsDir) {
+                openFolder(logsDir)
                 return
             }
         }
 
-        // 2) Fallback: open SCOPE app support folder
-        NSWorkspace.shared.open(ScopeRepoLocator.appSupportDir)
+        openFolder(ScopeRepoLocator.appSupportDir)
     }
 
-    func openEvidenceFolder() {
-        // Best: folder of selected PDF
-        if let pdf = selectedPDF {
-            let folder = URL(fileURLWithPath: pdf).deletingLastPathComponent().path
-            openFolder(folder)
+    private func openEvidence() {
+        if let e = currentEvidenceDir(), FileManager.default.fileExists(atPath: e) {
+            openFolder(e)
             return
         }
-        // Next: open repo reports folder
+
         if let repo = try? ScopeRepoLocator.locateRepo() {
-            let reports = URL(fileURLWithPath: repo).appendingPathComponent("reports").path
-            openFolder(reports)
-            return
+            let reports = (repo as NSString).appendingPathComponent("reports")
+            if FileManager.default.fileExists(atPath: reports) {
+                openFolder(reports)
+                return
+            }
         }
-        // fallback
-        openLogsFolder()
+
+        openFolder(ScopeRepoLocator.appSupportDir)
     }
 
-    func openZIPIfAny() {
-        guard let z = result?.zip else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: z)])
+    private func openZIPIfAny() {
+        guard let zipPath = currentZipPath() else { return }
+        revealAndOpenFile(zipPath)
     }
 
     // MARK: - Repo chooser
 
-    func setRepoPath() {
+    private func setRepoPath() {
         let panel = NSOpenPanel()
-        panel.title = "Select deterministic-website-audit repo folder"
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
+        panel.message = "Selectează folderul repo: deterministic-website-audit"
 
-        if panel.runModal() == .OK, let url = panel.url {
-            let path = url.path
-            if ScopeRepoLocator.isRepoRoot(path) {
-                ScopeRepoLocator.saveRepoPath(path)
-                alert("Repo saved", "Repo path saved:\n\(path)")
-            } else {
-                alert("Invalid repo folder",
-                      "Selected folder is not a valid repo root.\n\nMust contain:\n- batch.py\n- scripts/ship_ro.sh\n- scripts/ship_en.sh\n- scripts/scope_run.sh")
-            }
-        }
-    }
-
-    // MARK: - Core: Run audit
-
-    func writeTargetsFile(from raw: String) -> String? {
-        let lines = raw
-            .split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        guard !lines.isEmpty else { return nil }
-
-        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("scope_targets.txt")
-        let content = lines.joined(separator: "\n") + "\n"
-        do {
-            try content.data(using: .utf8)?.write(to: tmp, options: .atomic)
-            return tmp.path
-        } catch {
-            return nil
-        }
-    }
-
-    func ensureExecutable(_ path: String) {
-        // best-effort chmod +x
-        let p = Process()
-        p.launchPath = "/bin/chmod"
-        p.arguments = ["+x", path]
-        try? p.run()
-        p.waitUntilExit()
-    }
-
-    func discoverPDFs(repoRoot: String, campaignLabel: String, startedAt: Date) -> [String] {
-        // Search repoRoot/reports/<campaignLabel>/**/audit.pdf newer than run start
-        let base = URL(fileURLWithPath: repoRoot)
-            .appendingPathComponent("reports")
-            .appendingPathComponent(campaignLabel.isEmpty ? "Default" : campaignLabel)
-
-        guard FileManager.default.fileExists(atPath: base.path) else { return [] }
-
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(at: base, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]) else {
-            return []
-        }
-
-        var pdfs: [(String, Date)] = []
-
-        for case let url as URL in enumerator {
-            if url.lastPathComponent.lowercased() == "audit.pdf" {
-                let attrs = try? url.resourceValues(forKeys: [.contentModificationDateKey])
-                let m = attrs?.contentModificationDate ?? Date.distantPast
-                if m >= startedAt.addingTimeInterval(-2) { // small slack
-                    pdfs.append((url.path, m))
+        panel.begin { resp in
+            if resp == .OK, let url = panel.url {
+                do {
+                    try ScopeRepoLocator.saveRepoPath(url.path)
+                    self.alert(title: "Repo set", message: url.path)
+                } catch {
+                    self.alert(title: "Invalid repo", message: "Folderul ales nu pare repo-ul corect.")
                 }
             }
         }
-
-        // Sort newest first, but keep stable order
-        pdfs.sort { $0.1 > $1.1 }
-        return pdfs.map { $0.0 }
     }
 
-    func runAudit() {
-        guard !isRunning else { return }
+    // MARK: - Run audit (sequential)
 
-        guard let targetsPath = writeTargetsFile(from: urls) else {
-            alert("Missing URLs", "Paste at least one URL (one per line).")
+    private func runAudit() {
+        let urls = extractURLs(from: urlsText)
+        guard !urls.isEmpty else {
+            alert(title: "No valid URLs", message: "Adaugă cel puțin un URL valid (http/https).")
             return
         }
 
-        let campaignLabel = campaign.trimmingCharacters(in: .whitespacesAndNewlines)
-        let safeCampaign = campaignLabel.isEmpty ? "Default" : campaignLabel
+        isRunning = true
+        logOutput = ""
+        lastExitCode = nil
+        result = nil
+        selectedPDF = nil
+        selectedZIPLang = "ro"
 
+        let baseCampaign = campaign.trimmingCharacters(in: .whitespacesAndNewlines)
+        let camp = baseCampaign.isEmpty ? "Default" : baseCampaign
+
+        runRunner(selectedLang: lang, baseCampaign: camp)
+    }
+
+    private func runRunner(selectedLang: String, baseCampaign: String) {
         let repoRoot: String
         do {
             repoRoot = try ScopeRepoLocator.locateRepo()
         } catch {
-            alert("Repo not found",
-                  "Could not locate deterministic-website-audit repo.\n\nFix:\n1) Click “Set Repo…” and select the repo folder.")
+            alert(title: "Repo not found", message: "Apasă Set Repo… și selectează repo-ul corect.")
+            isRunning = false
             return
         }
 
-        let runner = URL(fileURLWithPath: repoRoot).appendingPathComponent("scripts/scope_run.sh").path
-        guard FileManager.default.fileExists(atPath: runner) else {
-            alert("Runner missing", "Missing:\n\(runner)")
-            return
-        }
-        ensureExecutable(runner)
+        let targetsFile = writeTargetsTempFile()
+        let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/scope_run.sh")
 
-        // Create run dir under Application Support/SCOPE/runs/<timestamp>
-        let ts = DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .medium)
-            .replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ":", with: "-")
-            .replacingOccurrences(of: ",", with: "")
-            .replacingOccurrences(of: " ", with: "_")
-
-        let runDirURL = ScopeRepoLocator.appSupportDir
-            .appendingPathComponent("runs", isDirectory: true)
-            .appendingPathComponent(ts, isDirectory: true)
-
-        let logsDir = runDirURL.appendingPathComponent("logs", isDirectory: true)
-        let outDir = runDirURL.appendingPathComponent("out", isDirectory: true)
-
-        do {
-            try FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
-            try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
-        } catch {
-            alert("Cannot create run folders", "\(error)")
-            return
-        }
-
-        currentRunDir = runDirURL.path
-        isRunning = true
-        lastExitCode = nil
-        logOutput = ""
-        result = nil
-        selectedPDF = nil
-
-        let startedAt = Date()
-
-        // Launch runner
-        let process = Process()
-        process.currentDirectoryURL = URL(fileURLWithPath: repoRoot)
-        process.launchPath = "/bin/bash"
-        process.arguments = [
-            runner,
-            targetsPath,
-            lang,
-            safeCampaign,
+        // Build arguments: scope_run.sh <targets> <lang> <campaign> <cleanup>
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/bash")
+        task.arguments = [
+            scriptPath,
+            targetsFile,
+            selectedLang,
+            baseCampaign,
             cleanup ? "1" : "0"
         ]
+        task.currentDirectoryURL = URL(fileURLWithPath: repoRoot)
 
         let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
+        task.standardOutput = pipe
+        task.standardError = pipe
 
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-            DispatchQueue.main.async {
-                logOutput.append(text)
+            if let str = String(data: data, encoding: .utf8), !str.isEmpty {
+                DispatchQueue.main.async {
+                    self.logOutput += str
+                }
             }
         }
 
-        process.terminationHandler = { p in
+        task.terminationHandler = { p in
             DispatchQueue.main.async {
                 pipe.fileHandleForReading.readabilityHandler = nil
-                lastExitCode = p.terminationStatus
-                isRunning = false
 
-                // Discover outputs
-                let pdfs = discoverPDFs(repoRoot: repoRoot, campaignLabel: safeCampaign, startedAt: startedAt)
+                let code = p.terminationStatus
+                self.lastExitCode = code
 
-                var evidenceDirs: [String] = []
-                for pdf in pdfs {
-                    let folder = URL(fileURLWithPath: pdf).deletingLastPathComponent().path
-                    evidenceDirs.append(folder)
-                }
+                let output = self.logOutput
+                let hints = self.parseScopeHints(from: output)
 
-                result = ScopeResult(
-                    pdfs: pdfs,
-                    evidenceDirs: evidenceDirs,
-                    zip: nil,
-                    repoRoot: repoRoot,
-                    runDir: runDirURL.path
-                )
+                var r = ScopeResult()
+                r.logFile = hints.logFile
+                r.zipByLang = hints.zipByLang
+                r.outDirByLang = hints.outDirByLang
 
-                selectedPDF = pdfs.first
+                // PDFs: find under reports + deliverables/out
+                let pdfs = self.discoverPDFs(repoRoot: repoRoot)
+                let filtered = self.filterPDFsByLanguage(pdfs, lang: selectedLang)
+                r.pdfPaths = (filtered.isEmpty ? pdfs : filtered).sorted()
+
+                self.result = r
+
+                // auto-select first pdf/zip
+                if self.selectedPDF == nil { self.selectedPDF = r.pdfPaths.first }
+                self.syncSelectedZIPLang(with: r, selectedLang: selectedLang)
+
+                self.isRunning = false
             }
         }
 
         do {
-            try process.run()
+            try task.run()
         } catch {
-            isRunning = false
-            alert("Failed to start runner", "\(error)")
+            DispatchQueue.main.async {
+                self.isRunning = false
+                self.alert(title: "Run failed", message: "Nu am putut porni runner-ul.")
+            }
         }
     }
 
-    // MARK: - View
+    private func parseScopeHints(from output: String) -> (logFile: String?, zipByLang: [String: String], outDirByLang: [String: String]) {
+        var logFile: String? = nil
+        var zipByLang: [String: String] = [:]
+        var outDirByLang: [String: String] = [:]
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-
-            Text("SCOPE")
-                .font(.largeTitle)
-                .bold()
-
-            Text("Audit decizional – operator mode")
-                .foregroundColor(.secondary)
-
-            Divider()
-
-            Text("URL-uri (un URL pe linie)")
-                .bold()
-
-            TextEditor(text: $urls)
-                .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 220)
-                .border(Color.gray.opacity(0.3))
-
-            HStack {
-                Text("Campaign")
-                TextField("ex: Client ABC", text: $campaign)
+        for lineSub in output.split(separator: "\n") {
+            let line = String(lineSub)
+            if line.hasPrefix("SCOPE_LOG_FILE=") {
+                logFile = String(line.dropFirst("SCOPE_LOG_FILE=".count))
+                continue
             }
-
-            HStack {
-                Text("Language")
-
-                Picker("", selection: $lang) {
-                    Text("RO").tag("ro")
-                    Text("EN").tag("en")
-                    Text("Both").tag("both")
+            if line.hasPrefix("SCOPE_ZIP_") {
+                let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+                if parts.count == 2 {
+                    let key = String(parts[0].dropFirst("SCOPE_ZIP_".count)).lowercased()
+                    zipByLang[key] = parts[1]
                 }
-                .pickerStyle(SegmentedPickerStyle())
+                continue
             }
-
-            Toggle("Cleanup temporary files", isOn: $cleanup)
-
-            Divider()
-
-            // Actions row
-            HStack(spacing: 12) {
-
-                Button(isRunning ? "Running…" : "Run Audit") { runAudit() }
-                    .disabled(isRunning || urls.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                Button("Set Repo…") { setRepoPath() }
-                    .disabled(isRunning)
-
-                Button("Open Logs") { openLogsFolder() }
-                    .disabled(isRunning == false && currentRunDir == nil)
-
-                Button("Open Evidence") { openEvidenceFolder() }
-                    .disabled(isRunning)
-
-                Button("Open ZIP") { openZIPIfAny() }
-                    .disabled(isRunning || result?.zip == nil)
-
-                // PDF: best UX
-                if let pdfs = result?.pdfs, !pdfs.isEmpty {
-
-                    if pdfs.count > 1 {
-                        Picker("", selection: $selectedPDF) {
-                            ForEach(pdfs, id: \.self) { path in
-                                Text(URL(fileURLWithPath: path).lastPathComponent)
-                                    .tag(Optional(path))
-                            }
-                        }
-                        .frame(maxWidth: 260)
-                    }
-
-                    Button("Open PDF") {
-                        if let pdfPath = selectedPDF ?? pdfs.first {
-                            revealAndOpenPDF(pdfPath)
-                        }
-                    }
-                    .disabled(isRunning)
-
-                } else {
-
-                    Button("Open PDF") { }
-                        .disabled(true)
-                }
-
-                Spacer()
-
-                if let code = lastExitCode {
-                    Text(statusLabel(for: code))
-                        .font(.headline)
-                        .foregroundColor(code == 0 ? .green : (code == 1 ? .orange : .red))
+            if line.hasPrefix("SCOPE_OUT_DIR_") {
+                let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+                if parts.count == 2 {
+                    let key = String(parts[0].dropFirst("SCOPE_OUT_DIR_".count)).lowercased()
+                    outDirByLang[key] = parts[1]
                 }
             }
-
-            // Log output
-            TextEditor(text: $logOutput)
-                .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 220)
-                .border(Color.gray.opacity(0.2))
-                .disabled(true)
-
         }
-        .padding(20)
-        .frame(minWidth: 900, minHeight: 720)
+
+        return (logFile, zipByLang, outDirByLang)
+    }
+
+    private func availableZipLangs() -> [String]? {
+        guard let zips = result?.zipByLang, !zips.isEmpty else { return nil }
+        let ordered = ["ro", "en"]
+        let known = ordered.filter { zips[$0] != nil }
+        if !known.isEmpty { return known }
+        return zips.keys.sorted()
+    }
+
+    private func currentZipPath() -> String? {
+        guard let zips = result?.zipByLang, !zips.isEmpty else { return nil }
+        let key = (lang == "both") ? selectedZIPLang : lang
+        if let path = zips[key], FileManager.default.fileExists(atPath: path) {
+            return path
+        }
+        for (_, path) in zips where FileManager.default.fileExists(atPath: path) {
+            return path
+        }
+        return nil
+    }
+
+    private func currentEvidenceDir() -> String? {
+        guard let dirs = result?.outDirByLang, !dirs.isEmpty else { return nil }
+        let key = (lang == "both") ? selectedZIPLang : lang
+        if let path = dirs[key], FileManager.default.fileExists(atPath: path) {
+            return path
+        }
+        for (_, path) in dirs where FileManager.default.fileExists(atPath: path) {
+            return path
+        }
+        return nil
+    }
+
+    private func canOpenEvidence() -> Bool {
+        if let dir = currentEvidenceDir(), FileManager.default.fileExists(atPath: dir) {
+            return true
+        }
+        if let repo = try? ScopeRepoLocator.locateRepo() {
+            let reports = (repo as NSString).appendingPathComponent("reports")
+            return FileManager.default.fileExists(atPath: reports)
+        }
+        return false
+    }
+
+    private func syncSelectedZIPLang(with result: ScopeResult, selectedLang: String) {
+        if selectedLang == "both" {
+            if result.zipByLang["ro"] != nil {
+                selectedZIPLang = "ro"
+            } else if let first = availableZipLangs()?.first {
+                selectedZIPLang = first
+            }
+        } else if result.zipByLang[selectedLang] != nil {
+            selectedZIPLang = selectedLang
+        } else if let first = availableZipLangs()?.first {
+            selectedZIPLang = first
+        }
+    }
+
+    // MARK: - Discover artifacts
+
+    private func discoverPDFs(repoRoot: String) -> [String] {
+        let fm = FileManager.default
+        let roots = [
+            (repoRoot as NSString).appendingPathComponent("reports"),
+            (repoRoot as NSString).appendingPathComponent("deliverables/out")
+        ]
+
+        var found: [String] = []
+
+        for r in roots {
+            guard fm.fileExists(atPath: r) else { continue }
+
+            let e = fm.enumerator(at: URL(fileURLWithPath: r), includingPropertiesForKeys: nil)
+            while let u = e?.nextObject() as? URL {
+                if u.lastPathComponent.lowercased() == "audit.pdf" {
+                    found.append(u.path)
+                }
+            }
+        }
+
+        return Array(Set(found)).sorted()
+    }
+
+    private func filterPDFsByLanguage(_ pdfs: [String], lang: String) -> [String] {
+        func matches(_ path: String, _ l: String) -> Bool {
+            let p = path.lowercased()
+            if l == "ro" { return p.contains("_ro") || p.contains("/ro/") || p.contains("ro/") }
+            if l == "en" { return p.contains("_en") || p.contains("/en/") || p.contains("en/") }
+            return true
+        }
+
+        if lang == "ro" { return pdfs.filter { matches($0, "ro") } }
+        if lang == "en" { return pdfs.filter { matches($0, "en") } }
+        return pdfs
     }
 }
