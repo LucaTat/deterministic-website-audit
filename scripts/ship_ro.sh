@@ -100,6 +100,7 @@ fi
 echo "== Collecting PDFs from run output =="
 
 LIST_FILE="$(mktemp "${OUT_DIR}/pdf_list.XXXXXX")"
+FIRST_JSON=""
 
 grep -E "^[[:space:]]+pdf:" "${RUN_LOG}" | sed -E "s/^[[:space:]]*pdf:[[:space:]]+//" > "${LIST_FILE}"
 PDF_COUNT="$(wc -l < "${LIST_FILE}" | tr -d " ")"
@@ -120,6 +121,9 @@ while read -r PDF_PATH; do
   JSON_PATH="$(dirname "${PDF_PATH}")/audit.json"
   STATUS="UNKNOWN"
   if [[ -f "${JSON_PATH}" ]]; then
+    if [[ -z "${FIRST_JSON}" ]]; then
+      FIRST_JSON="${JSON_PATH}"
+    fi
     MODE="$("${PYTHON_BIN}" - <<'PY' "${JSON_PATH}"
 import json,sys
 with open(sys.argv[1], "r", encoding="utf-8") as f:
@@ -155,6 +159,34 @@ if [[ -f "deliverables/templates/DECISION_BRIEF_RO.txt" ]]; then
   echo "Added template: ${OUT_DIR}/DECISION_BRIEF_RO.txt"
 else
   echo "NOTE: Decision brief template not found at deliverables/templates/DECISION_BRIEF_RO.txt"
+fi
+
+# Generate Decision Brief PDF (optional)
+DECISION_PDF="${OUT_DIR}/DECISION_BRIEF_RO.pdf"
+if "${PYTHON_BIN}" - <<'PY' "${FIRST_JSON}" "${DECISION_PDF}" "${CAMPAIGN}" >/dev/null 2>&1; then
+import json
+import os
+import sys
+
+json_path = sys.argv[1]
+out_path = sys.argv[2]
+campaign = sys.argv[3]
+
+sys.path.insert(0, os.path.join(os.getcwd(), "scripts", "lib"))
+from decision_brief_pdf import generate_decision_brief_pdf
+
+audit_result = {}
+if json_path and os.path.exists(json_path):
+    with open(json_path, "r", encoding="utf-8") as f:
+        audit_result = json.load(f)
+audit_result["campaign"] = campaign
+audit_result["lang"] = "ro"
+
+generate_decision_brief_pdf(audit_result, "ro", out_path)
+PY
+  echo "Added PDF: ${DECISION_PDF}"
+else
+  echo "WARN: Failed to generate ${DECISION_PDF}"
 fi
 
 # Add client README
