@@ -88,6 +88,10 @@ struct ContentView: View {
     @State private var selectedPDF: String? = nil
     @State private var selectedZIPLang: String = "ro"
     @State private var showZipInfo: Bool = false
+    @State private var readyToSend: Bool = false
+    @State private var lastRunCampaign: String? = nil
+    @State private var lastRunLang: String? = nil
+    @State private var lastRunStatus: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -119,6 +123,12 @@ struct ContentView: View {
                     TextField("ex: Client ABC", text: $campaign)
                         .textFieldStyle(.roundedBorder)
                 }
+                if !campaignIsValid() {
+                    Text("Campaign is required (ex: Client ABC)")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 80)
+                }
 
                 HStack(spacing: 12) {
                     Text("Language")
@@ -144,7 +154,7 @@ struct ContentView: View {
                     Button { runAudit() } label: {
                         Label("Run", systemImage: "play.fill")
                     }
-                    .disabled(isRunning || !hasAtLeastOneValidURL())
+                    .disabled(isRunning || !hasAtLeastOneValidURL() || !campaignIsValid())
 
                     Button { setRepoPath() } label: {
                         Label("Set Repo", systemImage: "folder.badge.plus")
@@ -162,16 +172,19 @@ struct ContentView: View {
                             Label("Ship (RO)", systemImage: "shippingbox.fill")
                         }
                         .disabled(isRunning || shipDirPath(forLang: "ro") == nil)
+                        .buttonStyle(readyToSend && lang == "both" ? .borderedProminent : .bordered)
 
                         Button { openShipFolder(forLang: "en") } label: {
                             Label("Ship (EN)", systemImage: "shippingbox.fill")
                         }
                         .disabled(isRunning || shipDirPath(forLang: "en") == nil)
+                        .buttonStyle(readyToSend && lang == "both" ? .borderedProminent : .bordered)
                     } else {
                         Button { openShipFolder(forLang: lang) } label: {
                             Label("Ship Folder", systemImage: "shippingbox.fill")
                         }
                         .disabled(isRunning || shipDirPath(forLang: lang) == nil)
+                        .buttonStyle(readyToSend ? .borderedProminent : .bordered)
                     }
 
                     if lang == "both" {
@@ -206,6 +219,18 @@ struct ContentView: View {
                         Label("Out", systemImage: "folder.fill")
                     }
                     .disabled(isRunning || outputFolderPath() == nil)
+                }
+
+                if let readyLine = readyToSendHint() {
+                    Text(readyLine)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+
+                if let summary = lastRunSummary() {
+                    Text(summary)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
                 }
 
                 HStack(spacing: 10) {
@@ -290,6 +315,13 @@ struct ContentView: View {
         return ("CODE \(code)", .secondary)
     }
 
+    private func statusLabel(for code: Int32) -> String {
+        if code == 0 { return "OK" }
+        if code == 1 { return "BROKEN" }
+        if code == 2 { return "FATAL" }
+        return "CODE \(code)"
+    }
+
     // MARK: - URL validation
 
     private func extractURLs(from text: String) -> [String] {
@@ -313,6 +345,10 @@ struct ContentView: View {
 
     private func hasAtLeastOneValidURL() -> Bool {
         !extractURLs(from: urlsText).isEmpty
+    }
+
+    private func campaignIsValid() -> Bool {
+        !campaign.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - Helpers
@@ -429,6 +465,10 @@ struct ContentView: View {
             alert(title: "No valid URLs", message: "Adaugă cel puțin un URL valid (http/https).")
             return
         }
+        guard campaignIsValid() else {
+            alert(title: "Campaign required", message: "Te rog completează un nume de campanie.")
+            return
+        }
 
         isRunning = true
         logOutput = ""
@@ -436,6 +476,7 @@ struct ContentView: View {
         result = nil
         selectedPDF = nil
         selectedZIPLang = "ro"
+        readyToSend = false
 
         let baseCampaign = campaign.trimmingCharacters(in: .whitespacesAndNewlines)
         let camp = baseCampaign.isEmpty ? "Default" : baseCampaign
@@ -507,6 +548,15 @@ struct ContentView: View {
                 // auto-select first pdf/zip
                 if self.selectedPDF == nil { self.selectedPDF = r.pdfPaths.first }
                 self.syncSelectedZIPLang(with: r, selectedLang: selectedLang)
+
+                if code == 0 || code == 1 {
+                    self.readyToSend = true
+                } else {
+                    self.readyToSend = false
+                }
+                self.lastRunCampaign = baseCampaign
+                self.lastRunLang = selectedLang
+                self.lastRunStatus = self.statusLabel(for: code)
 
                 self.isRunning = false
             }
@@ -608,6 +658,34 @@ struct ContentView: View {
     private func openOutputFolder() {
         guard let path = outputFolderPath() else { return }
         openFolder(path)
+    }
+
+    private func readyToSendHint() -> String? {
+        guard readyToSend else { return nil }
+        if lang == "both" {
+            return "Ready to send — open Ship Folder (RO/EN)"
+        }
+        return "Ready to send — open Ship Folder"
+    }
+
+    private func lastRunSummary() -> String? {
+        guard let camp = lastRunCampaign,
+              let l = lastRunLang,
+              let status = lastRunStatus else { return nil }
+        let count = zipCountAvailable()
+        return "Last run: \(camp) | \(langLabel(for: l)) | \(status) | ZIP: \(count)"
+    }
+
+    private func zipCountAvailable() -> Int {
+        guard let zips = result?.zipByLang else { return 0 }
+        return zips.values.filter { FileManager.default.fileExists(atPath: $0) }.count
+    }
+
+    private func langLabel(for lang: String) -> String {
+        if lang == "ro" { return "RO" }
+        if lang == "en" { return "EN" }
+        if lang == "both" { return "RO+EN" }
+        return lang
     }
 
     private func currentEvidenceDir() -> String? {
