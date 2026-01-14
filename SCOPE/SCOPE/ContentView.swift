@@ -149,6 +149,25 @@ struct ContentView: View {
 
             Divider()
 
+            if !hasAtLeastOneValidURL() {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Add URLs")
+                        .font(.headline)
+                    Text("• One URL per line")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    Text("• Include https://")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    Text("• Campaign is required")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+                .padding(10)
+                .background(Color.gray.opacity(0.08))
+                .cornerRadius(8)
+            }
+
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
                     Button { runAudit() } label: {
@@ -163,7 +182,18 @@ struct ContentView: View {
 
                     Spacer()
 
+                    Button { resetForNextClient() } label: {
+                        Label("Reset", systemImage: "arrow.counterclockwise")
+                    }
+                    .disabled(isRunning)
+
                     statusPill
+                }
+
+                if let reason = runDisabledReason() {
+                    Text(reason)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
                 }
 
                 HStack(spacing: 10) {
@@ -221,6 +251,18 @@ struct ContentView: View {
                     .disabled(isRunning || outputFolderPath() == nil)
                 }
 
+                if let reason = shipDisabledReason() {
+                    Text(reason)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+
+                if let reason = zipDisabledReason() {
+                    Text(reason)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+
                 if let readyLine = readyToSendHint() {
                     Text(readyLine)
                         .font(.footnote)
@@ -274,6 +316,12 @@ struct ContentView: View {
                         .disabled(true)
                     }
                 }
+
+                if let reason = pdfDisabledReason() {
+                    Text(reason)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -322,6 +370,22 @@ struct ContentView: View {
         return "CODE \(code)"
     }
 
+    private func resetForNextClient() {
+        urlsText = ""
+        campaign = ""
+        lang = "ro"
+        logOutput = ""
+        lastExitCode = nil
+        result = nil
+        selectedPDF = nil
+        selectedZIPLang = "ro"
+        readyToSend = false
+        lastRunCampaign = nil
+        lastRunLang = nil
+        lastRunStatus = nil
+        showZipInfo = false
+    }
+
     // MARK: - URL validation
 
     private func extractURLs(from text: String) -> [String] {
@@ -349,6 +413,45 @@ struct ContentView: View {
 
     private func campaignIsValid() -> Bool {
         !campaign.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func runDisabledReason() -> String? {
+        if isRunning { return "Run disabled: Running…" }
+        if !hasAtLeastOneValidURL() { return "Run disabled: Add at least 1 valid URL" }
+        if !campaignIsValid() { return "Run disabled: Enter Campaign" }
+        return nil
+    }
+
+    private func shipDisabledReason() -> String? {
+        if isRunning { return "Ship disabled: Running…" }
+        if !hasShipForCurrentLang() { return "Ship disabled: Run first" }
+        return nil
+    }
+
+    private func zipDisabledReason() -> String? {
+        if isRunning { return "ZIP disabled: Running…" }
+        if !hasZipForCurrentLang() { return "ZIP disabled: Run first" }
+        return nil
+    }
+
+    private func pdfDisabledReason() -> String? {
+        if isRunning { return "PDF disabled: Running…" }
+        if result?.pdfPaths.isEmpty ?? true { return "PDF disabled: No PDFs yet" }
+        return nil
+    }
+
+    private func hasShipForCurrentLang() -> Bool {
+        if lang == "both" {
+            return shipDirPath(forLang: "ro") != nil || shipDirPath(forLang: "en") != nil
+        }
+        return shipDirPath(forLang: lang) != nil
+    }
+
+    private func hasZipForCurrentLang() -> Bool {
+        if lang == "both" {
+            return zipPath(forLang: "ro") != nil || zipPath(forLang: "en") != nil
+        }
+        return zipPath(forLang: lang) != nil
     }
 
     // MARK: - Helpers
