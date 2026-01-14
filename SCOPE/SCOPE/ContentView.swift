@@ -94,7 +94,8 @@ struct ContentView: View {
     @State private var lastRunStatus: String? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Audit decizional – operator mode")
                     .font(.title3)
@@ -109,11 +110,12 @@ struct ContentView: View {
 
                 TextEditor(text: $urlsText)
                     .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 220)
+                    .frame(minHeight: 220, idealHeight: 260, maxHeight: 260)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(Color.gray.opacity(0.35), lineWidth: 1)
                     )
+                    .help("Paste one URL per line, include https://")
             }
 
             VStack(alignment: .leading, spacing: 10) {
@@ -122,6 +124,7 @@ struct ContentView: View {
                         .frame(width: 80, alignment: .leading)
                     TextField("ex: Client ABC", text: $campaign)
                         .textFieldStyle(.roundedBorder)
+                        .help("Required. Use a clear client name, e.g. Client ABC")
                 }
                 if !campaignIsValid() {
                     Text("Campaign is required (ex: Client ABC)")
@@ -136,14 +139,18 @@ struct ContentView: View {
 
                     Picker("", selection: $lang) {
                         Text("RO").tag("ro")
+                            .help("Romanian deliverables")
                         Text("EN").tag("en")
+                            .help("English deliverables")
                         Text("RO + EN (2 deliverables)").tag("both")
+                            .help("Run RO then EN, two deliverables")
                     }
                     .pickerStyle(.segmented)
                     .frame(maxWidth: 320)
 
                     Toggle("Cleanup temporary files", isOn: $cleanup)
                         .toggleStyle(.checkbox)
+                        .help("Remove temporary run files after packaging")
                 }
             }
 
@@ -174,11 +181,13 @@ struct ContentView: View {
                         Label("Run", systemImage: "play.fill")
                     }
                     .disabled(isRunning || !hasAtLeastOneValidURL() || !campaignIsValid())
+                    .help("Run the audit pipeline")
 
                     Button { setRepoPath() } label: {
                         Label("Set Repo", systemImage: "folder.badge.plus")
                     }
                     .disabled(isRunning)
+                    .help("Select the deterministic-website-audit folder")
 
                     Spacer()
 
@@ -186,8 +195,10 @@ struct ContentView: View {
                         Label("Reset", systemImage: "arrow.counterclockwise")
                     }
                     .disabled(isRunning)
+                    .help("Clear inputs and UI state for next client")
 
                     statusPill
+                        .help("Last run status (OK/BROKEN/FATAL)")
                 }
 
                 if let reason = runDisabledReason() {
@@ -198,23 +209,33 @@ struct ContentView: View {
 
                 HStack(spacing: 10) {
                     if lang == "both" {
-                        Button { openShipFolder(forLang: "ro") } label: {
+                        Button {
+                            openShipFolder(forLang: "ro")
+                        } label: {
                             Label("Ship (RO)", systemImage: "shippingbox.fill")
                         }
                         .disabled(isRunning || shipDirPath(forLang: "ro") == nil)
-                        .buttonStyle(readyToSend && lang == "both" ? .borderedProminent : .bordered)
+                        .buttonStyle(.bordered)
+                        .tint(readyToSend && lang == "both" ? .accentColor : .secondary)
+                        .help("Open the RO ship/archive folder")
 
-                        Button { openShipFolder(forLang: "en") } label: {
+                        Button {
+                            openShipFolder(forLang: "en")
+                        } label: {
                             Label("Ship (EN)", systemImage: "shippingbox.fill")
                         }
                         .disabled(isRunning || shipDirPath(forLang: "en") == nil)
-                        .buttonStyle(readyToSend && lang == "both" ? .borderedProminent : .bordered)
+                        .buttonStyle(.bordered)
+                        .tint(readyToSend && lang == "both" ? .accentColor : .secondary)
+                        .help("Open the EN ship/archive folder")
                     } else {
                         Button { openShipFolder(forLang: lang) } label: {
                             Label("Ship Folder", systemImage: "shippingbox.fill")
                         }
                         .disabled(isRunning || shipDirPath(forLang: lang) == nil)
-                        .buttonStyle(readyToSend ? .borderedProminent : .bordered)
+                        .buttonStyle(.bordered)
+                        .tint(readyToSend ? .accentColor : .secondary)
+                        .help("Open the ship/archive folder")
                     }
 
                     if lang == "both" {
@@ -222,16 +243,19 @@ struct ContentView: View {
                             Label("ZIP (RO)", systemImage: "archivebox.fill")
                         }
                         .disabled(isRunning || zipPath(forLang: "ro") == nil)
+                        .help("Open the RO ZIP")
 
                         Button { openZIP(forLang: "en") } label: {
                             Label("ZIP (EN)", systemImage: "archivebox.fill")
                         }
                         .disabled(isRunning || zipPath(forLang: "en") == nil)
+                        .help("Open the EN ZIP")
                     } else {
                         Button { openZIPIfAny() } label: {
                             Label("ZIP", systemImage: "archivebox.fill")
                         }
                         .disabled(isRunning || currentZipPath() == nil)
+                        .help("Open the ZIP for the last run")
                     }
 
                     Button { showZipInfo.toggle() } label: {
@@ -249,6 +273,7 @@ struct ContentView: View {
                         Label("Out", systemImage: "folder.fill")
                     }
                     .disabled(isRunning || outputFolderPath() == nil)
+                    .help("Open deliverables/out")
                 }
 
                 if let reason = shipDisabledReason() {
@@ -280,11 +305,13 @@ struct ContentView: View {
                         Label("Logs", systemImage: "doc.text.magnifyingglass")
                     }
                     .disabled(isRunning == false && (result?.logFile == nil))
+                    .help("Open the run log file or logs folder")
 
                     Button { openEvidence() } label: {
                         Label("Evidence", systemImage: "tray.full.fill")
                     }
                     .disabled(isRunning == false && !canOpenEvidence())
+                    .help("Open evidence/output folder for the last run")
 
                     if let pdfs = result?.pdfPaths, !pdfs.isEmpty {
                         if pdfs.count > 1 {
@@ -295,6 +322,7 @@ struct ContentView: View {
                                 }
                             }
                             .frame(maxWidth: 360)
+                            .help("Select a PDF to open")
                         } else {
                             Color.clear.onAppear {
                                 selectedPDF = pdfs.first
@@ -309,11 +337,13 @@ struct ContentView: View {
                             Label("PDF", systemImage: "doc.richtext")
                         }
                         .disabled(isRunning)
+                        .help("Open the selected PDF")
                     } else {
                         Button { } label: {
                             Label("PDF", systemImage: "doc.richtext")
                         }
                         .disabled(true)
+                        .help("No PDFs yet")
                     }
                 }
 
@@ -338,7 +368,9 @@ struct ContentView: View {
                     )
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
+        }
         .frame(minWidth: 980, minHeight: 720)
     }
 
