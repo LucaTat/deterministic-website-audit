@@ -200,6 +200,17 @@ if [[ "${CLEANUP}" -eq 1 ]]; then
   fi
   rm -f "${OUT_DIR}/run.log" "${LIST_FILE}"
   echo "Cleaned internal files from: ${OUT_DIR}"
+
+  ARCHIVE_DIR_ABS="$(cd "${ARCHIVE_DIR}" && pwd)"
+  ARCHIVE_ZIP_ABS="${ARCHIVE_DIR_ABS}/${CAMPAIGN}.zip"
+  OUT_ZIP_ABS="$(cd "$(dirname "${ZIP_PATH}")" && pwd)/$(basename "${ZIP_PATH}")"
+  if [[ -f "${ARCHIVE_ZIP_ABS}" ]]; then
+    SHIP_ZIP_ABS="${ARCHIVE_ZIP_ABS}"
+  else
+    SHIP_ZIP_ABS="${OUT_ZIP_ABS}"
+  fi
+  echo "SCOPE_SHIP_DIR_ro=${ARCHIVE_DIR_ABS}"
+  echo "SCOPE_SHIP_ZIP_ro=${SHIP_ZIP_ABS}"
 fi
 
 # Open output folder in Finder (macOS)
