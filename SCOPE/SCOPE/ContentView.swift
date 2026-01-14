@@ -66,6 +66,7 @@ struct ScopeResult {
     var logFile: String? = nil
     var zipByLang: [String: String] = [:]
     var outDirByLang: [String: String] = [:]
+    var shipDirByLang: [String: String] = [:]
 }
 
 // MARK: - ContentView
@@ -158,6 +159,23 @@ struct ContentView: View {
                 } else {
                     Button("Open ZIP") { openZIPIfAny() }
                         .disabled(isRunning || currentZipPath() == nil)
+                }
+
+                Text("Opens Finder and selects the ZIP file")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+
+                Button("Open Output Folder") { openOutputFolder() }
+                    .disabled(isRunning || outputFolderPath() == nil)
+
+                if lang == "both" {
+                    Button("Open Ship Folder (RO)") { openShipFolder(forLang: "ro") }
+                        .disabled(isRunning || shipDirPath(forLang: "ro") == nil)
+                    Button("Open Ship Folder (EN)") { openShipFolder(forLang: "en") }
+                        .disabled(isRunning || shipDirPath(forLang: "en") == nil)
+                } else {
+                    Button("Open Ship Folder") { openShipFolder(forLang: lang) }
+                        .disabled(isRunning || shipDirPath(forLang: lang) == nil)
                 }
 
                 // PDF picker + open
@@ -437,6 +455,7 @@ struct ContentView: View {
                 r.logFile = hints.logFile
                 r.zipByLang = hints.zipByLang
                 r.outDirByLang = hints.outDirByLang
+                r.shipDirByLang = hints.shipDirByLang
 
                 // PDFs: find under reports + deliverables/out
                 let pdfs = self.discoverPDFs(repoRoot: repoRoot)
@@ -463,10 +482,11 @@ struct ContentView: View {
         }
     }
 
-    private func parseScopeHints(from output: String) -> (logFile: String?, zipByLang: [String: String], outDirByLang: [String: String]) {
+    private func parseScopeHints(from output: String) -> (logFile: String?, zipByLang: [String: String], outDirByLang: [String: String], shipDirByLang: [String: String]) {
         var logFile: String? = nil
         var zipByLang: [String: String] = [:]
         var outDirByLang: [String: String] = [:]
+        var shipDirByLang: [String: String] = [:]
 
         for lineSub in output.split(separator: "\n") {
             let line = String(lineSub)
@@ -488,10 +508,18 @@ struct ContentView: View {
                     let key = String(parts[0].dropFirst("SCOPE_OUT_DIR_".count)).lowercased()
                     outDirByLang[key] = parts[1]
                 }
+                continue
+            }
+            if line.hasPrefix("SCOPE_SHIP_DIR_") {
+                let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+                if parts.count == 2 {
+                    let key = String(parts[0].dropFirst("SCOPE_SHIP_DIR_".count)).lowercased()
+                    shipDirByLang[key] = parts[1]
+                }
             }
         }
 
-        return (logFile, zipByLang, outDirByLang)
+        return (logFile, zipByLang, outDirByLang, shipDirByLang)
     }
 
     private func availableZipLangs() -> [String]? {
@@ -518,6 +546,28 @@ struct ContentView: View {
             return path
         }
         return nil
+    }
+
+    private func shipDirPath(forLang lang: String) -> String? {
+        guard let dirs = result?.shipDirByLang, !dirs.isEmpty else { return nil }
+        guard let path = dirs[lang], FileManager.default.fileExists(atPath: path) else { return nil }
+        return path
+    }
+
+    private func openShipFolder(forLang lang: String) {
+        guard let path = shipDirPath(forLang: lang) else { return }
+        openFolder(path)
+    }
+
+    private func outputFolderPath() -> String? {
+        guard let repo = try? ScopeRepoLocator.locateRepo() else { return nil }
+        let outDir = (repo as NSString).appendingPathComponent("deliverables/out")
+        return FileManager.default.fileExists(atPath: outDir) ? outDir : nil
+    }
+
+    private func openOutputFolder() {
+        guard let path = outputFolderPath() else { return }
+        openFolder(path)
     }
 
     private func currentEvidenceDir() -> String? {
