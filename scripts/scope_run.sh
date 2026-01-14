@@ -72,19 +72,25 @@ run_ship () {
   local L="$1"
   local SHIP="$2"
   local CAMP="$3"
+  local TMP_DIR="$ROOT_DIR/deliverables/tmp"
+  local SAFE_CAMP="$(echo "$CAMP" | tr ' /' '__' | tr -cd '[:alnum:]_-.')"
+  local TMP_TARGETS="$TMP_DIR/scope_targets_${SAFE_CAMP}_${L}_${TS}.txt"
 
   log ""
   log "=== RUN SHIP: $L ==="
   log "Script: $SHIP"
   log "Campaign(out): $CAMP"
 
+  mkdir -p "$TMP_DIR"
+  cp -f "$TARGETS_FILE" "$TMP_TARGETS"
+
   # ship scripts require: <targets_file> <campaign_name> [--cleanup] (and support --campaign too)
   set +e
   set +o pipefail
   if [[ "$CLEANUP" == "1" ]]; then
-    /bin/bash "$SHIP" "$TARGETS_FILE" --campaign "$CAMP" --cleanup 2>&1 | tee -a "$LOG_FILE"
+    /bin/bash "$SHIP" "$TMP_TARGETS" --campaign "$CAMP" --cleanup 2>&1 | tee -a "$LOG_FILE"
   else
-    /bin/bash "$SHIP" "$TARGETS_FILE" --campaign "$CAMP" 2>&1 | tee -a "$LOG_FILE"
+    /bin/bash "$SHIP" "$TMP_TARGETS" --campaign "$CAMP" 2>&1 | tee -a "$LOG_FILE"
   fi
   local CODE="${PIPESTATUS[0]}"
   set -o pipefail
