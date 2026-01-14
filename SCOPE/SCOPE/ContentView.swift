@@ -96,280 +96,291 @@ struct ContentView: View {
     var body: some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Audit decizional – operator mode")
-                    .font(.title3)
-                    .foregroundColor(.primary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Audit decizional – operator mode")
+                        .font(.title3)
+                        .foregroundColor(.primary)
+
+                    Divider()
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("URL-uri (un URL pe linie)")
+                        .font(.headline)
+
+                    TextEditor(text: $urlsText)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 220, idealHeight: 260, maxHeight: 360)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.gray.opacity(0.35), lineWidth: 1)
+                        )
+                        .help("Paste one URL per line, include https://")
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("Campaign")
+                            .frame(width: 80, alignment: .leading)
+                        TextField("ex: Client ABC", text: $campaign)
+                            .textFieldStyle(.roundedBorder)
+                            .help("Required. Use a clear client name, e.g. Client ABC")
+                    }
+                    if !campaignIsValid() {
+                        Text("Campaign is required (ex: Client ABC)")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 80)
+                    }
+
+                    HStack(spacing: 12) {
+                        Text("Language")
+                            .frame(width: 80, alignment: .leading)
+
+                        Picker("", selection: $lang) {
+                            Text("RO").tag("ro")
+                            Text("EN").tag("en")
+                            Text("RO + EN (2 deliverables)").tag("both")
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 320)
+                        .help("Select delivery language")
+
+                        Toggle("Cleanup temporary files", isOn: $cleanup)
+                            .toggleStyle(.checkbox)
+                            .help("Remove temporary run files after packaging")
+                    }
+                }
 
                 Divider()
-            }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("URL-uri (un URL pe linie)")
+                if !hasAtLeastOneValidURL() {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Add URLs")
+                            .font(.headline)
+                        Text("• One URL per line")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                        Text("• Include https://")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                        Text("• Campaign is required")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(10)
+                    .background(Color.gray.opacity(0.08))
+                    .cornerRadius(8)
+                }
+
+                Text("Actions")
                     .font(.headline)
 
-                TextEditor(text: $urlsText)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 220, idealHeight: 260, maxHeight: 260)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.gray.opacity(0.35), lineWidth: 1)
-                    )
-                    .help("Paste one URL per line, include https://")
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("Campaign")
-                        .frame(width: 80, alignment: .leading)
-                    TextField("ex: Client ABC", text: $campaign)
-                        .textFieldStyle(.roundedBorder)
-                        .help("Required. Use a clear client name, e.g. Client ABC")
-                }
-                if !campaignIsValid() {
-                    Text("Campaign is required (ex: Client ABC)")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                        .padding(.leading, 80)
-                }
-
-                HStack(spacing: 12) {
-                    Text("Language")
-                        .frame(width: 80, alignment: .leading)
-
-                    Picker("", selection: $lang) {
-                        Text("RO").tag("ro")
-                            .help("Romanian deliverables")
-                        Text("EN").tag("en")
-                            .help("English deliverables")
-                        Text("RO + EN (2 deliverables)").tag("both")
-                            .help("Run RO then EN, two deliverables")
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 320)
-
-                    Toggle("Cleanup temporary files", isOn: $cleanup)
-                        .toggleStyle(.checkbox)
-                        .help("Remove temporary run files after packaging")
-                }
-            }
-
-            Divider()
-
-            if !hasAtLeastOneValidURL() {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Add URLs")
-                        .font(.headline)
-                    Text("• One URL per line")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                    Text("• Include https://")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                    Text("• Campaign is required")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                }
-                .padding(10)
-                .background(Color.gray.opacity(0.08))
-                .cornerRadius(8)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 10) {
-                    Button { runAudit() } label: {
-                        Label("Run", systemImage: "play.fill")
-                    }
-                    .disabled(isRunning || !hasAtLeastOneValidURL() || !campaignIsValid())
-                    .help("Run the audit pipeline")
-
-                    Button { setRepoPath() } label: {
-                        Label("Set Repo", systemImage: "folder.badge.plus")
-                    }
-                    .disabled(isRunning)
-                    .help("Select the deterministic-website-audit folder")
-
-                    Spacer()
-
-                    Button { resetForNextClient() } label: {
-                        Label("Reset", systemImage: "arrow.counterclockwise")
-                    }
-                    .disabled(isRunning)
-                    .help("Clear inputs and UI state for next client")
-
-                    statusPill
-                        .help("Last run status (OK/BROKEN/FATAL)")
-                }
-
-                if let reason = runDisabledReason() {
-                    Text(reason)
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                }
-
-                HStack(spacing: 10) {
-                    if lang == "both" {
-                        Button {
-                            openShipFolder(forLang: "ro")
-                        } label: {
-                            Label("Ship (RO)", systemImage: "shippingbox.fill")
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
+                        Button { runAudit() } label: {
+                            Label("Run", systemImage: "play.fill")
                         }
-                        .disabled(isRunning || shipDirPath(forLang: "ro") == nil)
                         .buttonStyle(.bordered)
-                        .tint(readyToSend && lang == "both" ? .accentColor : .secondary)
-                        .help("Open the RO ship/archive folder")
+                        .tint(.accentColor)
+                        .disabled(isRunning || !hasAtLeastOneValidURL() || !campaignIsValid())
+                        .help(runHelpText())
 
-                        Button {
-                            openShipFolder(forLang: "en")
-                        } label: {
-                            Label("Ship (EN)", systemImage: "shippingbox.fill")
+                        Button { setRepoPath() } label: {
+                            Label("Set Repo", systemImage: "folder.badge.plus")
                         }
-                        .disabled(isRunning || shipDirPath(forLang: "en") == nil)
                         .buttonStyle(.bordered)
-                        .tint(readyToSend && lang == "both" ? .accentColor : .secondary)
-                        .help("Open the EN ship/archive folder")
-                    } else {
-                        Button { openShipFolder(forLang: lang) } label: {
-                            Label("Ship Folder", systemImage: "shippingbox.fill")
+                        .disabled(isRunning)
+                        .help("Select the deterministic-website-audit folder")
+
+                        Spacer()
+
+                        Button { resetForNextClient() } label: {
+                            Label("Reset", systemImage: "arrow.counterclockwise")
                         }
-                        .disabled(isRunning || shipDirPath(forLang: lang) == nil)
                         .buttonStyle(.bordered)
-                        .tint(readyToSend ? .accentColor : .secondary)
-                        .help("Open the ship/archive folder")
+                        .disabled(isRunning)
+                        .help("Clear inputs and UI state for next client")
+
+                        statusPill
+                            .help("Last run status (OK/BROKEN/FATAL)")
                     }
 
-                    if lang == "both" {
-                        Button { openZIP(forLang: "ro") } label: {
-                            Label("ZIP (RO)", systemImage: "archivebox.fill")
-                        }
-                        .disabled(isRunning || zipPath(forLang: "ro") == nil)
-                        .help("Open the RO ZIP")
-
-                        Button { openZIP(forLang: "en") } label: {
-                            Label("ZIP (EN)", systemImage: "archivebox.fill")
-                        }
-                        .disabled(isRunning || zipPath(forLang: "en") == nil)
-                        .help("Open the EN ZIP")
-                    } else {
-                        Button { openZIPIfAny() } label: {
-                            Label("ZIP", systemImage: "archivebox.fill")
-                        }
-                        .disabled(isRunning || currentZipPath() == nil)
-                        .help("Open the ZIP for the last run")
-                    }
-
-                    Button { showZipInfo.toggle() } label: {
-                        Image(systemName: "info.circle")
-                            .accessibilityLabel("ZIP info")
-                    }
-                    .buttonStyle(.borderless)
-                    .popover(isPresented: $showZipInfo) {
-                        Text("Opens Finder and selects the ZIP file")
+                    if let reason = runDisabledReason() {
+                        Text(reason)
                             .font(.footnote)
-                            .padding(12)
+                            .foregroundColor(.secondary)
                     }
 
-                    Button { openOutputFolder() } label: {
-                        Label("Out", systemImage: "folder.fill")
+                    HStack(spacing: 10) {
+                        if lang == "both" {
+                            Button { openShipFolder(forLang: "ro") } label: {
+                                Label("Ship (RO)", systemImage: "shippingbox.fill")
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(readyToSend && lang == "both" ? .accentColor : .secondary)
+                            .disabled(isRunning || shipDirPath(forLang: "ro") == nil)
+                            .help(shipHelpText(forLang: "ro"))
+
+                            Button { openShipFolder(forLang: "en") } label: {
+                                Label("Ship (EN)", systemImage: "shippingbox.fill")
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(readyToSend && lang == "both" ? .accentColor : .secondary)
+                            .disabled(isRunning || shipDirPath(forLang: "en") == nil)
+                            .help(shipHelpText(forLang: "en"))
+                        } else {
+                            Button { openShipFolder(forLang: lang) } label: {
+                                Label("Ship Folder", systemImage: "shippingbox.fill")
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(readyToSend ? .accentColor : .secondary)
+                            .disabled(isRunning || shipDirPath(forLang: lang) == nil)
+                            .help(shipHelpText(forLang: lang))
+                        }
+
+                        if lang == "both" {
+                            Button { openZIP(forLang: "ro") } label: {
+                                Label("ZIP (RO)", systemImage: "archivebox.fill")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(isRunning || zipPath(forLang: "ro") == nil)
+                            .help(zipHelpText(forLang: "ro"))
+
+                            Button { openZIP(forLang: "en") } label: {
+                                Label("ZIP (EN)", systemImage: "archivebox.fill")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(isRunning || zipPath(forLang: "en") == nil)
+                            .help(zipHelpText(forLang: "en"))
+                        } else {
+                            Button { openZIPIfAny() } label: {
+                                Label("ZIP", systemImage: "archivebox.fill")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(isRunning || currentZipPath() == nil)
+                            .help(zipHelpText(forLang: lang))
+                        }
+
+                        Button { showZipInfo.toggle() } label: {
+                            Image(systemName: "info.circle")
+                                .accessibilityLabel("ZIP info")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("What happens when opening ZIP")
+                        .popover(isPresented: $showZipInfo) {
+                            Text("Opens Finder and selects the ZIP file")
+                                .font(.footnote)
+                                .padding(12)
+                        }
+
+                        Button { openOutputFolder() } label: {
+                            Label("Out", systemImage: "folder.fill")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isRunning || outputFolderPath() == nil)
+                        .help(outputHelpText())
                     }
-                    .disabled(isRunning || outputFolderPath() == nil)
-                    .help("Open deliverables/out")
-                }
 
-                if let reason = shipDisabledReason() {
-                    Text(reason)
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                }
-
-                if let reason = zipDisabledReason() {
-                    Text(reason)
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                }
-
-                if let readyLine = readyToSendHint() {
-                    Text(readyLine)
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                }
-
-                if let summary = lastRunSummary() {
-                    Text(summary)
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                }
-
-                HStack(spacing: 10) {
-                    Button { openLogs() } label: {
-                        Label("Logs", systemImage: "doc.text.magnifyingglass")
+                    if let reason = shipDisabledReason() {
+                        Text(reason)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
                     }
-                    .disabled(isRunning == false && (result?.logFile == nil))
-                    .help("Open the run log file or logs folder")
 
-                    Button { openEvidence() } label: {
-                        Label("Evidence", systemImage: "tray.full.fill")
+                    if let reason = zipDisabledReason() {
+                        Text(reason)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
                     }
-                    .disabled(isRunning == false && !canOpenEvidence())
-                    .help("Open evidence/output folder for the last run")
 
-                    if let pdfs = result?.pdfPaths, !pdfs.isEmpty {
-                        if pdfs.count > 1 {
-                            Picker("", selection: $selectedPDF) {
-                                ForEach(pdfs, id: \.self) { path in
-                                    Text(displayName(forPath: path))
-                                        .tag(Optional(path))
+                    if let readyLine = readyToSendHint() {
+                        Text(readyLine)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if let summary = lastRunSummary() {
+                        Text(summary)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack(spacing: 10) {
+                        Button { openLogs() } label: {
+                            Label("Logs", systemImage: "doc.text.magnifyingglass")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isRunning == false && (result?.logFile == nil))
+                        .help(logsHelpText())
+
+                        Button { openEvidence() } label: {
+                            Label("Evidence", systemImage: "tray.full.fill")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isRunning == false && !canOpenEvidence())
+                        .help(evidenceHelpText())
+
+                        if let pdfs = result?.pdfPaths, !pdfs.isEmpty {
+                            if pdfs.count > 1 {
+                                Picker("", selection: $selectedPDF) {
+                                    ForEach(pdfs, id: \.self) { path in
+                                        Text(displayName(forPath: path))
+                                            .tag(Optional(path))
+                                    }
+                                }
+                                .frame(maxWidth: 360)
+                                .help("Select a PDF to open")
+                            } else {
+                                Color.clear.onAppear {
+                                    selectedPDF = pdfs.first
                                 }
                             }
-                            .frame(maxWidth: 360)
-                            .help("Select a PDF to open")
-                        } else {
-                            Color.clear.onAppear {
-                                selectedPDF = pdfs.first
-                            }
-                        }
 
-                        Button {
-                            if let p = selectedPDF ?? pdfs.first {
-                                revealAndOpenFile(p)
+                            Button {
+                                if let p = selectedPDF ?? pdfs.first {
+                                    revealAndOpenFile(p)
+                                }
+                            } label: {
+                                Label("PDF", systemImage: "doc.richtext")
                             }
-                        } label: {
-                            Label("PDF", systemImage: "doc.richtext")
+                            .buttonStyle(.bordered)
+                            .disabled(isRunning)
+                            .help(pdfHelpText())
+                        } else {
+                            Button { } label: {
+                                Label("PDF", systemImage: "doc.richtext")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(true)
+                            .help(pdfHelpText())
                         }
-                        .disabled(isRunning)
-                        .help("Open the selected PDF")
-                    } else {
-                        Button { } label: {
-                            Label("PDF", systemImage: "doc.richtext")
-                        }
-                        .disabled(true)
-                        .help("No PDFs yet")
+                    }
+
+                    if let reason = pdfDisabledReason() {
+                        Text(reason)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
                     }
                 }
 
-                if let reason = pdfDisabledReason() {
-                    Text(reason)
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Log")
+                        .font(.headline)
+
+                    TextEditor(text: .constant(logOutput))
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 180)
+                        .disabled(true)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.gray.opacity(0.35), lineWidth: 1)
+                        )
+                        .help("Live runner output (read-only)")
                 }
             }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Log")
-                    .font(.headline)
-
-                TextEditor(text: .constant(logOutput))
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 180)
-                    .disabled(true)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.gray.opacity(0.35), lineWidth: 1)
-                    )
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
         }
         .frame(minWidth: 980, minHeight: 720)
     }
@@ -484,6 +495,59 @@ struct ContentView: View {
             return zipPath(forLang: "ro") != nil || zipPath(forLang: "en") != nil
         }
         return zipPath(forLang: lang) != nil
+    }
+
+    private func runHelpText() -> String {
+        if let reason = runDisabledReason() {
+            return "Run the audit pipeline. \(reason)"
+        }
+        return "Run the audit pipeline"
+    }
+
+    private func shipHelpText(forLang lang: String) -> String {
+        if let reason = shipDisabledReason() {
+            return "Open ship/archive folder. \(reason)"
+        }
+        if lang == "ro" { return "Open the RO ship/archive folder" }
+        if lang == "en" { return "Open the EN ship/archive folder" }
+        return "Open the ship/archive folder"
+    }
+
+    private func zipHelpText(forLang lang: String) -> String {
+        if let reason = zipDisabledReason() {
+            return "Open ZIP for the last run. \(reason)"
+        }
+        if lang == "ro" { return "Open the RO ZIP" }
+        if lang == "en" { return "Open the EN ZIP" }
+        return "Open the ZIP for the last run"
+    }
+
+    private func outputHelpText() -> String {
+        if outputFolderPath() == nil {
+            return "Open deliverables/out. Run first."
+        }
+        return "Open deliverables/out"
+    }
+
+    private func logsHelpText() -> String {
+        if result?.logFile == nil {
+            return "Open logs folder. Run first."
+        }
+        return "Open the run log file or logs folder"
+    }
+
+    private func evidenceHelpText() -> String {
+        if !canOpenEvidence() {
+            return "Open evidence/output folder. Run first."
+        }
+        return "Open evidence/output folder for the last run"
+    }
+
+    private func pdfHelpText() -> String {
+        if result?.pdfPaths.isEmpty ?? true {
+            return "Open the selected PDF. No PDFs yet."
+        }
+        return "Open the selected PDF"
     }
 
     // MARK: - Helpers
@@ -898,3 +962,4 @@ struct ContentView: View {
         return pdfs
     }
 }
+
