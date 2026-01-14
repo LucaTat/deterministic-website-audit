@@ -105,10 +105,25 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     labels = {
         "en": {
             "title": "Website Audit",
-            "cover_subtitle": "Decision-grade, client-safe audit",
+            "cover_title": "Deterministic Website Audit",
+            "cover_subtitle": "Decision-grade, client-safe",
+            "cover_tagline": "Client-safe • Non-technical • Decision-grade",
             "cover_audited_domain": "Audited domain",
             "cover_campaign": "Campaign",
             "cover_executive_summary": "Executive summary",
+            "cover_expert_interpretation": "Expert interpretation (context)",
+            "cover_next_steps": "Next steps",
+            "cover_next_steps_ok": [
+                "Send this PDF to the client.",
+                "Optional: address quick wins.",
+            ],
+            "cover_next_steps_issues": [
+                "Address the highest-impact issues first.",
+                "Re-run to confirm.",
+            ],
+            "cover_status_ok": "OK (Ready)",
+            "cover_status_issues": "Issues found",
+            "cover_status_raw_label": "Raw status",
             "date": "Date",
             "website": "Website",
             "status": "Status",
@@ -185,10 +200,25 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         },
         "ro": {
             "title": "Audit Website",
+            "cover_title": "Deterministic Website Audit",
             "cover_subtitle": "Evaluare decizională, client-safe",
+            "cover_tagline": "Client-safe • Non-tehnic • Pentru decizie",
             "cover_audited_domain": "Domeniu auditat",
             "cover_campaign": "Campanie",
             "cover_executive_summary": "Rezumat executiv",
+            "cover_expert_interpretation": "Interpretare expert (context)",
+            "cover_next_steps": "Pași următori",
+            "cover_next_steps_ok": [
+                "Trimite acest PDF clientului.",
+                "Opțional: rezolvă quick wins.",
+            ],
+            "cover_next_steps_issues": [
+                "Rezolvă întâi problemele cu impact mare.",
+                "Rulează din nou pentru confirmare.",
+            ],
+            "cover_status_ok": "OK (Gata de trimis)",
+            "cover_status_issues": "Probleme găsite",
+            "cover_status_raw_label": "Status brut",
             "date": "Data",
             "website": "Website",
             "status": "Status",
@@ -423,11 +453,16 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     )
 
     cover_status = "OK" if mode == "ok" else "BROKEN"
+    cover_status_display = labels["cover_status_ok"] if mode == "ok" else labels["cover_status_issues"]
     cover_date = labels["date_fmt"]()
     campaign = (audit_result.get("campaign") or "").strip() or "-"
 
     status_table = Table(
-        [[Paragraph(cover_status, styles["Body"])]],
+        [[Paragraph(
+            f'{cover_status_display}<br/><font size="8" color="#6b7280">'
+            f'{labels["cover_status_raw_label"]}: {cover_status}</font>',
+            styles["Body"],
+        )]],
         colWidths=[45 * mm],
         hAlign="LEFT",
     )
@@ -470,8 +505,9 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         ("ALIGN", (1, 0), (1, 0), "RIGHT"),
     ]))
     cover_block = [
-        Paragraph("Deterministic Website Audit", styles["H1"]),
+        Paragraph(labels["cover_title"], styles["H1"]),
         Paragraph(labels["cover_subtitle"], styles["Small"]),
+        Paragraph(labels["cover_tagline"], styles["Small"]),
         Spacer(1, 10),
         HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=0.6, width="100%"),
         Spacer(1, 10),
@@ -480,8 +516,31 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         Paragraph(labels["cover_executive_summary"], styles["H2"]),
         Paragraph(summary_html, styles["Body"]),
         Spacer(1, 6),
-        Paragraph("Expert interpretation (context)" if lang == "en" else "Interpretare expert (context)", styles["H2"]),
+        Paragraph(labels["cover_expert_interpretation"], styles["H2"]),
         Paragraph(expert_context, styles["Body"]),
+        Spacer(1, 8),
+        Table(
+            [
+                [Paragraph(f'<b>{labels["cover_next_steps"]}</b>', styles["Small"])],
+                [ListFlowable(
+                    [Paragraph(item, styles["Small"]) for item in (
+                        labels["cover_next_steps_ok"] if mode == "ok" else labels["cover_next_steps_issues"]
+                    )],
+                    bulletType="bullet",
+                    leftIndent=10,
+                )],
+            ],
+            colWidths=[155 * mm],
+            hAlign="LEFT",
+            style=TableStyle([
+                ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#e5e7eb")),
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f9fafb")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]),
+        ),
         cover_footer,
     ]
     story.append(Spacer(1, 55 * mm))
