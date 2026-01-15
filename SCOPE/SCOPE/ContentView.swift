@@ -94,301 +94,337 @@ struct ContentView: View {
     @State private var lastRunCampaign: String? = nil
     @State private var lastRunLang: String? = nil
     @State private var lastRunStatus: String? = nil
+    @State private var showAdvanced: Bool = false
 
     var body: some View {
         ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text("Audit decizional – operator mode")
                         .font(.title3)
                         .foregroundColor(.primary)
-
                     Divider()
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("URL-uri (un URL pe linie)")
-                        .font(.headline)
+                GroupBox(label: Text("Inputs").font(.headline)) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("URL-uri (un URL pe linie)")
+                                .font(.headline)
 
-                    TextEditor(text: $urlsText)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(minHeight: 220, idealHeight: 260, maxHeight: 360)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.gray.opacity(0.35), lineWidth: 1)
-                        )
-                        .help("Paste one URL per line, include https://")
+                            TextEditor(text: $urlsText)
+                                .font(.system(.body, design: .monospaced))
+                                .frame(minHeight: 220, idealHeight: 260, maxHeight: 360)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(Color.gray.opacity(0.35), lineWidth: 1)
+                                )
+                                .help("Paste one URL per line, include https://")
+                        }
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text("Campaign")
+                                    .frame(width: 80, alignment: .leading)
+                                TextField("ex: Client ABC", text: $campaign)
+                                    .textFieldStyle(.roundedBorder)
+                                    .help("Required. Use a clear client name, e.g. Client ABC")
+                            }
+                            if !campaignIsValid() {
+                                Text("Campaign is required (ex: Client ABC)")
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                                    .padding(.leading, 80)
+                            }
+
+                            HStack(spacing: 12) {
+                                Text("Language")
+                                    .frame(width: 80, alignment: .leading)
+
+                                Picker("", selection: $lang) {
+                                    Text("RO").tag("ro")
+                                    Text("EN").tag("en")
+                                    Text("RO + EN (2 deliverables)").tag("both")
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(maxWidth: 320)
+                                .help("Select delivery language")
+
+                                Toggle("Cleanup temporary files", isOn: $cleanup)
+                                    .toggleStyle(.checkbox)
+                                    .help("Remove temporary run files after packaging")
+                            }
+                        }
+
+                        if !hasAtLeastOneValidURL() {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Add URLs")
+                                    .font(.headline)
+                                Text("• One URL per line")
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                                Text("• Include https://")
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                                Text("• Campaign is required")
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(10)
+                            .background(Color.gray.opacity(0.08))
+                            .cornerRadius(8)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
                 }
 
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("Campaign")
-                            .frame(width: 80, alignment: .leading)
-                        TextField("ex: Client ABC", text: $campaign)
-                            .textFieldStyle(.roundedBorder)
-                            .help("Required. Use a clear client name, e.g. Client ABC")
-                    }
-                    if !campaignIsValid() {
-                        Text("Campaign is required (ex: Client ABC)")
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                            .padding(.leading, 80)
-                    }
-
-                    HStack(spacing: 12) {
-                        Text("Language")
-                            .frame(width: 80, alignment: .leading)
-
-                        Picker("", selection: $lang) {
-                            Text("RO").tag("ro")
-                            Text("EN").tag("en")
-                            Text("RO + EN (2 deliverables)").tag("both")
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(maxWidth: 320)
-                        .help("Select delivery language")
-
-                        Toggle("Cleanup temporary files", isOn: $cleanup)
-                            .toggleStyle(.checkbox)
-                            .help("Remove temporary run files after packaging")
-                    }
-                }
-
-                Divider()
-
-                if !hasAtLeastOneValidURL() {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Add URLs")
-                            .font(.headline)
-                        Text("• One URL per line")
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                        Text("• Include https://")
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                        Text("• Campaign is required")
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(10)
-                    .background(Color.gray.opacity(0.08))
-                    .cornerRadius(8)
-                }
-
-                Text("Actions")
-                    .font(.headline)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 10) {
-                        Button { runAudit() } label: {
-                            Label("Run", systemImage: "play.fill")
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(.accentColor)
-                        .disabled(isRunning || !hasAtLeastOneValidURL() || !campaignIsValid())
-                        .help(runHelpText())
-                        InfoButton(text: "Runs the audit engine and prepares deliverables. When finished, use Ship Root to send the ZIP.")
-
-                        Button { setRepoPath() } label: {
-                            Label("Set Repo", systemImage: "folder.badge.plus")
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(isRunning)
-                        .help("Select the deterministic-website-audit folder")
-
-                        Spacer()
-
-                        Button { resetForNextClient() } label: {
-                            Label("Reset", systemImage: "arrow.counterclockwise")
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(isRunning)
-                        .help("Clear inputs and UI state for next client")
-
-                        statusPill
-                            .help("Last run status (OK/BROKEN/FATAL)")
-                        postRunStatusBadge
-                    }
-
-                    if let reason = runDisabledReason() {
-                        Text(reason)
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                    }
-
-                    HStack(spacing: 10) {
-                        Button { openShipRoot() } label: {
-                            Label("Open Ship Root", systemImage: "shippingbox.fill")
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(.accentColor)
-                        .disabled(isRunning || shipRootPath() == nil)
-                        .help(shipRootHelpText())
-                        InfoButton(text: "Opens the final delivery root folder for this campaign.")
-
-                        if lang == "both" {
-                            Button { openShipFolder(forLang: "ro") } label: {
-                                Label("Open RO", systemImage: "shippingbox.fill")
+                GroupBox(label: Text("Run").font(.headline)) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 12) {
+                            Button { runAudit() } label: {
+                                Label("Run", systemImage: "play.fill")
                             }
                             .buttonStyle(.bordered)
-                            .tint(.secondary)
-                            .disabled(isRunning || shipDirPath(forLang: "ro") == nil)
-                            .help(shipHelpText(forLang: "ro"))
-                            InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
+                            .controlSize(.large)
+                            .tint(.accentColor)
+                            .disabled(isRunning || !hasAtLeastOneValidURL() || !campaignIsValid())
+                            .help(runHelpText())
+                            InfoButton(text: "Runs the audit engine and prepares deliverables. When finished, use Ship Root to send the ZIP.")
 
-                            Button { openShipFolder(forLang: "en") } label: {
-                                Label("Open EN", systemImage: "shippingbox.fill")
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(.secondary)
-                            .disabled(isRunning || shipDirPath(forLang: "en") == nil)
-                            .help(shipHelpText(forLang: "en"))
-                            InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
-                        } else {
-                            Button { openShipFolder(forLang: lang) } label: {
-                                Label(lang == "ro" ? "Open RO" : "Open EN", systemImage: "shippingbox.fill")
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(.secondary)
-                            .disabled(isRunning || shipDirPath(forLang: lang) == nil)
-                            .help(shipHelpText(forLang: lang))
-                            InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
-                        }
-
-                        if lang == "both" {
-                            Button { openZIP(forLang: "ro") } label: {
-                                Label("Reveal ZIP RO", systemImage: "archivebox.fill")
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(isRunning || shipZipPath(forLang: "ro") == nil)
-                            .help(zipHelpText(forLang: "ro"))
-                            InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
-
-                            Button { openZIP(forLang: "en") } label: {
-                                Label("Reveal ZIP EN", systemImage: "archivebox.fill")
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(isRunning || shipZipPath(forLang: "en") == nil)
-                            .help(zipHelpText(forLang: "en"))
-                            InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
-                        } else {
-                            Button { openZIPIfAny() } label: {
-                                Label("Reveal ZIP", systemImage: "archivebox.fill")
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(isRunning || shipZipPath(forLang: lang) == nil)
-                            .help(zipHelpText(forLang: lang))
-                            InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
-                        }
-
-                        Button { openOutputFolder() } label: {
-                            Label("Out", systemImage: "folder.fill")
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(isRunning || outputFolderPath() == nil)
-                        .help(outputHelpText())
-                    }
-
-                    if let reason = shipDisabledReason() {
-                        Text(reason)
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                    }
-
-                    if let reason = zipDisabledReason() {
-                        Text(reason)
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                    }
-
-                    if let readyLine = readyToSendHint() {
-                        Text(readyLine)
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                    }
-
-                    if let summary = lastRunSummary() {
-                        Text(summary)
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                    }
-
-                    HStack(spacing: 10) {
-                        Button { openLogs() } label: {
-                            Label("Open Logs", systemImage: "doc.text.magnifyingglass")
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(.secondary)
-                        .disabled(isRunning || ((result?.logFile == nil) && (result?.archivedLogFile == nil)))
-                        .help(logsHelpText())
-                        InfoButton(text: "Opens the latest run log for troubleshooting.")
-
-                        Button { openEvidence() } label: {
-                            Label("Evidence", systemImage: "tray.full.fill")
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(isRunning == false && !canOpenEvidence())
-                        .help(evidenceHelpText())
-                        InfoButton(text: "Opens the raw audit output (PDF/JSON/evidence) under reports.")
-
-                        if let pdfs = result?.pdfPaths, !pdfs.isEmpty {
-                            if pdfs.count > 1 {
-                                Picker("", selection: $selectedPDF) {
-                                    ForEach(pdfs, id: \.self) { path in
-                                        Text(displayName(forPath: path))
-                                            .tag(Optional(path))
-                                    }
-                                }
-                                .frame(maxWidth: 360)
-                                .help("Select a PDF to open")
-                            } else {
-                                Color.clear.onAppear {
-                                    selectedPDF = pdfs.first
-                                }
-                            }
-
-                            Button {
-                                if let p = selectedPDF ?? pdfs.first {
-                                    revealAndOpenFile(p)
-                                }
-                            } label: {
-                                Label("PDF", systemImage: "doc.richtext")
+                            Button { setRepoPath() } label: {
+                                Label("Set Repo", systemImage: "folder.badge.plus")
                             }
                             .buttonStyle(.bordered)
                             .disabled(isRunning)
-                            .help(pdfHelpText())
-                            InfoButton(text: "Opens the generated audit PDF from the last run.")
-                        } else {
-                            Button { } label: {
-                                Label("PDF", systemImage: "doc.richtext")
+                            .help("Select the deterministic-website-audit folder")
+
+                            Button { resetForNextClient() } label: {
+                                Label("Reset", systemImage: "arrow.counterclockwise")
                             }
                             .buttonStyle(.bordered)
-                            .disabled(true)
-                            .help(pdfHelpText())
-                            InfoButton(text: "Opens the generated audit PDF from the last run.")
+                            .disabled(isRunning)
+                            .help("Clear inputs and UI state for next client")
+
+                            Spacer()
+
+                            statusBadge
+                                .help("Last run status (OK/BROKEN/FATAL)")
+                        }
+
+                        if let reason = runDisabledReason() {
+                            Text(reason)
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
                         }
                     }
-
-                    if let reason = pdfDisabledReason() {
-                        Text(reason)
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
                 }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Log")
-                        .font(.headline)
+                GroupBox(label: Text("Delivery").font(.headline)) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 8) {
+                            Button { openShipRoot() } label: {
+                                Label("Open Ship Root", systemImage: "shippingbox.fill")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
+                            .font(.headline)
+                            .tint(.accentColor)
+                            .disabled(isRunning || shipRootPath() == nil)
+                            .help(shipRootHelpText())
+                            InfoButton(text: "Opens the final delivery root folder for this campaign.")
+                        }
 
-                    TextEditor(text: .constant(logOutput))
-                        .font(.system(.body, design: .monospaced))
-                        .frame(minHeight: 180)
-                        .disabled(true)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.gray.opacity(0.35), lineWidth: 1)
-                        )
-                        .help("Live runner output (read-only)")
+                        let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+                        LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+                            if lang == "both" {
+                                HStack(spacing: 6) {
+                                    Button { openShipFolder(forLang: "ro") } label: {
+                                        Label("Open RO", systemImage: "shippingbox.fill")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(isRunning || shipDirPath(forLang: "ro") == nil)
+                                    .help(shipHelpText(forLang: "ro"))
+                                    InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
+                                }
+
+                                HStack(spacing: 6) {
+                                    Button { openShipFolder(forLang: "en") } label: {
+                                        Label("Open EN", systemImage: "shippingbox.fill")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(isRunning || shipDirPath(forLang: "en") == nil)
+                                    .help(shipHelpText(forLang: "en"))
+                                    InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
+                                }
+
+                                HStack(spacing: 6) {
+                                    Button { openZIP(forLang: "ro") } label: {
+                                        Label("Reveal ZIP RO", systemImage: "archivebox.fill")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(isRunning || shipZipPath(forLang: "ro") == nil)
+                                    .help(zipHelpText(forLang: "ro"))
+                                    InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
+                                }
+
+                                HStack(spacing: 6) {
+                                    Button { openZIP(forLang: "en") } label: {
+                                        Label("Reveal ZIP EN", systemImage: "archivebox.fill")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(isRunning || shipZipPath(forLang: "en") == nil)
+                                    .help(zipHelpText(forLang: "en"))
+                                    InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
+                                }
+                            } else {
+                                HStack(spacing: 6) {
+                                    Button { openShipFolder(forLang: lang) } label: {
+                                        Label(lang == "ro" ? "Open RO" : "Open EN", systemImage: "shippingbox.fill")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(isRunning || shipDirPath(forLang: lang) == nil)
+                                    .help(shipHelpText(forLang: lang))
+                                    InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
+                                }
+
+                                HStack(spacing: 6) {
+                                    Button { openZIPIfAny() } label: {
+                                        Label("Reveal ZIP", systemImage: "archivebox.fill")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(isRunning || shipZipPath(forLang: lang) == nil)
+                                    .help(zipHelpText(forLang: lang))
+                                    InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
+                                }
+                            }
+
+                            HStack(spacing: 6) {
+                                Button { openLogs() } label: {
+                                    Label("Open Logs", systemImage: "doc.text.magnifyingglass")
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.secondary)
+                                .disabled(isRunning || ((result?.logFile == nil) && (result?.archivedLogFile == nil)))
+                                .help(logsHelpText())
+                                InfoButton(text: "Opens the latest run log for troubleshooting.")
+                            }
+                        }
+
+                        if let reason = shipDisabledReason() {
+                            Text(reason)
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+
+                        if let reason = zipDisabledReason() {
+                            Text(reason)
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+
+                        if let readyLine = readyToSendHint() {
+                            Text(readyLine)
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+
+                        if let summary = lastRunSummary() {
+                            Text(summary)
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                }
+
+                GroupBox {
+                    DisclosureGroup("Advanced (debug & logs)", isExpanded: $showAdvanced) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(spacing: 10) {
+                                Button { openOutputFolder() } label: {
+                                    Label("Out", systemImage: "folder.fill")
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(isRunning || outputFolderPath() == nil)
+                                .help(outputHelpText())
+
+                                Button { openEvidence() } label: {
+                                    Label("Evidence", systemImage: "tray.full.fill")
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(isRunning == false && !canOpenEvidence())
+                                .help(evidenceHelpText())
+                                InfoButton(text: "Opens the raw audit output (PDF/JSON/evidence) under reports.")
+
+                                if let pdfs = result?.pdfPaths, !pdfs.isEmpty {
+                                    if pdfs.count > 1 {
+                                        Picker("", selection: $selectedPDF) {
+                                            ForEach(pdfs, id: \.self) { path in
+                                                Text(displayName(forPath: path))
+                                                    .tag(Optional(path))
+                                            }
+                                        }
+                                        .frame(maxWidth: 360)
+                                        .help("Select a PDF to open")
+                                    } else {
+                                        Color.clear.onAppear {
+                                            selectedPDF = pdfs.first
+                                        }
+                                    }
+
+                                    Button {
+                                        if let p = selectedPDF ?? pdfs.first {
+                                            revealAndOpenFile(p)
+                                        }
+                                    } label: {
+                                        Label("PDF", systemImage: "doc.richtext")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(isRunning)
+                                    .help(pdfHelpText())
+                                    InfoButton(text: "Opens the generated audit PDF from the last run.")
+                                } else {
+                                    Button { } label: {
+                                        Label("PDF", systemImage: "doc.richtext")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(true)
+                                    .help(pdfHelpText())
+                                    InfoButton(text: "Opens the generated audit PDF from the last run.")
+                                }
+                            }
+
+                            if let reason = pdfDisabledReason() {
+                                Text(reason)
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Log")
+                                    .font(.headline)
+
+                                TextEditor(text: .constant(logOutput))
+                                    .font(.system(.body, design: .monospaced))
+                                    .frame(minHeight: 180)
+                                    .disabled(true)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(Color.gray.opacity(0.35), lineWidth: 1)
+                                    )
+                                    .help("Live runner output (read-only)")
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 8)
+                    }
+                    .padding(8)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -399,22 +435,9 @@ struct ContentView: View {
 
     // MARK: - Status UI
 
-    private var statusPill: some View {
-        let (text, color) = statusTextAndColor()
-        return Text(text)
-            .font(.headline)
-            .foregroundColor(color)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(color.opacity(0.10))
-            .cornerRadius(10)
-    }
-
     @ViewBuilder
-    private var postRunStatusBadge: some View {
-        if isRunning {
-            EmptyView()
-        } else if let code = lastExitCode {
+    private var statusBadge: some View {
+        if !isRunning, let code = lastExitCode {
             let (text, color): (String, Color) = {
                 switch code {
                 case 0: return ("Ready to send", .green)
@@ -424,24 +447,20 @@ struct ContentView: View {
                 }
             }()
 
-            Text(text)
-                .font(.subheadline)
-                .foregroundColor(color)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(color.opacity(0.12))
-                .cornerRadius(10)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(text)
+                    .font(.headline)
+                    .foregroundColor(color)
+                Text(statusBadgeSubline(for: code))
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(color.opacity(0.12)))
         } else {
             EmptyView()
         }
-    }
-
-    private func statusTextAndColor() -> (String, Color) {
-        guard let code = lastExitCode else { return ("—", .secondary) }
-        if code == 0 { return ("OK", .green) }
-        if code == 1 { return ("BROKEN", .orange) }
-        if code == 2 { return ("FATAL", .red) }
-        return ("CODE \(code)", .secondary)
     }
 
     private func statusLabel(for code: Int32) -> String {
@@ -948,8 +967,24 @@ struct ContentView: View {
     }
 
     private func readyToSendHint() -> String? {
-        guard readyToSend else { return nil }
-        return "Ready to send — open Ship Root"
+        guard !isRunning, let code = lastExitCode else { return nil }
+        if code == 0 {
+            return "Send the ZIP files to the client. Start with Open Ship Root."
+        }
+        if code == 1 {
+            return "Issues found. Send the ZIP files after reviewing. Start with Open Ship Root."
+        }
+        if code == 2 {
+            return "Run failed. Check Advanced logs."
+        }
+        return nil
+    }
+
+    private func statusBadgeSubline(for code: Int32) -> String {
+        if code == 0 { return "Last run OK" }
+        if code == 1 { return "Last run: issues found" }
+        if code == 2 { return "Last run failed" }
+        return "Last run unknown"
     }
 
     private func lastRunSummary() -> String? {
