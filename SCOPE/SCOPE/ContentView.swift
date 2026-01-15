@@ -113,6 +113,9 @@ struct ContentView: View {
     @State private var deleteIncompleteCount: Int = 0
     @State private var deleteOlderCount: Int = 0
     @State private var historyCleanupStatus: String? = nil
+    @AppStorage("scopeTheme") private var themeRaw: String = Theme.light.rawValue
+
+    private var theme: Theme { Theme(rawValue: themeRaw) ?? .light }
 
     var body: some View {
         ScrollView(.vertical) {
@@ -132,10 +135,12 @@ struct ContentView: View {
 
                             TextEditor(text: $urlsText)
                                 .font(.system(.body, design: .monospaced))
+                                .foregroundColor(theme.textPrimary)
+                                .background(theme.textEditorBackground)
                                 .frame(minHeight: 220, idealHeight: 260, maxHeight: 360)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 8)
-                                        .stroke(Color.gray.opacity(0.35), lineWidth: 1)
+                                        .stroke(theme.border, lineWidth: 1)
                                 )
                                 .help("Paste one URL per line, include https://")
                         }
@@ -182,6 +187,17 @@ struct ContentView: View {
                                 .font(.footnote)
                                 .foregroundColor(.secondary)
                                 .padding(.leading, 80)
+
+                            HStack(spacing: 12) {
+                                Text("Theme")
+                                    .frame(width: 80, alignment: .leading)
+                                Picker("", selection: $themeRaw) {
+                                    Text("Light").tag(Theme.light.rawValue)
+                                    Text("Dark").tag(Theme.dark.rawValue)
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(maxWidth: 220)
+                            }
                         }
 
                         if !hasAtLeastOneValidURL() {
@@ -199,13 +215,14 @@ struct ContentView: View {
                                     .foregroundColor(.secondary)
                             }
                             .padding(10)
-                            .background(Color.gray.opacity(0.08))
+                            .background(theme.cardBackground)
                             .cornerRadius(8)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
                 }
+                .modifier(CardStyle(theme: theme))
 
                 GroupBox(label: Text("Run").font(.headline)) {
                     VStack(alignment: .leading, spacing: 12) {
@@ -255,6 +272,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
                 }
+                .modifier(CardStyle(theme: theme))
 
                 GroupBox(label: Text("Delivery").font(.headline)) {
                     VStack(alignment: .leading, spacing: 12) {
@@ -415,6 +433,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
                 }
+                .modifier(CardStyle(theme: theme))
 
                 GroupBox(label: Text("History").font(.headline)) {
                     VStack(alignment: .leading, spacing: 12) {
@@ -532,6 +551,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
                 }
+                .modifier(CardStyle(theme: theme))
 
                 GroupBox {
                     DisclosureGroup("Advanced (debug & logs)", isExpanded: $showAdvanced) {
@@ -609,11 +629,13 @@ struct ContentView: View {
 
                                 TextEditor(text: .constant(logOutput))
                                     .font(.system(.body, design: .monospaced))
+                                    .foregroundColor(theme.textPrimary)
+                                    .background(theme.textEditorBackground)
                                     .frame(minHeight: 180)
                                     .disabled(true)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 8)
-                                            .stroke(Color.gray.opacity(0.35), lineWidth: 1)
+                                            .stroke(theme.border, lineWidth: 1)
                                     )
                                     .help("Live runner output (read-only)")
                             }
@@ -741,10 +763,15 @@ struct ContentView: View {
                     }
                     .padding(8)
                 }
+                .modifier(CardStyle(theme: theme))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
         }
+        .background(theme.background)
+        .preferredColorScheme(theme.colorScheme)
+        .tint(theme.accent)
+        .animation(.easeInOut(duration: 0.2), value: themeRaw)
         .frame(minWidth: 980, minHeight: 720)
         .onAppear {
             repoRoot = resolvedRepoRoot()
@@ -1018,6 +1045,20 @@ struct ContentView: View {
         let path = (tmp as NSString).appendingPathComponent("scope_targets.txt")
         try? content.write(toFile: path, atomically: true, encoding: .utf8)
         return path
+    }
+
+    private struct CardStyle: ViewModifier {
+        let theme: Theme
+
+        func body(content: Content) -> some View {
+            content
+                .background(theme.cardBackground)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(theme.border, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
     }
 
     // MARK: - Finder actions
