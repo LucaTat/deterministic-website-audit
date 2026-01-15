@@ -481,7 +481,7 @@ struct ContentView: View {
                                             }
                                             .buttonStyle(.bordered)
 
-                                            let exportDisabled = isRunning || resolvedRepoRoot() == nil
+                                            let exportDisabled = isRunning || resolvedRepoRoot() == nil || !item.hasZips
                                             Button {
                                                 exportHistoryCampaign(item)
                                             } label: {
@@ -490,6 +490,7 @@ struct ContentView: View {
                                             .buttonStyle(.bordered)
                                             .disabled(exportDisabled)
                                             .opacity(buttonOpacity(disabled: exportDisabled))
+                                            .help(exportDisabled && !item.hasZips ? "No ZIPs yet" : "Export ZIPs to a folder")
 
                                             if item.isHidden {
                                                 Button { unhideCampaign(item) } label: {
@@ -1331,8 +1332,29 @@ struct ContentView: View {
     }
 
     private func exportHistoryCampaign(_ item: RecentCampaign) {
-        exportCampaign(campaign: item.campaign, dateString: item.dateString, allowOutFallback: false) { status in
-            setHistoryExportStatus(status, for: item.id)
+        guard let repo = resolvedRepoRoot() else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Select a destination folder for export"
+
+        panel.begin { resp in
+            guard resp == .OK, let destUrl = panel.url else { return }
+            let zips = self.findArchiveZips(repoRoot: repo, dateString: item.dateString, campaign: item.campaign)
+            guard !zips.isEmpty else {
+                DispatchQueue.main.async {
+                    self.setHistoryExportStatus("No ZIPs yet.", for: item.id)
+                }
+                return
+            }
+
+            let destFolder = destUrl.path
+            let copied = self.copyZipFiles(zips, toFolder: destFolder)
+            let folderName = (destFolder as NSString).lastPathComponent
+            DispatchQueue.main.async {
+                self.setHistoryExportStatus("Exported \(copied) file(s) to \(folderName).", for: item.id)
+            }
         }
     }
 
@@ -1718,6 +1740,39 @@ struct ContentView: View {
             }
         }
         return deleted
+    }
+
+    private func copyZipFiles(_ zipPaths: [String], toFolder destFolder: String) -> Int {
+        let fm = FileManager.default
+        var copied = 0
+        for zipPath in zipPaths {
+            let fileName = (zipPath as NSString).lastPathComponent
+            let destPath = uniqueDestinationPath(folder: destFolder, fileName: fileName)
+            do {
+                try fm.copyItem(atPath: zipPath, toPath: destPath)
+                copied += 1
+            } catch {
+                continue
+            }
+        }
+        return copied
+    }
+
+    private func uniqueDestinationPath(folder: String, fileName: String) -> String {
+        let fm = FileManager.default
+        let base = (fileName as NSString).deletingPathExtension
+        let ext = (fileName as NSString).pathExtension
+        var candidate = (folder as NSString).appendingPathComponent(fileName)
+        if !fm.fileExists(atPath: candidate) { return candidate }
+
+        var counter = 1
+        while true {
+            let suffix = " (\(counter))"
+            let newName = ext.isEmpty ? "\(base)\(suffix)" : "\(base)\(suffix).\(ext)"
+            candidate = (folder as NSString).appendingPathComponent(newName)
+            if !fm.fileExists(atPath: candidate) { return candidate }
+            counter += 1
+        }
     }
 
     private func archiveRootPath() -> String? {
