@@ -95,6 +95,24 @@ struct ContentView: View {
     @State private var lastRunLang: String? = nil
     @State private var lastRunStatus: String? = nil
     @State private var showAdvanced: Bool = false
+    @State private var recentCampaigns: [RecentCampaign] = []
+    @State private var repoRoot: String? = nil
+    @State private var exportStatus: String? = nil
+    @State private var historyExportStatus: [String: String] = [:]
+    @State private var showHiddenCampaigns: Bool = false
+    @State private var campaignSearch: String = ""
+    @State private var campaignFilter: CampaignFilter = .all
+    @State private var showDeleteHiddenConfirm: Bool = false
+    @State private var showDeleteIncompleteConfirm: Bool = false
+    @State private var showDeleteOlderConfirm: Bool = false
+    @State private var deleteHiddenConfirmText: String = ""
+    @State private var deleteIncompleteConfirmText: String = ""
+    @State private var deleteOlderConfirmText: String = ""
+    @State private var deleteOlderDays: Int = 30
+    @State private var deleteHiddenCount: Int = 0
+    @State private var deleteIncompleteCount: Int = 0
+    @State private var deleteOlderCount: Int = 0
+    @State private var historyCleanupStatus: String? = nil
 
     var body: some View {
         ScrollView(.vertical) {
@@ -255,6 +273,25 @@ struct ContentView: View {
                             InfoButton(text: "Opens the final delivery root folder for this campaign.")
                         }
 
+                        HStack(spacing: 8) {
+                            let exportDisabled = isRunning || resolvedRepoRoot() == nil || !campaignIsValidForExport()
+                            Button {
+                                exportCurrentCampaign()
+                            } label: {
+                                Label("Export Campaign…", systemImage: "square.and.arrow.up")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(exportDisabled)
+                            .opacity(buttonOpacity(disabled: exportDisabled))
+                            .help(exportDisabled ? "Available after run" : "Export client-safe ZIPs to a folder")
+
+                            if let status = exportStatus {
+                                Text(status)
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
                         let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
                             if lang == "both" {
@@ -399,6 +436,97 @@ struct ContentView: View {
                             .opacity(buttonOpacity(disabled: !repoAvailable))
                             .help(repoAvailable ? "Open deliverables/archive/<today>" : "Select a repo to enable")
                         }
+
+                        Text("Recent campaigns")
+                            .font(.headline)
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            TextField("Search campaigns…", text: $campaignSearch)
+                                .textFieldStyle(.roundedBorder)
+
+                            Picker("", selection: $campaignFilter) {
+                                Text("All").tag(CampaignFilter.all)
+                                Text("Ready").tag(CampaignFilter.withZips)
+                                Text("Hidden").tag(CampaignFilter.hidden)
+                            }
+                            .pickerStyle(.segmented)
+
+                            Toggle("Show hidden campaigns", isOn: $showHiddenCampaigns)
+                                .toggleStyle(.checkbox)
+                        }
+
+                        let repoAvailable = (resolvedRepoRoot() != nil)
+                        if !repoAvailable {
+                            Text("Set Repo to view history.")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        } else if recentCampaigns.isEmpty {
+                            Text("No campaigns yet.")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        } else {
+                            let displayedCampaigns = filteredCampaigns()
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(displayedCampaigns) { item in
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        HStack {
+                                            Text("\(item.dateString) • \(item.campaign)")
+                                                .font(.subheadline)
+                                                .foregroundColor(item.isHidden ? .secondary : .primary)
+                                                .opacity(item.isHidden ? 0.6 : 1.0)
+                                            statusBadge(for: item)
+                                            Spacer()
+                                            Button { openFolder(item.path) } label: {
+                                                Text("Open")
+                                            }
+                                            .buttonStyle(.bordered)
+
+                                            let exportDisabled = isRunning || resolvedRepoRoot() == nil
+                                            Button {
+                                                exportHistoryCampaign(item)
+                                            } label: {
+                                                Text("Export…")
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .disabled(exportDisabled)
+                                            .opacity(buttonOpacity(disabled: exportDisabled))
+
+                                            if item.isHidden {
+                                                Button { unhideCampaign(item) } label: {
+                                                    Label("Unhide", systemImage: "eye")
+                                                }
+                                                .buttonStyle(.bordered)
+                                            } else {
+                                                Button { hideCampaign(item) } label: {
+                                                    Label("Hide", systemImage: "eye.slash")
+                                                }
+                                                .buttonStyle(.bordered)
+                                            }
+
+                                            let revealDisabled = !item.hasZips
+                                            Button { revealCampaignZips(item) } label: {
+                                                Text("Reveal ZIPs")
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .disabled(revealDisabled)
+                                            .opacity(buttonOpacity(disabled: revealDisabled))
+                                            .help(revealDisabled ? "No ZIPs yet" : "Reveal ZIPs in Finder")
+                                        }
+
+                                        if let status = historyExportStatus[item.id] {
+                                            Text(status)
+                                                .font(.footnote)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                }
+                            }
+                            if displayedCampaigns.isEmpty {
+                                Text("No campaigns match.")
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
@@ -443,29 +571,29 @@ struct ContentView: View {
                                         }
                                     }
 
-                                let pdfDisabled = isRunning
-                                Button {
-                                    if let p = selectedPDF ?? pdfs.first {
-                                        revealAndOpenFile(p)
+                                    let pdfDisabled = isRunning
+                                    Button {
+                                        if let p = selectedPDF ?? pdfs.first {
+                                            revealAndOpenFile(p)
+                                        }
+                                    } label: {
+                                        Label("PDF", systemImage: "doc.richtext")
                                     }
-                                } label: {
-                                    Label("PDF", systemImage: "doc.richtext")
+                                    .buttonStyle(.bordered)
+                                    .disabled(pdfDisabled)
+                                    .opacity(buttonOpacity(disabled: pdfDisabled))
+                                    .help(pdfHelpText())
+                                    InfoButton(text: "Opens the generated audit PDF from the last run.")
+                                } else {
+                                    Button { } label: {
+                                        Label("PDF", systemImage: "doc.richtext")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(true)
+                                    .opacity(buttonOpacity(disabled: true))
+                                    .help(pdfHelpText())
+                                    InfoButton(text: "Opens the generated audit PDF from the last run.")
                                 }
-                                .buttonStyle(.bordered)
-                                .disabled(pdfDisabled)
-                                .opacity(buttonOpacity(disabled: pdfDisabled))
-                                .help(pdfHelpText())
-                                InfoButton(text: "Opens the generated audit PDF from the last run.")
-                            } else {
-                                Button { } label: {
-                                    Label("PDF", systemImage: "doc.richtext")
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(true)
-                                .opacity(buttonOpacity(disabled: true))
-                                .help(pdfHelpText())
-                                InfoButton(text: "Opens the generated audit PDF from the last run.")
-                            }
                             }
 
                             if let reason = pdfDisabledReason() {
@@ -488,6 +616,124 @@ struct ContentView: View {
                                     )
                                     .help("Live runner output (read-only)")
                             }
+
+                            Divider()
+
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("History management")
+                                    .font(.headline)
+
+                                Button { prepareDeleteHidden() } label: {
+                                    Text("Delete hidden campaigns…")
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(isRunning)
+                                .opacity(buttonOpacity(disabled: isRunning))
+
+                                if showDeleteHiddenConfirm {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text("This will permanently delete \(deleteHiddenCount) campaigns from disk.")
+                                            .font(.footnote)
+                                            .foregroundColor(.secondary)
+                                        TextField("Type DELETE to confirm", text: $deleteHiddenConfirmText)
+                                            .textFieldStyle(.roundedBorder)
+                                        HStack {
+                                            Button("Cancel") {
+                                                showDeleteHiddenConfirm = false
+                                                deleteHiddenConfirmText = ""
+                                            }
+                                            .buttonStyle(.bordered)
+
+                                            Button("Delete") {
+                                                deleteHiddenCampaigns()
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .disabled(deleteHiddenConfirmText != "DELETE")
+                                        }
+                                    }
+                                }
+
+                                Button { prepareDeleteIncomplete() } label: {
+                                    Text("Delete incomplete campaigns…")
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(isRunning)
+                                .opacity(buttonOpacity(disabled: isRunning))
+
+                                if showDeleteIncompleteConfirm {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text("This will permanently delete \(deleteIncompleteCount) campaigns from disk.")
+                                            .font(.footnote)
+                                            .foregroundColor(.secondary)
+                                        TextField("Type DELETE to confirm", text: $deleteIncompleteConfirmText)
+                                            .textFieldStyle(.roundedBorder)
+                                        HStack {
+                                            Button("Cancel") {
+                                                showDeleteIncompleteConfirm = false
+                                                deleteIncompleteConfirmText = ""
+                                            }
+                                            .buttonStyle(.bordered)
+
+                                            Button("Delete") {
+                                                deleteIncompleteCampaigns()
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .disabled(deleteIncompleteConfirmText != "DELETE")
+                                        }
+                                    }
+                                }
+
+                                HStack(spacing: 8) {
+                                    Text("Delete campaigns older than")
+                                        .font(.subheadline)
+                                    Picker("", selection: $deleteOlderDays) {
+                                        Text("7").tag(7)
+                                        Text("14").tag(14)
+                                        Text("30").tag(30)
+                                        Text("90").tag(90)
+                                    }
+                                    .pickerStyle(.segmented)
+                                    .frame(maxWidth: 220)
+                                    Text("days…")
+                                        .font(.subheadline)
+                                }
+
+                                Button { prepareDeleteOlder() } label: {
+                                    Text("Delete campaigns older than \(deleteOlderDays) days…")
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(isRunning)
+                                .opacity(buttonOpacity(disabled: isRunning))
+
+                                if showDeleteOlderConfirm {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text("This will permanently delete \(deleteOlderCount) campaigns from disk.")
+                                            .font(.footnote)
+                                            .foregroundColor(.secondary)
+                                        TextField("Type DELETE to confirm", text: $deleteOlderConfirmText)
+                                            .textFieldStyle(.roundedBorder)
+                                        HStack {
+                                            Button("Cancel") {
+                                                showDeleteOlderConfirm = false
+                                                deleteOlderConfirmText = ""
+                                            }
+                                            .buttonStyle(.bordered)
+
+                                            Button("Delete") {
+                                                deleteOlderCampaigns()
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .disabled(deleteOlderConfirmText != "DELETE")
+                                        }
+                                    }
+                                }
+
+                                if let status = historyCleanupStatus {
+                                    Text(status)
+                                        .font(.footnote)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 8)
@@ -499,6 +745,23 @@ struct ContentView: View {
             .padding(16)
         }
         .frame(minWidth: 980, minHeight: 720)
+        .onAppear {
+            repoRoot = resolvedRepoRoot()
+            refreshRecentCampaigns()
+        }
+        .onChange(of: repoRoot) { _, _ in
+            refreshRecentCampaigns()
+        }
+        .onChange(of: campaignFilter) { _, newValue in
+            if newValue == .hidden {
+                showHiddenCampaigns = true
+            }
+        }
+        .onChange(of: deleteOlderDays) { _, _ in
+            if showDeleteOlderConfirm {
+                deleteOlderCount = countOlderCampaigns(days: deleteOlderDays)
+            }
+        }
     }
 
     // MARK: - Status UI
@@ -750,8 +1013,8 @@ struct ContentView: View {
         let urls = extractURLs(from: urlsText)
         let content = urls.joined(separator: "\n") + "\n"
 
-        let tmp = FileManager.default.temporaryDirectory
-        let path = tmp.appendingPathComponent("scope_targets.txt").path
+        let tmp = FileManager.default.temporaryDirectory.path
+        let path = (tmp as NSString).appendingPathComponent("scope_targets.txt")
         try? content.write(toFile: path, atomically: true, encoding: .utf8)
         return path
     }
@@ -820,6 +1083,8 @@ struct ContentView: View {
             if resp == .OK, let url = panel.url {
                 do {
                     try ScopeRepoLocator.saveRepoPath(url.path)
+                    self.repoRoot = url.path
+                    self.refreshRecentCampaigns()
                     self.alert(title: "Repo set", message: url.path)
                 } catch {
                     self.alert(title: "Invalid repo", message: "Folderul ales nu pare repo-ul corect.")
@@ -1041,7 +1306,7 @@ struct ContentView: View {
     }
 
     private func resolvedRepoRoot() -> String? {
-        return (try? ScopeRepoLocator.locateRepo())
+        return repoRoot ?? (try? ScopeRepoLocator.locateRepo())
     }
 
     private func outputFolderPath() -> String? {
@@ -1051,6 +1316,49 @@ struct ContentView: View {
     private func openOutputFolder() {
         guard let path = outputFolderPath() else { return }
         openFolder(path)
+    }
+
+    private func exportCurrentCampaign() {
+        guard let campaign = lastRunCampaign?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !campaign.isEmpty else {
+            setExportStatus("No ZIP found to export.")
+            return
+        }
+        let dateString = todayString()
+        exportCampaign(campaign: campaign, dateString: dateString, allowOutFallback: true) { status in
+            setExportStatus(status)
+        }
+    }
+
+    private func exportHistoryCampaign(_ item: RecentCampaign) {
+        exportCampaign(campaign: item.campaign, dateString: item.dateString, allowOutFallback: false) { status in
+            setHistoryExportStatus(status, for: item.id)
+        }
+    }
+
+    private func revealCampaignZips(_ item: RecentCampaign) {
+        if !item.zipPaths.isEmpty {
+            revealFiles(item.zipPaths)
+        } else {
+            openFolder(item.path)
+        }
+    }
+
+    private func hideCampaign(_ item: RecentCampaign) {
+        let hiddenPath = (item.path as NSString).appendingPathComponent(".hidden")
+        FileManager.default.createFile(atPath: hiddenPath, contents: Data())
+        refreshRecentCampaigns()
+    }
+
+    private func unhideCampaign(_ item: RecentCampaign) {
+        let hiddenPath = (item.path as NSString).appendingPathComponent(".hidden")
+        try? FileManager.default.removeItem(atPath: hiddenPath)
+        refreshRecentCampaigns()
+    }
+
+    private func revealFiles(_ paths: [String]) {
+        let urls = paths.map { URL(fileURLWithPath: $0) }
+        NSWorkspace.shared.activateFileViewerSelecting(urls)
     }
 
     private func openArchiveRoot() {
@@ -1077,6 +1385,390 @@ struct ContentView: View {
         } else {
             openFolder(repo)
         }
+    }
+
+    private func exportCampaign(campaign: String, dateString: String, allowOutFallback: Bool, statusHandler: @escaping (String) -> Void) {
+        guard let repo = resolvedRepoRoot() else { return }
+
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Select a destination folder for export"
+
+        panel.begin { resp in
+            guard resp == .OK, let destUrl = panel.url else { return }
+            let folderName = "SCOPE - \(dateString) - \(campaign)"
+            let destFolder = (destUrl.path as NSString).appendingPathComponent(folderName)
+
+            let zips = self.findArchiveZips(repoRoot: repo, dateString: dateString, campaign: campaign)
+            let fallbackZips = allowOutFallback ? self.findOutZips(repoRoot: repo, campaign: campaign) : []
+            let selectedZips = zips.isEmpty ? fallbackZips : zips
+
+            guard !selectedZips.isEmpty else {
+                DispatchQueue.main.async {
+                    statusHandler("No ZIP found to export.")
+                }
+                return
+            }
+ 
+            let fm = FileManager.default
+            try? fm.createDirectory(atPath: destFolder, withIntermediateDirectories: true)
+            for zipPath in selectedZips {
+                let fileName = (zipPath as NSString).lastPathComponent
+                let destPath = (destFolder as NSString).appendingPathComponent(fileName)
+                try? fm.removeItem(atPath: destPath)
+                do {
+                    try fm.copyItem(atPath: zipPath, toPath: destPath)
+                } catch {
+                    continue
+                }
+            }
+
+            DispatchQueue.main.async {
+                statusHandler("Exported.")
+            }
+        }
+    }
+
+    private func findArchiveZips(repoRoot: String, dateString: String, campaign: String) -> [String] {
+        let fm = FileManager.default
+        let archiveRoot = (repoRoot as NSString).appendingPathComponent("deliverables/archive")
+        let campaignRoot = (archiveRoot as NSString).appendingPathComponent(dateString)
+        let campaignRootFull = (campaignRoot as NSString).appendingPathComponent(campaign)
+        let langs = ["RO", "EN"]
+        var zips: [String] = []
+        for lang in langs {
+            let langPath = (campaignRootFull as NSString).appendingPathComponent(lang)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: langPath, isDirectory: &isDir), isDir.boolValue else { continue }
+            let files: [String] = (try? fm.contentsOfDirectory(atPath: langPath)) ?? []
+            for f in files where f.lowercased().hasSuffix(".zip") {
+                zips.append((langPath as NSString).appendingPathComponent(f))
+            }
+
+        }
+        return zips.sorted()
+    }
+
+    private func findOutZips(repoRoot: String, campaign: String) -> [String] {
+        let fm = FileManager.default
+        let outRoot = (repoRoot as NSString).appendingPathComponent("deliverables/out")
+        guard let files = try? fm.contentsOfDirectory(atPath: outRoot) else { return [] }
+        let lowerCampaign = campaign.lowercased()
+        let matches = files.filter { file in
+            let lower = file.lowercased()
+            return lower.hasPrefix(lowerCampaign.lowercased()) && lower.hasSuffix(".zip")
+        }
+        return matches.sorted().map { (outRoot as NSString).appendingPathComponent($0) }
+    }
+
+    private func todayString() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date())
+    }
+
+    private func campaignIsValidForExport() -> Bool {
+        guard let c = lastRunCampaign?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
+        return !c.isEmpty
+    }
+
+    private func setExportStatus(_ text: String) {
+        exportStatus = text
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
+            if exportStatus == text {
+                exportStatus = nil
+            }
+        }
+    }
+
+    private func setHistoryExportStatus(_ text: String, for id: String) {
+        historyExportStatus[id] = text
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
+            if historyExportStatus[id] == text {
+                historyExportStatus[id] = nil
+            }
+        }
+    }
+
+    private struct RecentCampaign: Identifiable {
+        let id: String
+        let dateString: String
+        let dateValue: Date
+        let campaign: String
+        let path: String
+        let zipPaths: [String]
+        let isHidden: Bool
+        let hasZips: Bool
+    }
+
+    private struct CampaignEntry {
+        let dateString: String
+        let dateValue: Date
+        let campaign: String
+        let path: String
+        let isHidden: Bool
+        let hasZips: Bool
+    }
+
+    private func refreshRecentCampaigns() {
+        guard let repo = resolvedRepoRoot() else {
+            recentCampaigns = []
+            return
+        }
+        recentCampaigns = loadRecentCampaigns(repoRoot: repo)
+    }
+
+    private func loadRecentCampaigns(repoRoot: String) -> [RecentCampaign] {
+        let fm = FileManager.default
+        let archiveRoot = (repoRoot as NSString).appendingPathComponent("deliverables/archive")
+        guard fm.fileExists(atPath: archiveRoot) else { return [] }
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+
+        guard let dateDirs = try? fm.contentsOfDirectory(atPath: archiveRoot) else { return [] }
+        var items: [RecentCampaign] = []
+
+        for dateName in dateDirs {
+            let datePath = (archiveRoot as NSString).appendingPathComponent(dateName)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: datePath, isDirectory: &isDir), isDir.boolValue else { continue }
+            guard let dateValue = dateFormatter.date(from: dateName) else { continue }
+
+            guard let campaignDirs = try? fm.contentsOfDirectory(atPath: datePath) else { continue }
+            for campaignName in campaignDirs {
+                let campaignPath = (datePath as NSString).appendingPathComponent(campaignName)
+                var isCampaignDir: ObjCBool = false
+                guard fm.fileExists(atPath: campaignPath, isDirectory: &isCampaignDir), isCampaignDir.boolValue else { continue }
+
+                let hiddenPath = (campaignPath as NSString).appendingPathComponent(".hidden")
+                let isHidden = fm.fileExists(atPath: hiddenPath)
+                let zipPaths = findZipPaths(in: campaignPath)
+                let hasZips = hasAnyZip(in: campaignPath)
+                let id = "\(dateName)|\(campaignName)"
+                items.append(RecentCampaign(
+                    id: id,
+                    dateString: dateName,
+                    dateValue: dateValue,
+                    campaign: campaignName,
+                    path: campaignPath,
+                    zipPaths: zipPaths,
+                    isHidden: isHidden,
+                    hasZips: hasZips
+                ))
+            }
+        }
+
+        let sorted = items.sorted {
+            if $0.dateValue != $1.dateValue {
+                return $0.dateValue > $1.dateValue
+            }
+            return $0.campaign.localizedCompare($1.campaign) == .orderedAscending
+        }
+        return Array(sorted.prefix(10))
+    }
+
+    private func findZipPaths(in campaignPath: String) -> [String] {
+        let fm = FileManager.default
+        let langs = ["RO", "EN"]
+        var zips: [String] = []
+        for lang in langs {
+            let langPath = (campaignPath as NSString).appendingPathComponent(lang)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: langPath, isDirectory: &isDir), isDir.boolValue else { continue }
+            let files = (try? fm.contentsOfDirectory(atPath: langPath)) ?? []
+            for f in files where f.lowercased().hasSuffix(".zip") {
+                zips.append((langPath as NSString).appendingPathComponent(f))
+            }
+        }
+        return zips.sorted()
+    }
+
+    private func hasAnyZip(in campaignPath: String) -> Bool {
+        let fm = FileManager.default
+        let langs = ["RO", "EN"]
+        for lang in langs {
+            let langPath = (campaignPath as NSString).appendingPathComponent(lang)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: langPath, isDirectory: &isDir), isDir.boolValue else { continue }
+            let files: [String] = (try? fm.contentsOfDirectory(atPath: langPath)) ?? []
+            if files.contains(where: { $0.lowercased().hasSuffix(".zip") }) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func prepareDeleteHidden() {
+        deleteHiddenCount = countHiddenCampaigns()
+        showDeleteHiddenConfirm = true
+        deleteHiddenConfirmText = ""
+    }
+
+    private func prepareDeleteIncomplete() {
+        deleteIncompleteCount = countIncompleteCampaigns()
+        showDeleteIncompleteConfirm = true
+        deleteIncompleteConfirmText = ""
+    }
+
+    private func prepareDeleteOlder() {
+        deleteOlderCount = countOlderCampaigns(days: deleteOlderDays)
+        showDeleteOlderConfirm = true
+        deleteOlderConfirmText = ""
+    }
+
+    private func deleteHiddenCampaigns() {
+        let items = listAllCampaigns().filter { $0.isHidden }
+        let deleted = deleteCampaignEntries(items)
+        historyCleanupStatus = "Deleted \(deleted) campaigns."
+        showDeleteHiddenConfirm = false
+        deleteHiddenConfirmText = ""
+        refreshRecentCampaigns()
+    }
+
+    private func deleteIncompleteCampaigns() {
+        let items = listAllCampaigns().filter { !$0.hasZips }
+        let deleted = deleteCampaignEntries(items)
+        historyCleanupStatus = "Deleted \(deleted) campaigns."
+        showDeleteIncompleteConfirm = false
+        deleteIncompleteConfirmText = ""
+        refreshRecentCampaigns()
+    }
+
+    private func deleteOlderCampaigns() {
+        let items = listOlderCampaigns(days: deleteOlderDays)
+        let deleted = deleteCampaignEntries(items)
+        historyCleanupStatus = "Deleted \(deleted) campaigns."
+        showDeleteOlderConfirm = false
+        deleteOlderConfirmText = ""
+        refreshRecentCampaigns()
+    }
+
+    private func countHiddenCampaigns() -> Int {
+        listAllCampaigns().filter { $0.isHidden }.count
+    }
+
+    private func countIncompleteCampaigns() -> Int {
+        listAllCampaigns().filter { !$0.hasZips }.count
+    }
+
+    private func countOlderCampaigns(days: Int) -> Int {
+        listOlderCampaigns(days: days).count
+    }
+
+    private func listOlderCampaigns(days: Int) -> [CampaignEntry] {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date()) ?? Date()
+        return listAllCampaigns().filter { $0.dateValue < cutoff }
+    }
+
+    private func listAllCampaigns() -> [CampaignEntry] {
+        guard let archiveRoot = archiveRootPath() else { return [] }
+        let fm = FileManager.default
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+
+        guard let dateDirs = try? fm.contentsOfDirectory(atPath: archiveRoot) else { return [] }
+        var items: [CampaignEntry] = []
+
+        for dateName in dateDirs {
+            let datePath = (archiveRoot as NSString).appendingPathComponent(dateName)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: datePath, isDirectory: &isDir), isDir.boolValue else { continue }
+            guard let dateValue = dateFormatter.date(from: dateName) else { continue }
+
+            guard let campaignDirs = try? fm.contentsOfDirectory(atPath: datePath) else { continue }
+            for campaignName in campaignDirs {
+                let campaignPath = (datePath as NSString).appendingPathComponent(campaignName)
+                var isCampaignDir: ObjCBool = false
+                guard fm.fileExists(atPath: campaignPath, isDirectory: &isCampaignDir), isCampaignDir.boolValue else { continue }
+
+                let hiddenPath = (campaignPath as NSString).appendingPathComponent(".hidden")
+                let isHidden = fm.fileExists(atPath: hiddenPath)
+                let hasZips = hasAnyZip(in: campaignPath)
+                items.append(CampaignEntry(
+                    dateString: dateName,
+                    dateValue: dateValue,
+                    campaign: campaignName,
+                    path: campaignPath,
+                    isHidden: isHidden,
+                    hasZips: hasZips
+                ))
+            }
+        }
+
+        return items
+    }
+
+    private func deleteCampaignEntries(_ items: [CampaignEntry]) -> Int {
+        guard let archiveRoot = archiveRootPath() else { return 0 }
+        let fm = FileManager.default
+        let root = (archiveRoot as NSString).standardizingPath
+        var deleted = 0
+        for item in items {
+            let path = (item.path as NSString).standardizingPath
+            if path.hasPrefix(root + "/") {
+                do {
+                    try fm.removeItem(atPath: path)
+                    deleted += 1
+                } catch {
+                    continue
+                }
+            }
+        }
+        return deleted
+    }
+
+    private func archiveRootPath() -> String? {
+        guard let repo = resolvedRepoRoot() else { return nil }
+        return (repo as NSString).appendingPathComponent("deliverables/archive")
+    }
+
+    private func filteredCampaigns() -> [RecentCampaign] {
+        let query = campaignSearch.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        var items = recentCampaigns
+
+        switch campaignFilter {
+        case .all:
+            if !showHiddenCampaigns {
+                items = items.filter { !$0.isHidden }
+            }
+        case .withZips:
+            items = items.filter { $0.hasZips }
+            if !showHiddenCampaigns {
+                items = items.filter { !$0.isHidden }
+            }
+        case .hidden:
+            items = items.filter { $0.isHidden }
+        }
+
+        if !query.isEmpty {
+            items = items.filter { $0.campaign.lowercased().contains(query) }
+        }
+
+        return items
+    }
+
+    private enum CampaignFilter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case withZips = "With ZIPs"
+        case hidden = "Hidden"
+
+        var id: String { rawValue }
+    }
+
+    private func statusBadge(for item: RecentCampaign) -> some View {
+        let text = item.hasZips ? "Ready" : "Incomplete"
+        let color: Color = item.hasZips ? .green : .secondary
+        return Text(text)
+            .font(.caption)
+            .foregroundColor(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                Capsule().fill(color.opacity(item.hasZips ? 0.15 : 0.08))
+            )
     }
 
     private func readyToSendHint() -> String? {
