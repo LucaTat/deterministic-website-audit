@@ -102,8 +102,6 @@ fi
 echo "== Collecting PDFs from run output =="
 
 LIST_FILE="$(mktemp "${OUT_DIR}/pdf_list.XXXXXX")"
-FIRST_JSON=""
-FIRST_DOMAIN_LABEL=""
 
 grep -E "^[[:space:]]+pdf:" "${RUN_LOG}" | sed -E "s/^[[:space:]]*pdf:[[:space:]]+//" > "${LIST_FILE}"
 PDF_COUNT="$(wc -l < "${LIST_FILE}" | tr -d " ")"
@@ -124,9 +122,6 @@ while read -r PDF_PATH; do
   JSON_PATH="$(dirname "${PDF_PATH}")/audit.json"
   STATUS="UNKNOWN"
   if [[ -f "${JSON_PATH}" ]]; then
-    if [[ -z "${FIRST_JSON}" ]]; then
-      FIRST_JSON="${JSON_PATH}"
-    fi
     MODE="$("${PYTHON_BIN}" - <<'PY' "${JSON_PATH}"
 import json,sys
 with open(sys.argv[1], "r", encoding="utf-8") as f:
@@ -140,9 +135,6 @@ PY
     fi
   fi
 
-  if [[ -z "${FIRST_DOMAIN_LABEL}" ]]; then
-    FIRST_DOMAIN_LABEL="${DOMAIN_LABEL}"
-  fi
   DEST="${OUT_DIR}/Website Audit - ${DOMAIN_LABEL} - EN.pdf"
   cp -f "${PDF_PATH}" "${DEST}"
   echo "Copied: ${DEST}"
@@ -154,12 +146,34 @@ if [[ "$COPIED_COUNT" -eq 0 ]]; then
   exit 2
 fi
 
-# Generate Decision Brief TXT (optional)
-if [[ -z "${FIRST_DOMAIN_LABEL}" ]]; then
-  FIRST_DOMAIN_LABEL="Unknown"
-fi
-DECISION_BRIEF_TXT="${OUT_DIR}/Decision Brief - ${FIRST_DOMAIN_LABEL} - EN.txt"
-if "${PYTHON_BIN}" - <<'PY' "${FIRST_JSON}" "${DECISION_BRIEF_TXT}" "${CAMPAIGN}" >/dev/null 2>&1; then
+SORTED_DOMAINS=()
+LAST_DOMAIN=""
+while IFS= read -r pdf_out; do
+  domain_label="$(basename "${pdf_out}")"
+  domain_label="${domain_label#Website Audit - }"
+  domain_label="${domain_label% - EN.pdf}"
+  if [[ -n "${domain_label}" && "${domain_label}" != "${LAST_DOMAIN}" ]]; then
+    SORTED_DOMAINS+=("${domain_label}")
+    LAST_DOMAIN="${domain_label}"
+  fi
+done < <(ls -1 "${OUT_DIR}"/Website\ Audit\ -\ *\ -\ EN.pdf 2>/dev/null | LC_ALL=C sort)
+
+# Generate Decision Brief TXT/PDF per domain (optional)
+for DOMAIN_LABEL in "${SORTED_DOMAINS[@]}"; do
+  DECISION_BRIEF_TXT="${OUT_DIR}/Decision Brief - ${DOMAIN_LABEL} - EN.txt"
+  JSON_PATH=""
+  while read -r PDF_PATH; do
+    if [[ ! -f "${PDF_PATH}" ]]; then
+      continue
+    fi
+    CLIENT_DIR="$(basename "$(dirname "$(dirname "${PDF_PATH}")")")"
+    DOMAIN_FROM_PATH="$(echo "${CLIENT_DIR}" | tr '_' '.' )"
+    if [[ "${DOMAIN_FROM_PATH}" == "${DOMAIN_LABEL}" ]]; then
+      JSON_PATH="$(dirname "${PDF_PATH}")/audit.json"
+      break
+    fi
+  done < "${LIST_FILE}"
+  if "${PYTHON_BIN}" - <<'PY' "${JSON_PATH}" "${DECISION_BRIEF_TXT}" "${CAMPAIGN}" >/dev/null 2>&1; then
 import json
 import os
 import sys
@@ -180,14 +194,13 @@ audit_result["lang"] = "en"
 
 generate_decision_brief_txt(audit_result, "en", out_path)
 PY
-  echo "Added TXT: ${DECISION_BRIEF_TXT}"
-else
-  echo "WARN: Failed to generate ${DECISION_BRIEF_TXT}"
-fi
+    echo "Added TXT: ${DECISION_BRIEF_TXT}"
+  else
+    echo "WARN: Failed to generate ${DECISION_BRIEF_TXT}"
+  fi
 
-# Generate Decision Brief PDF (optional)
-DECISION_PDF="${OUT_DIR}/Decision Brief - ${FIRST_DOMAIN_LABEL} - EN.pdf"
-if "${PYTHON_BIN}" - <<'PY' "${FIRST_JSON}" "${DECISION_PDF}" "${CAMPAIGN}" >/dev/null 2>&1; then
+  DECISION_PDF="${OUT_DIR}/Decision Brief - ${DOMAIN_LABEL} - EN.pdf"
+  if "${PYTHON_BIN}" - <<'PY' "${JSON_PATH}" "${DECISION_PDF}" "${CAMPAIGN}" >/dev/null 2>&1; then
 import json
 import os
 import sys
@@ -208,10 +221,11 @@ audit_result["lang"] = "en"
 
 generate_decision_brief_pdf(audit_result, "en", out_path)
 PY
-  echo "Added PDF: ${DECISION_PDF}"
-else
-  echo "WARN: Failed to generate ${DECISION_PDF}"
-fi
+    echo "Added PDF: ${DECISION_PDF}"
+  else
+    echo "WARN: Failed to generate ${DECISION_PDF}"
+  fi
+done
 
 # Add client README
 README_CLIENT="${OUT_DIR}/README - EN.txt"
@@ -225,23 +239,27 @@ We recommend a short follow-up call to discuss priorities and timing.
 EOF
 echo "Added README: ${README_CLIENT}"
 
+# Remove internal files from client OUT
+rm -f "${OUT_DIR}/run.log" "${OUT_DIR}"/pdf_list.* 2>/dev/null || true
+
 
 # Create ZIP
 echo "== Creating ZIP =="
 ZIP_LIST="$(mktemp "${OUT_DIR}/zip_list.XXXXXX")"
-WEBSITE_PDF="${OUT_DIR}/Website Audit - ${FIRST_DOMAIN_LABEL} - EN.pdf"
-FILES_TO_ZIP=(
-  "${DECISION_PDF}"
-  "${WEBSITE_PDF}"
-  "${README_CLIENT}"
-  "${DECISION_BRIEF_TXT}"
-)
 > "${ZIP_LIST}"
-for file_path in "${FILES_TO_ZIP[@]}"; do
-  if [[ -f "${file_path}" ]]; then
-    echo "${file_path}" >> "${ZIP_LIST}"
-  fi
+for DOMAIN_LABEL in "${SORTED_DOMAINS[@]}"; do
+  DECISION_PDF="${OUT_DIR}/Decision Brief - ${DOMAIN_LABEL} - EN.pdf"
+  WEBSITE_PDF="${OUT_DIR}/Website Audit - ${DOMAIN_LABEL} - EN.pdf"
+  DECISION_BRIEF_TXT="${OUT_DIR}/Decision Brief - ${DOMAIN_LABEL} - EN.txt"
+  for file_path in "${DECISION_PDF}" "${WEBSITE_PDF}" "${DECISION_BRIEF_TXT}"; do
+    if [[ -f "${file_path}" ]]; then
+      echo "${file_path}" >> "${ZIP_LIST}"
+    fi
+  done
 done
+if [[ -f "${README_CLIENT}" ]]; then
+  echo "${README_CLIENT}" >> "${ZIP_LIST}"
+fi
 if [[ ! -s "${ZIP_LIST}" ]]; then
   echo "FATAL: ZIP packaging failed (no files to zip)"
   exit 2
@@ -253,12 +271,17 @@ fi
 rm -f "${ZIP_LIST}"
 echo "ZIP ready: ${REPO_ROOT}/${ZIP_PATH}"
 
-# End summary (safe with pipefail when there are 0 matches)
-TOTAL_COUNT="$( (grep -E "^\[[0-9]+/[0-9]+\] " "${RUN_LOG}" || true) | wc -l | tr -d " " )"
-OK_COUNT="$( (grep -E "^[[:space:]]+status:[[:space:]]+OK" "${RUN_LOG}" || true) | wc -l | tr -d " " )"
-BROKEN_COUNT="$( (grep -E "^[[:space:]]+status:[[:space:]]+BROKEN" "${RUN_LOG}" || true) | wc -l | tr -d " " )"
+# End summary
 echo "== Summary =="
-echo "Total: ${TOTAL_COUNT} | OK: ${OK_COUNT} | BROKEN: ${BROKEN_COUNT}"
+if [[ -f "${RUN_LOG}" ]]; then
+  TOTAL_COUNT="$( (grep -E "^\[[0-9]+/[0-9]+\] " "${RUN_LOG}" || true) | wc -l | tr -d " " )"
+  OK_COUNT="$( (grep -E "^[[:space:]]+status:[[:space:]]+OK" "${RUN_LOG}" || true) | wc -l | tr -d " " )"
+  BROKEN_COUNT="$( (grep -E "^[[:space:]]+status:[[:space:]]+BROKEN" "${RUN_LOG}" || true) | wc -l | tr -d " " )"
+  echo "Total: ${TOTAL_COUNT} | OK: ${OK_COUNT} | BROKEN: ${BROKEN_COUNT}"
+else
+  DOMAIN_COUNT="${#SORTED_DOMAINS[@]}"
+  echo "Summary: completed shipping for ${DOMAIN_COUNT} domains"
+fi
 echo "Output folder: ${REPO_ROOT}/${OUT_DIR}"
 echo "ZIP: ${REPO_ROOT}/${ZIP_PATH}"
 if [[ "$RUN_EXIT" -eq 1 ]]; then
