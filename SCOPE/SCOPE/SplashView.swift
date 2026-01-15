@@ -15,8 +15,9 @@ struct SplashView: View {
     @State private var textOpacity: Double = 0.05
     @State private var textBlur: CGFloat = 0.6
     @State private var subtitleOpacity: Double = 0.0
-    @State private var audioPlayer: AVAudioPlayer?
     @State private var didPlayChime: Bool = false
+    @State private var didStartReveal: Bool = false
+    @State private var noiseImage: Image?
     @AppStorage("scopeTheme") private var themeRaw: String = Theme.light.rawValue
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -29,36 +30,36 @@ struct SplashView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [theme.backgroundTop, theme.backgroundBottom],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            ZStack {
+                LinearGradient(
+                    colors: [theme.backgroundTop, theme.backgroundBottom],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
 
-            RadialGradient(
-                gradient: Gradient(colors: [
-                    Color.clear,
-                    Color.black.opacity(theme.isDark ? 0.45 : 0.10)
-                ]),
-                center: .center,
-                startRadius: 90,
-                endRadius: 520
-            )
-            .ignoresSafeArea()
+                RadialGradient(
+                    gradient: Gradient(colors: [
+                        Color.clear,
+                        Color.black.opacity(theme.isDark ? 0.45 : 0.10)
+                    ]),
+                    center: .center,
+                    startRadius: 90,
+                    endRadius: 520
+                )
+                .ignoresSafeArea()
 
-            Canvas { context, size in
-                let dotCount = Int((size.width * size.height) / 18000)
-                for i in 0..<dotCount {
-                    let x = CGFloat((i * 73) % Int(size.width))
-                    let y = CGFloat((i * 151) % Int(size.height))
-                    let rect = CGRect(x: x, y: y, width: 1, height: 1)
-                    context.fill(Path(rect), with: .color(.white))
+                if let noiseImage {
+                    noiseImage
+                        .resizable()
+                        .interpolation(.none)
+                        .scaledToFill()
+                        .opacity(theme.isDark ? 0.05 : 0.02)
+                        .blendMode(.softLight)
+                        .ignoresSafeArea()
                 }
             }
-            .opacity(theme.isDark ? 0.05 : 0.02)
-            .blendMode(.softLight)
-            .ignoresSafeArea()
+            .compositingGroup()
 
             GeometryReader { proxy in
                 let width = proxy.size.width
@@ -93,6 +94,7 @@ struct SplashView: View {
     }
 
     private func resetAndStart() {
+        ensureNoiseImage()
         withAnimation(nil) {
             didFinish = false
             revealProgress = 0.0
@@ -101,23 +103,58 @@ struct SplashView: View {
             textBlur = 0.6
             subtitleOpacity = 0.0
             didPlayChime = false
-            audioPlayer = nil
+            didStartReveal = false
         }
         startReveal()
+    }
+
+    private func ensureNoiseImage() {
+        guard noiseImage == nil else { return }
+        let size = 96
+        let pixelsCount = size * size
+        var pixels = [UInt8](repeating: 0, count: pixelsCount * 4)
+        var seed: UInt32 = 0x12345678
+
+        for i in 0..<pixelsCount {
+            seed = 1664525 &* seed &+ 1013904223
+            let value = UInt8((seed >> 24) & 0xFF)
+            let offset = i * 4
+            pixels[offset] = value
+            pixels[offset + 1] = value
+            pixels[offset + 2] = value
+            pixels[offset + 3] = 255
+        }
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bytesPerRow = size * 4
+        if let context = CGContext(
+            data: &pixels,
+            width: size,
+            height: size,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ), let cgImage = context.makeImage() {
+            noiseImage = Image(decorative: cgImage, scale: 1)
+        }
     }
 
     private func startReveal() {
         guard !didFinish else { return }
         didFinish = true
+        if !didStartReveal {
+            didStartReveal = true
+            DispatchQueue.main.async {
+                playLaunchChimeIfNeeded()
+            }
+        }
         withAnimation(.easeInOut(duration: revealDuration)) {
             revealProgress = 1.0
             trackingValue = 1.0
         }
         withAnimation(.easeInOut(duration: revealDuration * 0.6)) {
             textOpacity = 1.0
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + revealDuration) {
-            playLaunchChimeIfNeeded()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + revealDuration + finishDelay) {
             withAnimation(.easeInOut(duration: settleDuration)) {
@@ -138,16 +175,6 @@ struct SplashView: View {
 
         defer { didPlayChime = true }
 
-        guard let url = Bundle.main.url(forResource: "launch_chime", withExtension: "wav") else { return }
-
-        do {
-            let player = try AVAudioPlayer(contentsOf: url)
-            player.volume = 0.12
-            player.prepareToPlay()
-            player.play()
-            audioPlayer = player
-        } catch {
-            // silent fail
-        }
+        ChimePlayer.shared.play()
     }
 }

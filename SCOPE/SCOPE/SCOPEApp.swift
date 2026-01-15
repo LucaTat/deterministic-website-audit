@@ -65,6 +65,7 @@ struct SCOPEApp: App {
                 .animation(.easeInOut(duration: flow.splashMode == .initialLaunch ? 0.9 : 0.55), value: flow.showSplash)
             }
             .onAppear {
+                ChimePlayer.shared.preload()
                 flow.triggerSplash(.initialLaunch)
             }
             #if os(macOS)
