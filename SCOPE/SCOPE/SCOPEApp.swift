@@ -14,17 +14,21 @@ struct SCOPEApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
-                if showSplash {
-                    SplashView {
-                        withAnimation(.easeInOut(duration: 0.35)) {
+                ContentView()
+                    .opacity(showSplash ? 0 : 1)
+                    .blur(radius: showSplash ? 10 : 0)
+                    .scaleEffect(showSplash ? 1.02 : 1.0)
+                    .animation(.easeInOut(duration: 0.6), value: showSplash)
+
+                SplashView {
+                    DispatchQueue.main.async {
+                        withAnimation(.easeInOut(duration: 0.6)) {
                             showSplash = false
                         }
                     }
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                } else {
-                    ContentView()
-                        .transition(.opacity.combined(with: .scale(scale: 1.02)))
                 }
+                .opacity(showSplash ? 1 : 0)
+                .animation(.easeInOut(duration: 0.6), value: showSplash)
             }
         }
     }

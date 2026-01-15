@@ -124,6 +124,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             "cover_status_ok": "OK (Ready)",
             "cover_status_issues": "Issues found",
             "cover_status_raw_label": "Raw status",
+            "cover_status_note": "Status reflects audit completeness, not website quality.",
             "date": "Date",
             "website": "Website",
             "status": "Status",
@@ -219,6 +220,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             "cover_status_ok": "OK (Gata de trimis)",
             "cover_status_issues": "Probleme găsite",
             "cover_status_raw_label": "Status brut",
+            "cover_status_note": "Statusul indică dacă auditul a rulat complet, nu calitatea website-ului.",
             "date": "Data",
             "website": "Website",
             "status": "Status",
@@ -460,7 +462,8 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     status_table = Table(
         [[Paragraph(
             f'{cover_status_display}<br/><font size="8" color="#6b7280">'
-            f'{labels["cover_status_raw_label"]}: {cover_status}</font>',
+            f'{labels["cover_status_raw_label"]}: {cover_status}</font><br/>'
+            f'<font size="7" color="#6b7280">{labels["cover_status_note"]}</font>',
             styles["Body"],
         )]],
         colWidths=[45 * mm],
@@ -900,9 +903,9 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         story.append(PageBreak())
         if lang == "ro":
             story.append(Paragraph("Clarificare: rezultat BROKEN", styles["H1"]))
-            story.append(Spacer(1, 8))
+            story.append(Spacer(1, 10))
             options = [
-                "BROKEN nu înseamnă că site-ul e stricat; înseamnă că verificarea automată nu a fost completă/reproductibilă.",
+                "BROKEN nu înseamnă că site-ul e stricat; înseamnă că verificarea automată nu a fost completă sau reproductibilă.",
                 "Poate apărea dacă site-ul blochează accesul automat (WAF/anti-bot/rate limit).",
                 "Ce poți face: (1) păstrezi raportul ca semnal valid, (2) permiți temporar acces pentru verificare și rerulăm.",
             ]
@@ -911,11 +914,13 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 bulletType="bullet",
                 leftIndent=12,
             ))
+            story.append(Spacer(1, 6))
+            story.append(Paragraph("Rezultat BROKEN este o constatare validă, nu o eroare de livrare.", styles["Small"]))
         else:
             story.append(Paragraph("Clarification: BROKEN result", styles["H1"]))
-            story.append(Spacer(1, 8))
+            story.append(Spacer(1, 10))
             options = [
-                "BROKEN does not mean the site is broken; it means the automated check was not fully reproducible.",
+                "BROKEN does not mean the site is broken; it means the automated check was not complete or reproducible.",
                 "It can happen if the site blocks automated access (WAF/anti-bot/rate limit).",
                 "What you can do: (1) keep the report as a valid signal, (2) allow temporary access and rerun.",
             ]
@@ -924,6 +929,8 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 bulletType="bullet",
                 leftIndent=12,
             ))
+            story.append(Spacer(1, 6))
+            story.append(Paragraph("A BROKEN result is a valid finding, not a delivery error.", styles["Small"]))
 
     def draw_header_footer(canvas, doc_obj):
         canvas.saveState()

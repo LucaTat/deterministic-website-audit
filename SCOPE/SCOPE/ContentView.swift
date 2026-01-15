@@ -136,10 +136,14 @@ struct ContentView: View {
                             TextEditor(text: $urlsText)
                                 .font(.system(.body, design: .monospaced))
                                 .foregroundColor(theme.textPrimary)
-                                .background(theme.textEditorBackground)
-                                .frame(minHeight: 220, idealHeight: 260, maxHeight: 360)
+                                .padding(8)
+                                .frame(minHeight: 200, idealHeight: 240, maxHeight: 320)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(theme.textEditorBackground)
+                                )
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
+                                    RoundedRectangle(cornerRadius: 10)
                                         .stroke(theme.border, lineWidth: 1)
                                 )
                                 .help("Paste one URL per line, include https://")
@@ -148,27 +152,21 @@ struct ContentView: View {
                         Divider()
 
                         VStack(alignment: .leading, spacing: 10) {
-                            HStack {
+                            let labelWidth: CGFloat = 90
+                            HStack(spacing: 12) {
                                 Text("Campaign")
-                                    .frame(width: 80, alignment: .leading)
+                                    .frame(width: labelWidth, alignment: .leading)
                                 TextField("e.g. Client A / Outreach Jan", text: $campaign)
                                     .textFieldStyle(.roundedBorder)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 6)
                                             .stroke(campaignIsValid() ? Color.clear : Color.orange.opacity(0.35), lineWidth: 1)
                                     )
+                                    .frame(maxWidth: 320)
                                     .help("Required. Use a clear client name, e.g. Client ABC")
-                            }
-                            if !campaignIsValid() {
-                                Text("Campaign is required (ex: Client ABC)")
-                                    .font(.footnote)
-                                    .foregroundColor(.secondary)
-                                    .padding(.leading, 80)
-                            }
 
-                            HStack(spacing: 12) {
                                 Text("Language")
-                                    .frame(width: 80, alignment: .leading)
+                                    .frame(width: labelWidth, alignment: .leading)
 
                                 Picker("", selection: $lang) {
                                     Text("RO").tag("ro")
@@ -176,8 +174,25 @@ struct ContentView: View {
                                     Text("RO + EN (2 deliverables)").tag("both")
                                 }
                                 .pickerStyle(.segmented)
-                                .frame(maxWidth: 320)
+                                .frame(maxWidth: 300)
                                 .help("Select delivery language")
+                            }
+                            if !campaignIsValid() {
+                                Text("Campaign is required (ex: Client ABC)")
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                                    .padding(.leading, labelWidth)
+                            }
+
+                            HStack(spacing: 12) {
+                                Text("Theme")
+                                    .frame(width: labelWidth, alignment: .leading)
+                                Picker("", selection: $themeRaw) {
+                                    Text("Light").tag(Theme.light.rawValue)
+                                    Text("Dark").tag(Theme.dark.rawValue)
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(maxWidth: 220)
 
                                 Toggle("Cleanup temporary files", isOn: $cleanup)
                                     .toggleStyle(.checkbox)
@@ -186,18 +201,7 @@ struct ContentView: View {
                             Text("RO + EN generates two ZIPs")
                                 .font(.footnote)
                                 .foregroundColor(.secondary)
-                                .padding(.leading, 80)
-
-                            HStack(spacing: 12) {
-                                Text("Theme")
-                                    .frame(width: 80, alignment: .leading)
-                                Picker("", selection: $themeRaw) {
-                                    Text("Light").tag(Theme.light.rawValue)
-                                    Text("Dark").tag(Theme.dark.rawValue)
-                                }
-                                .pickerStyle(.segmented)
-                                .frame(maxWidth: 220)
-                            }
+                                .padding(.leading, labelWidth)
                         }
 
                         if !hasAtLeastOneValidURL() {
@@ -630,12 +634,16 @@ struct ContentView: View {
                                 TextEditor(text: .constant(logOutput))
                                     .font(.system(.body, design: .monospaced))
                                     .foregroundColor(theme.textPrimary)
-                                    .background(theme.textEditorBackground)
+                                    .padding(8)
                                     .frame(minHeight: 180)
                                     .disabled(true)
                                     .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
+                                        RoundedRectangle(cornerRadius: 10)
                                             .stroke(theme.border, lineWidth: 1)
+                                    )
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .fill(theme.textEditorBackground)
                                     )
                                     .help("Live runner output (read-only)")
                             }
@@ -1240,6 +1248,7 @@ struct ContentView: View {
                 self.lastRunStatus = self.statusLabel(for: code)
 
                 self.isRunning = false
+                self.refreshRecentCampaigns()
             }
         }
 
