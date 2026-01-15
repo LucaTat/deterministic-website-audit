@@ -1,9 +1,40 @@
 import datetime as dt
+import os
+import re
+import unicodedata
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+
+
+def sanitize_pdf_text(text: str) -> str:
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
+
+    replacements = {
+        "\u00a0": " ",  # NBSP
+        "\u202f": " ",  # narrow NBSP
+    }
+    for key, value in replacements.items():
+        text = text.replace(key, value)
+
+    for ch in ("\u200b", "\u200c", "\u200d", "\u2060", "\ufeff", "\u00ad"):
+        text = text.replace(ch, "")
+
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = "".join(ch for ch in text if ch == "\n" or ch == "\t" or (ord(ch) >= 32 and ord(ch) != 127))
+    text = "".join(
+        ch for ch in text
+        if ch == "\n" or ch == "\t" or unicodedata.category(ch) not in ("Cc", "Cf")
+    )
+    text = re.sub(r"[ ]{2,}", " ", text)
+    return text
 
 
 def _canonical_list(items) -> list:
@@ -68,16 +99,33 @@ def _decision_brief_content(audit_result: dict, lang: str) -> dict:
         },
     }[lang]
 
+    def sanitize_labels(src: dict) -> dict:
+        cleaned = {}
+        for key, value in src.items():
+            if isinstance(value, list):
+                cleaned[key] = [sanitize_pdf_text(item) for item in value]
+            elif callable(value):
+                cleaned[key] = value
+            else:
+                cleaned[key] = sanitize_pdf_text(value)
+        return cleaned
+
+    labels = sanitize_labels(labels)
+
     mode = (audit_result.get("mode") or "").strip().lower()
     is_ok = mode == "ok"
 
-    domain = (audit_result.get("url") or audit_result.get("domain") or "").strip() or "-"
-    campaign = (audit_result.get("campaign") or "").strip() or "-"
-    cover_date = labels["date_fmt"]()
+    domain = sanitize_pdf_text((audit_result.get("url") or audit_result.get("domain") or "").strip() or "-")
+    campaign = sanitize_pdf_text((audit_result.get("campaign") or "").strip() or "-")
+    cover_date = sanitize_pdf_text(labels["date_fmt"]())
 
     status_text = labels["status_ok"] if is_ok else labels["status_issues"]
     means_list = labels["means_ok"] if is_ok else labels["means_issues"]
     decision_text = labels["decision_ok"] if is_ok else labels["decision_issues"]
+
+    status_text = sanitize_pdf_text(status_text)
+    means_list = [sanitize_pdf_text(item) for item in means_list]
+    decision_text = sanitize_pdf_text(decision_text)
 
     return {
         "labels": labels,
@@ -94,6 +142,14 @@ def generate_decision_brief_pdf(audit_result: dict, lang: str, output_path: str)
     """
     Generate a 1-page, client-safe decision brief PDF.
     """
+    def _is_valid_ttf(path: str) -> bool:
+        try:
+            with open(path, "rb") as handle:
+                header = handle.read(4)
+            return header in (b"\x00\x01\x00\x00", b"OTTO", b"ttcf")
+        except OSError:
+            return False
+
     data = _decision_brief_content(audit_result, lang)
     labels = data["labels"]
     status_text = data["status_text"]
@@ -103,10 +159,35 @@ def generate_decision_brief_pdf(audit_result: dict, lang: str, output_path: str)
     campaign = data["campaign"]
     cover_date = data["date"]
 
+    font_name = "ScopeSans"
+    font_bold = "ScopeSans-Bold"
+    here = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.abspath(os.path.join(here, "..", ".."))
+    font_dir = os.path.join(repo_root, "fonts")
+    font_path = os.path.join(font_dir, "DejaVuSans.ttf")
+    font_bold_path = os.path.join(font_dir, "DejaVuSans-Bold.ttf")
+    if not os.path.exists(font_path):
+        raise FileNotFoundError(
+            "Missing fonts/DejaVuSans.ttf. Add it to enable Unicode-safe PDF output."
+        )
+    if not _is_valid_ttf(font_path):
+        raise FileNotFoundError(
+            "Invalid fonts/DejaVuSans.ttf. Replace with a valid TTF file."
+        )
+    pdfmetrics.registerFont(TTFont("ScopeSans", font_path))
+    if os.path.exists(font_bold_path) and _is_valid_ttf(font_bold_path):
+        pdfmetrics.registerFont(TTFont("ScopeSans-Bold", font_bold_path))
+    else:
+        font_bold = font_name
+
     styles = getSampleStyleSheet()
+    styles["Normal"].fontName = font_name
+    styles["Heading1"].fontName = font_bold
+    styles["Heading2"].fontName = font_bold
     styles.add(ParagraphStyle(
         name="SmallMuted",
         parent=styles["Normal"],
+        fontName=font_name,
         fontSize=9,
         leading=12,
         textColor=colors.HexColor("#6b7280"),
@@ -114,6 +195,7 @@ def generate_decision_brief_pdf(audit_result: dict, lang: str, output_path: str)
     styles.add(ParagraphStyle(
         name="Header",
         parent=styles["Heading1"],
+        fontName=font_bold,
         fontSize=18,
         leading=22,
         textColor=colors.HexColor("#111827"),
@@ -121,6 +203,7 @@ def generate_decision_brief_pdf(audit_result: dict, lang: str, output_path: str)
     styles.add(ParagraphStyle(
         name="H2",
         parent=styles["Heading2"],
+        fontName=font_bold,
         fontSize=12,
         leading=15,
         textColor=colors.HexColor("#111827"),
@@ -138,8 +221,8 @@ def generate_decision_brief_pdf(audit_result: dict, lang: str, output_path: str)
 
     header_table = Table(
         [[
-            Paragraph(labels["title"], styles["Header"]),
-            Paragraph(labels["badge"], styles["SmallMuted"]),
+            Paragraph(sanitize_pdf_text(labels["title"]), styles["Header"]),
+            Paragraph(sanitize_pdf_text(labels["badge"]), styles["SmallMuted"]),
         ]],
         colWidths=[120 * mm, 40 * mm],
         hAlign="LEFT",
@@ -151,7 +234,7 @@ def generate_decision_brief_pdf(audit_result: dict, lang: str, output_path: str)
 
     meta_table = Table(
         [
-            [Paragraph(f'{labels["domain_label"]}:', styles["SmallMuted"]), Paragraph(domain, styles["Normal"])],
+            [Paragraph(sanitize_pdf_text(f'{labels["domain_label"]}:'), styles["SmallMuted"]), Paragraph(sanitize_pdf_text(domain), styles["Normal"])],
         ],
         colWidths=[30 * mm, 130 * mm],
         hAlign="LEFT",
@@ -164,7 +247,7 @@ def generate_decision_brief_pdf(audit_result: dict, lang: str, output_path: str)
     ]))
 
     status_box = Table(
-        [[Paragraph(status_text, styles["Normal"])]],
+        [[Paragraph(sanitize_pdf_text(status_text), styles["Normal"])]],
         colWidths=[70 * mm],
         hAlign="LEFT",
     )
@@ -177,13 +260,13 @@ def generate_decision_brief_pdf(audit_result: dict, lang: str, output_path: str)
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
     ]))
 
-    means_paragraphs = [Paragraph(f"• {item}", styles["Normal"]) for item in means_list]
+    means_paragraphs = [Paragraph(sanitize_pdf_text(f"- {item}"), styles["Normal"]) for item in means_list]
 
     footer_table = Table(
         [[
-            Paragraph(f'{labels["footer_campaign"]}: {campaign}', styles["SmallMuted"]),
-            Paragraph(f'{labels["footer_date"]}: {cover_date}', styles["SmallMuted"]),
-            Paragraph(labels["tool"], styles["SmallMuted"]),
+            Paragraph(sanitize_pdf_text(f'{labels["footer_campaign"]}: {campaign}'), styles["SmallMuted"]),
+            Paragraph(sanitize_pdf_text(f'{labels["footer_date"]}: {cover_date}'), styles["SmallMuted"]),
+            Paragraph(sanitize_pdf_text(labels["tool"]), styles["SmallMuted"]),
         ]],
         colWidths=[55 * mm, 45 * mm, 55 * mm],
         hAlign="LEFT",
@@ -203,15 +286,15 @@ def generate_decision_brief_pdf(audit_result: dict, lang: str, output_path: str)
         Spacer(1, 6),
         meta_table,
         Spacer(1, 10),
-        Paragraph(labels["section_status"], styles["H2"]),
+        Paragraph(sanitize_pdf_text(labels["section_status"]), styles["H2"]),
         status_box,
         Spacer(1, 10),
-        Paragraph(labels["section_means"], styles["H2"]),
+        Paragraph(sanitize_pdf_text(labels["section_means"]), styles["H2"]),
         Spacer(1, 4),
         *means_paragraphs,
         Spacer(1, 10),
-        Paragraph(labels["section_decision"], styles["H2"]),
-        Paragraph(decision_text, styles["Normal"]),
+        Paragraph(sanitize_pdf_text(labels["section_decision"]), styles["H2"]),
+        Paragraph(sanitize_pdf_text(decision_text), styles["Normal"]),
         Spacer(1, 18),
         footer_table,
     ]
@@ -232,21 +315,21 @@ def generate_decision_brief_txt(audit_result: dict, lang: str, output_path: str)
     domain = data["domain"]
     campaign = data["campaign"]
     lines = [
-        labels["title"],
-        f'{labels["domain_label"]}: {domain}',
+        sanitize_pdf_text(labels["title"]),
+        sanitize_pdf_text(f'{labels["domain_label"]}: {domain}'),
         "",
-        f'{labels["section_status"]}: {status_text}',
+        sanitize_pdf_text(f'{labels["section_status"]}: {status_text}'),
         "",
-        labels["section_means"] + ":",
+        sanitize_pdf_text(labels["section_means"] + ":"),
     ]
     for item in _canonical_list(means_list):
-        lines.append(f"- {item}")
+        lines.append(sanitize_pdf_text(f"- {item}"))
     lines.extend([
         "",
-        labels["section_decision"] + ":",
-        decision_text,
+        sanitize_pdf_text(labels["section_decision"] + ":"),
+        sanitize_pdf_text(decision_text),
         "",
-        labels["tool"],
+        sanitize_pdf_text(labels["tool"]),
     ])
 
     with open(output_path, "w", encoding="utf-8") as f:
