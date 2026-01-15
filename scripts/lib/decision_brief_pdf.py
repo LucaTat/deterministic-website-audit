@@ -6,6 +6,12 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
 
+def _canonical_list(items) -> list:
+    if not items:
+        return []
+    return sorted([str(item).strip() for item in items if str(item).strip()])
+
+
 def _decision_brief_content(audit_result: dict, lang: str) -> dict:
     lang = (lang or "en").lower().strip()
     if lang not in ("ro", "en"):
@@ -146,7 +152,6 @@ def generate_decision_brief_pdf(audit_result: dict, lang: str, output_path: str)
     meta_table = Table(
         [
             [Paragraph(f'{labels["domain_label"]}:', styles["SmallMuted"]), Paragraph(domain, styles["Normal"])],
-            [Paragraph(f'{labels["footer_campaign"]}:', styles["SmallMuted"]), Paragraph(campaign, styles["Normal"])],
         ],
         colWidths=[30 * mm, 130 * mm],
         hAlign="LEFT",
@@ -226,25 +231,21 @@ def generate_decision_brief_txt(audit_result: dict, lang: str, output_path: str)
     decision_text = data["decision_text"]
     domain = data["domain"]
     campaign = data["campaign"]
-    cover_date = data["date"]
-
     lines = [
         labels["title"],
         f'{labels["domain_label"]}: {domain}',
-        f'{labels["footer_campaign"]}: {campaign}',
         "",
         f'{labels["section_status"]}: {status_text}',
         "",
         labels["section_means"] + ":",
     ]
-    for item in means_list:
+    for item in _canonical_list(means_list):
         lines.append(f"- {item}")
     lines.extend([
         "",
         labels["section_decision"] + ":",
         decision_text,
         "",
-        f'{labels["footer_date"]}: {cover_date}',
         labels["tool"],
     ])
 
