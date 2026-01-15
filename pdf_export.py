@@ -896,111 +896,34 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     story.append(Paragraph(f"Tool version: {tool_version}", styles["Small"]))
     story.append(Paragraph(labels["note"], styles["Small"]))
 
-    story.append(PageBreak())
-    if lang == "ro":
-        story.append(Paragraph("CLARIFICĂRI IMPORTANTE PRIVIND REZULTATUL AUDITULUI", styles["H1"]))
-        story.append(Spacer(1, 8))
-        story.append(Paragraph("Ce înseamnă rezultatul BROKEN", styles["H2"]))
-        story.append(Paragraph(
-            "BROKEN nu înseamnă că site-ul este stricat. BROKEN înseamnă că site-ul nu a putut fi verificat complet în mod automat și reproductibil.",
-            styles["Body"],
-        ))
-        story.append(Spacer(1, 6))
-        story.append(Paragraph("De ce poate fi BROKEN chiar dacă site-ul funcționează în browser", styles["H2"]))
-        story.append(Paragraph(
-            "Accesul uman (prin browser) și accesul automat sunt lucruri diferite. Un site poate permite accesul utilizatorilor și, în același timp, poate bloca accesul automat pentru verificări.",
-            styles["Body"],
-        ))
-        story.append(Spacer(1, 6))
-        story.append(Paragraph("Pentru ce ați plătit", styles["H2"]))
-        story.append(Paragraph(
-            "Ați plătit pentru o constatare factuală și reproductibilă. Auditul nu garantează un rezultat de tip «OK». Rezultatul poate fi OK sau BROKEN, iar ambele sunt rezultate valide.",
-            styles["Body"],
-        ))
-        story.append(Spacer(1, 6))
-        story.append(Paragraph("Ce este whitelist (explicat simplu)", styles["H2"]))
-        story.append(Paragraph(
-            "Whitelist înseamnă permiterea temporară a accesului pentru verificare. Este o setare controlată, realizată de echipa tehnică sau furnizorul de hosting, și poate fi dezactivată imediat după audit.",
-            styles["Body"],
-        ))
-        story.append(Spacer(1, 6))
-        story.append(Paragraph("Opțiunile dumneavoastră dacă rezultatul este BROKEN", styles["H2"]))
-        options = [
-            "Păstrați rezultatul BROKEN ca informație validă.",
-            "Permiteți temporar accesul (whitelist) și auditul se rulează din nou.",
-            "Folosiți auditul doar intern, nu ca livrare către clientul final.",
-        ]
-        story.append(ListFlowable(
-            [Paragraph(item, styles["Body"]) for item in options],
-            bulletType="bullet",
-            leftIndent=12,
-        ))
-        story.append(Spacer(1, 6))
-        story.append(Paragraph("Politica de rambursare", styles["H2"]))
-        story.append(Paragraph(
-            "Nu se returnează banii pentru rezultate de tip BROKEN. BROKEN este o constatare validă, nu o eroare de livrare.",
-            styles["Body"],
-        ))
-        story.append(Paragraph(
-            "Rambursarea este posibilă doar în cazul nelivrării auditului sau al unei erori interne care face imposibilă rularea acestuia.",
-            styles["Body"],
-        ))
-        story.append(Paragraph(
-            "Dacă se dorește o verificare completă după un rezultat BROKEN, soluția este rerularea auditului după whitelist, nu rambursarea.",
-            styles["Body"],
-        ))
-    else:
-        story.append(Paragraph("IMPORTANT CLARIFICATIONS ABOUT THE AUDIT RESULT", styles["H1"]))
-        story.append(Spacer(1, 8))
-        story.append(Paragraph("What a BROKEN result means", styles["H2"]))
-        story.append(Paragraph(
-            "BROKEN does not mean the site is broken. BROKEN means the site could not be fully verified in an automated and reproducible way.",
-            styles["Body"],
-        ))
-        story.append(Spacer(1, 6))
-        story.append(Paragraph("Why it can be BROKEN even if the site works in a browser", styles["H2"]))
-        story.append(Paragraph(
-            "Human access (via browser) and automated access are different. A site can allow users while still blocking automated checks.",
-            styles["Body"],
-        ))
-        story.append(Spacer(1, 6))
-        story.append(Paragraph("What you paid for", styles["H2"]))
-        story.append(Paragraph(
-            "You paid for a factual, reproducible assessment. The audit does not guarantee an OK result. The result can be OK or BROKEN, and both are valid outcomes.",
-            styles["Body"],
-        ))
-        story.append(Spacer(1, 6))
-        story.append(Paragraph("What a whitelist is (simple explanation)", styles["H2"]))
-        story.append(Paragraph(
-            "Whitelist means temporarily allowing access for verification. It is a controlled setting handled by the technical team or hosting provider, and it can be disabled immediately after the audit.",
-            styles["Body"],
-        ))
-        story.append(Spacer(1, 6))
-        story.append(Paragraph("Your options if the result is BROKEN", styles["H2"]))
-        options = [
-            "Keep the BROKEN result as valid information.",
-            "Temporarily allow access (whitelist) and rerun the audit.",
-            "Use the audit internally only, not as a client delivery.",
-        ]
-        story.append(ListFlowable(
-            [Paragraph(item, styles["Body"]) for item in options],
-            bulletType="bullet",
-            leftIndent=12,
-        ))
-        story.append(Spacer(1, 6))
-        story.append(Paragraph("Refund policy", styles["H2"]))
-        story.append(Paragraph(
-            "No refunds are issued for BROKEN results. BROKEN is a valid finding, not a delivery error.",
-            styles["Body"],
-        ))
-        story.append(Paragraph(
-            "Refunds are possible only if the audit is not delivered or an internal error makes running it impossible.",
-            styles["Body"],
-        ))
-        story.append(Paragraph(
-            "If a complete verification is desired after a BROKEN result, the solution is to rerun the audit after whitelisting, not a refund.",
-            styles["Body"],
-        ))
+    if mode == "broken":
+        story.append(PageBreak())
+        if lang == "ro":
+            story.append(Paragraph("Clarificare: rezultat BROKEN", styles["H1"]))
+            story.append(Spacer(1, 8))
+            options = [
+                "BROKEN nu înseamnă că site-ul e stricat; înseamnă că verificarea automată nu a fost completă/reproductibilă.",
+                "Poate apărea dacă site-ul blochează accesul automat (WAF/anti-bot/rate limit).",
+                "Ce poți face: (1) păstrezi raportul ca semnal valid, (2) permiți temporar acces pentru verificare și rerulăm.",
+            ]
+            story.append(ListFlowable(
+                [Paragraph(item, styles["Body"]) for item in options],
+                bulletType="bullet",
+                leftIndent=12,
+            ))
+        else:
+            story.append(Paragraph("Clarification: BROKEN result", styles["H1"]))
+            story.append(Spacer(1, 8))
+            options = [
+                "BROKEN does not mean the site is broken; it means the automated check was not fully reproducible.",
+                "It can happen if the site blocks automated access (WAF/anti-bot/rate limit).",
+                "What you can do: (1) keep the report as a valid signal, (2) allow temporary access and rerun.",
+            ]
+            story.append(ListFlowable(
+                [Paragraph(item, styles["Body"]) for item in options],
+                bulletType="bullet",
+                leftIndent=12,
+            ))
 
     def draw_header_footer(canvas, doc_obj):
         canvas.saveState()
