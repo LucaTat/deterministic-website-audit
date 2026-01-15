@@ -103,6 +103,7 @@ echo "== Collecting PDFs from run output =="
 
 LIST_FILE="$(mktemp "${OUT_DIR}/pdf_list.XXXXXX")"
 FIRST_JSON=""
+FIRST_DOMAIN_LABEL=""
 
 grep -E "^[[:space:]]+pdf:" "${RUN_LOG}" | sed -E "s/^[[:space:]]*pdf:[[:space:]]+//" > "${LIST_FILE}"
 PDF_COUNT="$(wc -l < "${LIST_FILE}" | tr -d " ")"
@@ -119,7 +120,7 @@ while read -r PDF_PATH; do
     continue
   fi
   CLIENT_DIR="$(basename "$(dirname "$(dirname "${PDF_PATH}")")")"
-  SAFE="$(echo "${CLIENT_DIR}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g' | sed -E 's/^-+//; s/-+$//')"
+  DOMAIN_LABEL="$(echo "${CLIENT_DIR}" | tr '_' '.' )"
   JSON_PATH="$(dirname "${PDF_PATH}")/audit.json"
   STATUS="UNKNOWN"
   if [[ -f "${JSON_PATH}" ]]; then
@@ -139,12 +140,10 @@ PY
     fi
   fi
 
-  COUNT="$(find "${OUT_DIR}" -maxdepth 1 -name "*.pdf" -print 2>/dev/null | wc -l | tr -d " ")"
-  NUM=$((COUNT + 1))
-  printf -v PREFIX "%02d" "${NUM}"
-
-  DATE_ONLY="$(date +%F)"
-  DEST="${OUT_DIR}/${PREFIX}_Website Audit - ${SAFE} - ${LANG_TAG} - ${DATE_ONLY}.pdf"
+  if [[ -z "${FIRST_DOMAIN_LABEL}" ]]; then
+    FIRST_DOMAIN_LABEL="${DOMAIN_LABEL}"
+  fi
+  DEST="${OUT_DIR}/Website Audit - ${DOMAIN_LABEL} - EN.pdf"
   cp -f "${PDF_PATH}" "${DEST}"
   echo "Copied: ${DEST}"
   COPIED_COUNT=$((COPIED_COUNT + 1))
@@ -155,16 +154,39 @@ if [[ "$COPIED_COUNT" -eq 0 ]]; then
   exit 2
 fi
 
-# Copy Decision Brief template (TXT) for the operator to fill
-if [[ -f "deliverables/templates/DECISION_BRIEF_EN.txt" ]]; then
-  cp -f "deliverables/templates/DECISION_BRIEF_EN.txt" "${OUT_DIR}/DECISION_BRIEF_EN.txt"
-  echo "Added template: ${OUT_DIR}/DECISION_BRIEF_EN.txt"
+# Generate Decision Brief TXT (optional)
+if [[ -z "${FIRST_DOMAIN_LABEL}" ]]; then
+  FIRST_DOMAIN_LABEL="Unknown"
+fi
+DECISION_BRIEF_TXT="${OUT_DIR}/Decision Brief - ${FIRST_DOMAIN_LABEL} - EN.txt"
+if "${PYTHON_BIN}" - <<'PY' "${FIRST_JSON}" "${DECISION_BRIEF_TXT}" "${CAMPAIGN}" >/dev/null 2>&1; then
+import json
+import os
+import sys
+
+json_path = sys.argv[1]
+out_path = sys.argv[2]
+campaign = sys.argv[3]
+
+sys.path.insert(0, os.path.join(os.getcwd(), "scripts", "lib"))
+from decision_brief_pdf import generate_decision_brief_txt
+
+audit_result = {}
+if json_path and os.path.exists(json_path):
+    with open(json_path, "r", encoding="utf-8") as f:
+        audit_result = json.load(f)
+audit_result["campaign"] = campaign
+audit_result["lang"] = "en"
+
+generate_decision_brief_txt(audit_result, "en", out_path)
+PY
+  echo "Added TXT: ${DECISION_BRIEF_TXT}"
 else
-  echo "NOTE: Decision brief template not found at deliverables/templates/DECISION_BRIEF_EN.txt"
+  echo "WARN: Failed to generate ${DECISION_BRIEF_TXT}"
 fi
 
 # Generate Decision Brief PDF (optional)
-DECISION_PDF="${OUT_DIR}/DECISION_BRIEF_EN.pdf"
+DECISION_PDF="${OUT_DIR}/Decision Brief - ${FIRST_DOMAIN_LABEL} - EN.pdf"
 if "${PYTHON_BIN}" - <<'PY' "${FIRST_JSON}" "${DECISION_PDF}" "${CAMPAIGN}" >/dev/null 2>&1; then
 import json
 import os
@@ -192,7 +214,7 @@ else
 fi
 
 # Add client README
-README_CLIENT="${OUT_DIR}/README_CLIENT_EN.txt"
+README_CLIENT="${OUT_DIR}/README - EN.txt"
 cat > "${README_CLIENT}" <<'EOF'
 This PDF is a client-safe decision audit of your website.
 Status shows whether critical blockers were found; next steps summarize priorities.
@@ -207,7 +229,7 @@ echo "Added README: ${README_CLIENT}"
 # Create ZIP
 echo "== Creating ZIP =="
 ZIP_LIST="$(mktemp "${OUT_DIR}/zip_list.XXXXXX")"
-find "${OUT_DIR}" -maxdepth 1 -type f \( -name "*.pdf" -o -name "DECISION_BRIEF_*.txt" -o -name "README_CLIENT_*.txt" \) -print > "${ZIP_LIST}"
+find "${OUT_DIR}" -maxdepth 1 -type f \( -name "*.pdf" -o -name "Decision Brief - * - EN.txt" -o -name "README - EN.txt" \) -print > "${ZIP_LIST}"
 if ! ( rm -f "${ZIP_PATH}" && zip -j "${ZIP_PATH}" -@ < "${ZIP_LIST}" >/dev/null ); then
   echo "FATAL: ZIP packaging failed"
   exit 2
@@ -242,7 +264,7 @@ if [[ "${CLEANUP}" -eq 1 ]]; then
   mkdir -p "${ARCHIVE_DIR}"
   ARCHIVE_ZIP_NAME="${BASE_CAMPAIGN}_en.zip"
   cp -f "${ZIP_PATH}" "${ARCHIVE_DIR}/${ARCHIVE_ZIP_NAME}"
-  find "${OUT_DIR}" -maxdepth 1 -type f \( -name "*.pdf" -o -name "DECISION_BRIEF_*.txt" -o -name "README_CLIENT_*.txt" \) -print0 | \
+  find "${OUT_DIR}" -maxdepth 1 -type f \( -name "*.pdf" -o -name "Decision Brief - * - EN.txt" -o -name "README - EN.txt" \) -print0 | \
     xargs -0 -I{} cp -f "{}" "${ARCHIVE_DIR}/"
   TARGETS_ABS="$(cd "$(dirname "${TARGETS_FILE}")" && pwd)/$(basename "${TARGETS_FILE}")"
   DELIVERABLES_ABS="$(cd "${REPO_ROOT}/deliverables" && pwd)"

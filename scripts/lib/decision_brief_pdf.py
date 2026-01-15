@@ -6,10 +6,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
 
-def generate_decision_brief_pdf(audit_result: dict, lang: str, output_path: str) -> str:
-    """
-    Generate a 1-page, client-safe decision brief PDF.
-    """
+def _decision_brief_content(audit_result: dict, lang: str) -> dict:
     lang = (lang or "en").lower().strip()
     if lang not in ("ro", "en"):
         lang = "en"
@@ -72,6 +69,34 @@ def generate_decision_brief_pdf(audit_result: dict, lang: str, output_path: str)
     campaign = (audit_result.get("campaign") or "").strip() or "-"
     cover_date = labels["date_fmt"]()
 
+    status_text = labels["status_ok"] if is_ok else labels["status_issues"]
+    means_list = labels["means_ok"] if is_ok else labels["means_issues"]
+    decision_text = labels["decision_ok"] if is_ok else labels["decision_issues"]
+
+    return {
+        "labels": labels,
+        "status_text": status_text,
+        "means_list": means_list,
+        "decision_text": decision_text,
+        "domain": domain,
+        "campaign": campaign,
+        "date": cover_date,
+    }
+
+
+def generate_decision_brief_pdf(audit_result: dict, lang: str, output_path: str) -> str:
+    """
+    Generate a 1-page, client-safe decision brief PDF.
+    """
+    data = _decision_brief_content(audit_result, lang)
+    labels = data["labels"]
+    status_text = data["status_text"]
+    means_list = data["means_list"]
+    decision_text = data["decision_text"]
+    domain = data["domain"]
+    campaign = data["campaign"]
+    cover_date = data["date"]
+
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(
         name="SmallMuted",
@@ -104,10 +129,6 @@ def generate_decision_brief_pdf(audit_result: dict, lang: str, output_path: str)
         bottomMargin=16 * mm,
         title=labels["title"],
     )
-
-    status_text = labels["status_ok"] if is_ok else labels["status_issues"]
-    means_list = labels["means_ok"] if is_ok else labels["means_issues"]
-    decision_text = labels["decision_ok"] if is_ok else labels["decision_issues"]
 
     header_table = Table(
         [[
@@ -192,3 +213,40 @@ def generate_decision_brief_pdf(audit_result: dict, lang: str, output_path: str)
 
     doc.build(story)
     return output_path
+
+
+def generate_decision_brief_txt(audit_result: dict, lang: str, output_path: str) -> None:
+    """
+    Generate a 1-page, client-safe decision brief TXT.
+    """
+    data = _decision_brief_content(audit_result, lang)
+    labels = data["labels"]
+    status_text = data["status_text"]
+    means_list = data["means_list"]
+    decision_text = data["decision_text"]
+    domain = data["domain"]
+    campaign = data["campaign"]
+    cover_date = data["date"]
+
+    lines = [
+        labels["title"],
+        f'{labels["domain_label"]}: {domain}',
+        f'{labels["footer_campaign"]}: {campaign}',
+        "",
+        f'{labels["section_status"]}: {status_text}',
+        "",
+        labels["section_means"] + ":",
+    ]
+    for item in means_list:
+        lines.append(f"- {item}")
+    lines.extend([
+        "",
+        labels["section_decision"] + ":",
+        decision_text,
+        "",
+        f'{labels["footer_date"]}: {cover_date}',
+        labels["tool"],
+    ])
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines).strip() + "\n")
