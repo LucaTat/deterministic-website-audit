@@ -207,6 +207,7 @@ struct ContentView: View {
 
                         statusPill
                             .help("Last run status (OK/BROKEN/FATAL)")
+                        postRunStatusBadge
                     }
 
                     if let reason = runDisabledReason() {
@@ -217,17 +218,17 @@ struct ContentView: View {
 
                     HStack(spacing: 10) {
                         Button { openShipRoot() } label: {
-                            Label("Ship Root", systemImage: "shippingbox.fill")
+                            Label("Open Ship Root", systemImage: "shippingbox.fill")
                         }
                         .buttonStyle(.bordered)
-                        .tint(readyToSend ? .accentColor : .secondary)
+                        .tint(.accentColor)
                         .disabled(isRunning || shipRootPath() == nil)
                         .help(shipRootHelpText())
                         InfoButton(text: "Opens the final delivery root folder for this campaign.")
 
                         if lang == "both" {
                             Button { openShipFolder(forLang: "ro") } label: {
-                                Label("Ship (RO)", systemImage: "shippingbox.fill")
+                                Label("Open RO", systemImage: "shippingbox.fill")
                             }
                             .buttonStyle(.bordered)
                             .tint(.secondary)
@@ -236,7 +237,7 @@ struct ContentView: View {
                             InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
 
                             Button { openShipFolder(forLang: "en") } label: {
-                                Label("Ship (EN)", systemImage: "shippingbox.fill")
+                                Label("Open EN", systemImage: "shippingbox.fill")
                             }
                             .buttonStyle(.bordered)
                             .tint(.secondary)
@@ -245,7 +246,7 @@ struct ContentView: View {
                             InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
                         } else {
                             Button { openShipFolder(forLang: lang) } label: {
-                                Label("Ship Folder", systemImage: "shippingbox.fill")
+                                Label(lang == "ro" ? "Open RO" : "Open EN", systemImage: "shippingbox.fill")
                             }
                             .buttonStyle(.bordered)
                             .tint(.secondary)
@@ -256,7 +257,7 @@ struct ContentView: View {
 
                         if lang == "both" {
                             Button { openZIP(forLang: "ro") } label: {
-                                Label("ZIP (RO)", systemImage: "archivebox.fill")
+                                Label("Reveal ZIP RO", systemImage: "archivebox.fill")
                             }
                             .buttonStyle(.bordered)
                             .disabled(isRunning || shipZipPath(forLang: "ro") == nil)
@@ -264,7 +265,7 @@ struct ContentView: View {
                             InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
 
                             Button { openZIP(forLang: "en") } label: {
-                                Label("ZIP (EN)", systemImage: "archivebox.fill")
+                                Label("Reveal ZIP EN", systemImage: "archivebox.fill")
                             }
                             .buttonStyle(.bordered)
                             .disabled(isRunning || shipZipPath(forLang: "en") == nil)
@@ -272,7 +273,7 @@ struct ContentView: View {
                             InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
                         } else {
                             Button { openZIPIfAny() } label: {
-                                Label("ZIP", systemImage: "archivebox.fill")
+                                Label("Reveal ZIP", systemImage: "archivebox.fill")
                             }
                             .buttonStyle(.bordered)
                             .disabled(isRunning || shipZipPath(forLang: lang) == nil)
@@ -314,10 +315,11 @@ struct ContentView: View {
 
                     HStack(spacing: 10) {
                         Button { openLogs() } label: {
-                            Label("Logs", systemImage: "doc.text.magnifyingglass")
+                            Label("Open Logs", systemImage: "doc.text.magnifyingglass")
                         }
                         .buttonStyle(.bordered)
-                        .disabled(isRunning == false && (result?.logFile == nil) && (result?.archivedLogFile == nil))
+                        .tint(.secondary)
+                        .disabled(isRunning || ((result?.logFile == nil) && (result?.archivedLogFile == nil)))
                         .help(logsHelpText())
                         InfoButton(text: "Opens the latest run log for troubleshooting.")
 
@@ -406,6 +408,32 @@ struct ContentView: View {
             .padding(.vertical, 6)
             .background(color.opacity(0.10))
             .cornerRadius(10)
+    }
+
+    @ViewBuilder
+    private var postRunStatusBadge: some View {
+        if isRunning {
+            EmptyView()
+        } else if let code = lastExitCode {
+            let (text, color): (String, Color) = {
+                switch code {
+                case 0: return ("Ready to send", .green)
+                case 1: return ("Ready to send (issues found)", .orange)
+                case 2: return ("Run failed", .red)
+                default: return ("Run failed", .secondary)
+                }
+            }()
+
+            Text(text)
+                .font(.subheadline)
+                .foregroundColor(color)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(color.opacity(0.12))
+                .cornerRadius(10)
+        } else {
+            EmptyView()
+        }
     }
 
     private func statusTextAndColor() -> (String, Color) {
