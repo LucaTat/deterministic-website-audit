@@ -37,3 +37,4 @@ deliverables/
 *.xcuserstate
 xcuserdata/
 
+build/

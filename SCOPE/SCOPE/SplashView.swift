@@ -5,6 +5,8 @@ import AppKit
 #endif
 
 struct SplashView: View {
+    let allowSound: Bool
+    let triggerID: UUID
     let onFinished: () -> Void
 
     @State private var didFinish: Bool = false
@@ -19,16 +21,44 @@ struct SplashView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let title: String = "SCOPE"
-    private let revealDuration: TimeInterval = 0.9
-    private let finishDelay: TimeInterval = 0.25
-    private let settleDuration: TimeInterval = 0.18
-    private let postSettleHold: TimeInterval = 0.45
     private var theme: Theme { Theme(rawValue: themeRaw) ?? .light }
+    private var revealDuration: TimeInterval { allowSound ? 1.15 : 0.78 }
+    private var finishDelay: TimeInterval { allowSound ? 0.3 : 0.18 }
+    private var settleDuration: TimeInterval { allowSound ? 0.22 : 0.14 }
+    private var postSettleHold: TimeInterval { allowSound ? 0.55 : 0.2 }
 
     var body: some View {
         ZStack {
-            theme.background
-                .ignoresSafeArea()
+            LinearGradient(
+                colors: [theme.backgroundTop, theme.backgroundBottom],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            RadialGradient(
+                gradient: Gradient(colors: [
+                    Color.clear,
+                    Color.black.opacity(theme.isDark ? 0.45 : 0.10)
+                ]),
+                center: .center,
+                startRadius: 90,
+                endRadius: 520
+            )
+            .ignoresSafeArea()
+
+            Canvas { context, size in
+                let dotCount = Int((size.width * size.height) / 18000)
+                for i in 0..<dotCount {
+                    let x = CGFloat((i * 73) % Int(size.width))
+                    let y = CGFloat((i * 151) % Int(size.height))
+                    let rect = CGRect(x: x, y: y, width: 1, height: 1)
+                    context.fill(Path(rect), with: .color(.white))
+                }
+            }
+            .opacity(theme.isDark ? 0.05 : 0.02)
+            .blendMode(.softLight)
+            .ignoresSafeArea()
 
             GeometryReader { proxy in
                 let width = proxy.size.width
@@ -57,9 +87,23 @@ struct SplashView: View {
         }
         .preferredColorScheme(theme.colorScheme)
         .animation(.easeInOut(duration: 0.2), value: themeRaw)
-        .onAppear {
-            startReveal()
+        .onChange(of: triggerID) { _, _ in
+            resetAndStart()
         }
+    }
+
+    private func resetAndStart() {
+        withAnimation(nil) {
+            didFinish = false
+            revealProgress = 0.0
+            trackingValue = 6.0
+            textOpacity = 0.05
+            textBlur = 0.6
+            subtitleOpacity = 0.0
+            didPlayChime = false
+            audioPlayer = nil
+        }
+        startReveal()
     }
 
     private func startReveal() {
@@ -88,6 +132,7 @@ struct SplashView: View {
     }
 
     private func playLaunchChimeIfNeeded() {
+        guard allowSound else { return }
         guard !didPlayChime else { return }
         guard !reduceMotion else { didPlayChime = true; return }
 

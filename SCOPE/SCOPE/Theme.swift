@@ -20,6 +20,24 @@ enum Theme: String, CaseIterable, Identifiable {
         }
     }
 
+    var backgroundTop: Color {
+        switch self {
+        case .light: return Color.white
+        case .dark: return Color(red: 0.08, green: 0.08, blue: 0.09)
+        }
+    }
+
+    var backgroundBottom: Color {
+        switch self {
+        case .light: return Color(red: 0.97, green: 0.97, blue: 0.98)
+        case .dark: return Color(red: 0.04, green: 0.04, blue: 0.05)
+        }
+    }
+
+    var isDark: Bool {
+        self == .dark
+    }
+
     var cardBackground: Color {
         switch self {
         case .light: return Color.black.opacity(0.03)
