@@ -229,7 +229,23 @@ echo "Added README: ${README_CLIENT}"
 # Create ZIP
 echo "== Creating ZIP =="
 ZIP_LIST="$(mktemp "${OUT_DIR}/zip_list.XXXXXX")"
-find "${OUT_DIR}" -maxdepth 1 -type f \( -name "*.pdf" -o -name "Decision Brief - * - EN.txt" -o -name "README - EN.txt" \) -print > "${ZIP_LIST}"
+WEBSITE_PDF="${OUT_DIR}/Website Audit - ${FIRST_DOMAIN_LABEL} - EN.pdf"
+FILES_TO_ZIP=(
+  "${DECISION_PDF}"
+  "${WEBSITE_PDF}"
+  "${README_CLIENT}"
+  "${DECISION_BRIEF_TXT}"
+)
+> "${ZIP_LIST}"
+for file_path in "${FILES_TO_ZIP[@]}"; do
+  if [[ -f "${file_path}" ]]; then
+    echo "${file_path}" >> "${ZIP_LIST}"
+  fi
+done
+if [[ ! -s "${ZIP_LIST}" ]]; then
+  echo "FATAL: ZIP packaging failed (no files to zip)"
+  exit 2
+fi
 if ! ( rm -f "${ZIP_PATH}" && zip -j "${ZIP_PATH}" -@ < "${ZIP_LIST}" >/dev/null ); then
   echo "FATAL: ZIP packaging failed"
   exit 2
