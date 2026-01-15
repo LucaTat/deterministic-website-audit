@@ -128,8 +128,12 @@ struct ContentView: View {
                             HStack {
                                 Text("Campaign")
                                     .frame(width: 80, alignment: .leading)
-                                TextField("ex: Client ABC", text: $campaign)
+                                TextField("e.g. Client A / Outreach Jan", text: $campaign)
                                     .textFieldStyle(.roundedBorder)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .stroke(campaignIsValid() ? Color.clear : Color.orange.opacity(0.35), lineWidth: 1)
+                                    )
                                     .help("Required. Use a clear client name, e.g. Client ABC")
                             }
                             if !campaignIsValid() {
@@ -156,6 +160,10 @@ struct ContentView: View {
                                     .toggleStyle(.checkbox)
                                     .help("Remove temporary run files after packaging")
                             }
+                            Text("RO + EN generates two ZIPs")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                                .padding(.leading, 80)
                         }
 
                         if !hasAtLeastOneValidURL() {
@@ -184,28 +192,34 @@ struct ContentView: View {
                 GroupBox(label: Text("Run").font(.headline)) {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 12) {
+                            let runDisabled = isRunning || !hasAtLeastOneValidURL() || !campaignIsValid()
                             Button { runAudit() } label: {
                                 Label("Run", systemImage: "play.fill")
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.large)
                             .tint(.accentColor)
-                            .disabled(isRunning || !hasAtLeastOneValidURL() || !campaignIsValid())
+                            .disabled(runDisabled)
+                            .opacity(buttonOpacity(disabled: runDisabled))
                             .help(runHelpText())
                             InfoButton(text: "Runs the audit engine and prepares deliverables. When finished, use Ship Root to send the ZIP.")
 
+                            let repoDisabled = isRunning
                             Button { setRepoPath() } label: {
                                 Label("Set Repo", systemImage: "folder.badge.plus")
                             }
                             .buttonStyle(.bordered)
-                            .disabled(isRunning)
+                            .disabled(repoDisabled)
+                            .opacity(buttonOpacity(disabled: repoDisabled))
                             .help("Select the deterministic-website-audit folder")
 
+                            let resetDisabled = isRunning
                             Button { resetForNextClient() } label: {
                                 Label("Reset", systemImage: "arrow.counterclockwise")
                             }
                             .buttonStyle(.bordered)
-                            .disabled(isRunning)
+                            .disabled(resetDisabled)
+                            .opacity(buttonOpacity(disabled: resetDisabled))
                             .help("Clear inputs and UI state for next client")
 
                             Spacer()
@@ -227,6 +241,7 @@ struct ContentView: View {
                 GroupBox(label: Text("Delivery").font(.headline)) {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 8) {
+                            let shipRootDisabled = isRunning || shipRootPath() == nil
                             Button { openShipRoot() } label: {
                                 Label("Open Ship Root", systemImage: "shippingbox.fill")
                             }
@@ -234,7 +249,8 @@ struct ContentView: View {
                             .controlSize(.large)
                             .font(.headline)
                             .tint(.accentColor)
-                            .disabled(isRunning || shipRootPath() == nil)
+                            .disabled(shipRootDisabled)
+                            .opacity(buttonOpacity(disabled: shipRootDisabled))
                             .help(shipRootHelpText())
                             InfoButton(text: "Opens the final delivery root folder for this campaign.")
                         }
@@ -243,73 +259,87 @@ struct ContentView: View {
                         LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
                             if lang == "both" {
                                 HStack(spacing: 6) {
+                                    let shipRoDisabled = isRunning || shipDirPath(forLang: "ro") == nil
                                     Button { openShipFolder(forLang: "ro") } label: {
                                         Label("Open RO", systemImage: "shippingbox.fill")
                                     }
                                     .buttonStyle(.bordered)
-                                    .disabled(isRunning || shipDirPath(forLang: "ro") == nil)
+                                    .disabled(shipRoDisabled)
+                                    .opacity(buttonOpacity(disabled: shipRoDisabled))
                                     .help(shipHelpText(forLang: "ro"))
                                     InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
                                 }
 
                                 HStack(spacing: 6) {
+                                    let shipEnDisabled = isRunning || shipDirPath(forLang: "en") == nil
                                     Button { openShipFolder(forLang: "en") } label: {
                                         Label("Open EN", systemImage: "shippingbox.fill")
                                     }
                                     .buttonStyle(.bordered)
-                                    .disabled(isRunning || shipDirPath(forLang: "en") == nil)
+                                    .disabled(shipEnDisabled)
+                                    .opacity(buttonOpacity(disabled: shipEnDisabled))
                                     .help(shipHelpText(forLang: "en"))
                                     InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
                                 }
 
                                 HStack(spacing: 6) {
+                                    let zipRoDisabled = isRunning || shipZipPath(forLang: "ro") == nil
                                     Button { openZIP(forLang: "ro") } label: {
                                         Label("Reveal ZIP RO", systemImage: "archivebox.fill")
                                     }
                                     .buttonStyle(.bordered)
-                                    .disabled(isRunning || shipZipPath(forLang: "ro") == nil)
+                                    .disabled(zipRoDisabled)
+                                    .opacity(buttonOpacity(disabled: zipRoDisabled))
                                     .help(zipHelpText(forLang: "ro"))
                                     InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
                                 }
 
                                 HStack(spacing: 6) {
+                                    let zipEnDisabled = isRunning || shipZipPath(forLang: "en") == nil
                                     Button { openZIP(forLang: "en") } label: {
                                         Label("Reveal ZIP EN", systemImage: "archivebox.fill")
                                     }
                                     .buttonStyle(.bordered)
-                                    .disabled(isRunning || shipZipPath(forLang: "en") == nil)
+                                    .disabled(zipEnDisabled)
+                                    .opacity(buttonOpacity(disabled: zipEnDisabled))
                                     .help(zipHelpText(forLang: "en"))
                                     InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
                                 }
                             } else {
                                 HStack(spacing: 6) {
+                                    let shipSingleDisabled = isRunning || shipDirPath(forLang: lang) == nil
                                     Button { openShipFolder(forLang: lang) } label: {
                                         Label(lang == "ro" ? "Open RO" : "Open EN", systemImage: "shippingbox.fill")
                                     }
                                     .buttonStyle(.bordered)
-                                    .disabled(isRunning || shipDirPath(forLang: lang) == nil)
+                                    .disabled(shipSingleDisabled)
+                                    .opacity(buttonOpacity(disabled: shipSingleDisabled))
                                     .help(shipHelpText(forLang: lang))
                                     InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
                                 }
 
                                 HStack(spacing: 6) {
+                                    let zipSingleDisabled = isRunning || shipZipPath(forLang: lang) == nil
                                     Button { openZIPIfAny() } label: {
                                         Label("Reveal ZIP", systemImage: "archivebox.fill")
                                     }
                                     .buttonStyle(.bordered)
-                                    .disabled(isRunning || shipZipPath(forLang: lang) == nil)
+                                    .disabled(zipSingleDisabled)
+                                    .opacity(buttonOpacity(disabled: zipSingleDisabled))
                                     .help(zipHelpText(forLang: lang))
                                     InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
                                 }
                             }
 
                             HStack(spacing: 6) {
+                                let logsDisabled = isRunning || ((result?.logFile == nil) && (result?.archivedLogFile == nil))
                                 Button { openLogs() } label: {
                                     Label("Open Logs", systemImage: "doc.text.magnifyingglass")
                                 }
                                 .buttonStyle(.bordered)
                                 .tint(.secondary)
-                                .disabled(isRunning || ((result?.logFile == nil) && (result?.archivedLogFile == nil)))
+                                .disabled(logsDisabled)
+                                .opacity(buttonOpacity(disabled: logsDisabled))
                                 .help(logsHelpText())
                                 InfoButton(text: "Opens the latest run log for troubleshooting.")
                             }
@@ -333,6 +363,12 @@ struct ContentView: View {
                                 .foregroundColor(.secondary)
                         }
 
+                        if readyToSend && (lastExitCode == 0 || lastExitCode == 1) {
+                            Text("All deliverables are client-safe.")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+
                         if let summary = lastRunSummary() {
                             Text(summary)
                                 .font(.footnote)
@@ -343,22 +379,51 @@ struct ContentView: View {
                     .padding(8)
                 }
 
+                GroupBox(label: Text("History").font(.headline)) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 10) {
+                            let repoAvailable = (resolvedRepoRoot() != nil)
+                            Button { openArchiveRoot() } label: {
+                                Label("Open Archive", systemImage: "tray.full.fill")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(!repoAvailable)
+                            .opacity(buttonOpacity(disabled: !repoAvailable))
+                            .help(repoAvailable ? "Open deliverables/archive" : "Select a repo to enable")
+
+                            Button { openTodaysArchive() } label: {
+                                Label("Open Today's Archive", systemImage: "calendar")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(!repoAvailable)
+                            .opacity(buttonOpacity(disabled: !repoAvailable))
+                            .help(repoAvailable ? "Open deliverables/archive/<today>" : "Select a repo to enable")
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                }
+
                 GroupBox {
                     DisclosureGroup("Advanced (debug & logs)", isExpanded: $showAdvanced) {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack(spacing: 10) {
+                                let outDisabled = isRunning || outputFolderPath() == nil
                                 Button { openOutputFolder() } label: {
                                     Label("Out", systemImage: "folder.fill")
                                 }
                                 .buttonStyle(.bordered)
-                                .disabled(isRunning || outputFolderPath() == nil)
+                                .disabled(outDisabled)
+                                .opacity(buttonOpacity(disabled: outDisabled))
                                 .help(outputHelpText())
 
+                                let evidenceDisabled = isRunning == false && !canOpenEvidence()
                                 Button { openEvidence() } label: {
                                     Label("Evidence", systemImage: "tray.full.fill")
                                 }
                                 .buttonStyle(.bordered)
-                                .disabled(isRunning == false && !canOpenEvidence())
+                                .disabled(evidenceDisabled)
+                                .opacity(buttonOpacity(disabled: evidenceDisabled))
                                 .help(evidenceHelpText())
                                 InfoButton(text: "Opens the raw audit output (PDF/JSON/evidence) under reports.")
 
@@ -378,26 +443,29 @@ struct ContentView: View {
                                         }
                                     }
 
-                                    Button {
-                                        if let p = selectedPDF ?? pdfs.first {
-                                            revealAndOpenFile(p)
-                                        }
-                                    } label: {
-                                        Label("PDF", systemImage: "doc.richtext")
+                                let pdfDisabled = isRunning
+                                Button {
+                                    if let p = selectedPDF ?? pdfs.first {
+                                        revealAndOpenFile(p)
                                     }
-                                    .buttonStyle(.bordered)
-                                    .disabled(isRunning)
-                                    .help(pdfHelpText())
-                                    InfoButton(text: "Opens the generated audit PDF from the last run.")
-                                } else {
-                                    Button { } label: {
-                                        Label("PDF", systemImage: "doc.richtext")
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .disabled(true)
-                                    .help(pdfHelpText())
-                                    InfoButton(text: "Opens the generated audit PDF from the last run.")
+                                } label: {
+                                    Label("PDF", systemImage: "doc.richtext")
                                 }
+                                .buttonStyle(.bordered)
+                                .disabled(pdfDisabled)
+                                .opacity(buttonOpacity(disabled: pdfDisabled))
+                                .help(pdfHelpText())
+                                InfoButton(text: "Opens the generated audit PDF from the last run.")
+                            } else {
+                                Button { } label: {
+                                    Label("PDF", systemImage: "doc.richtext")
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(true)
+                                .opacity(buttonOpacity(disabled: true))
+                                .help(pdfHelpText())
+                                InfoButton(text: "Opens the generated audit PDF from the last run.")
+                            }
                             }
 
                             if let reason = pdfDisabledReason() {
@@ -437,7 +505,18 @@ struct ContentView: View {
 
     @ViewBuilder
     private var statusBadge: some View {
-        if !isRunning, let code = lastExitCode {
+        if isRunning {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .scaleEffect(0.8)
+                Text("Running audit…")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(Color.gray.opacity(0.15)))
+        } else if let code = lastExitCode {
             let (text, color): (String, Color) = {
                 switch code {
                 case 0: return ("Ready to send", .green)
@@ -521,6 +600,10 @@ struct ContentView: View {
         return nil
     }
 
+    private func buttonOpacity(disabled: Bool) -> Double {
+        disabled ? 0.6 : 1.0
+    }
+
     private func shipDisabledReason() -> String? {
         if isRunning { return "Ship disabled: Running…" }
         if !hasShipForCurrentLang() { return "Ship disabled: No ship folder yet" }
@@ -571,14 +654,14 @@ struct ContentView: View {
 
     private func shipRootHelpText() -> String {
         if shipRootPath() == nil {
-            return "Open delivery root. Run first."
+            return "Open delivery root. Available after run."
         }
         return "Open the final delivery root folder for this campaign"
     }
 
     private func zipHelpText(forLang lang: String) -> String {
-        if let reason = zipDisabledReason() {
-            return "Open ZIP for the last run. \(reason)"
+        if zipDisabledReason() != nil {
+            return "Open ZIP for the last run. Available after run."
         }
         if lang == "ro" { return "Open the RO ZIP" }
         if lang == "en" { return "Open the EN ZIP" }
@@ -587,28 +670,28 @@ struct ContentView: View {
 
     private func outputHelpText() -> String {
         if outputFolderPath() == nil {
-            return "Open archive root. Run first."
+            return "Open archive root. Available after run."
         }
         return "Open archive root"
     }
 
     private func logsHelpText() -> String {
         if (result?.archivedLogFile == nil) && (result?.logFile == nil) {
-            return "Open logs folder. Run first."
+            return "Open logs folder. Available after run."
         }
         return "Open the run log file or logs folder"
     }
 
     private func evidenceHelpText() -> String {
         if !canOpenEvidence() {
-            return "Open evidence/output folder. Run first."
+            return "Open evidence/output folder. Available after run."
         }
         return "Open evidence/output folder for the last run"
     }
 
     private func pdfHelpText() -> String {
         if result?.pdfPaths.isEmpty ?? true {
-            return "Open the selected PDF. No PDFs yet."
+            return "Open the selected PDF. Available after run."
         }
         return "Open the selected PDF"
     }
@@ -957,6 +1040,10 @@ struct ContentView: View {
         openFolder(path)
     }
 
+    private func resolvedRepoRoot() -> String? {
+        return (try? ScopeRepoLocator.locateRepo())
+    }
+
     private func outputFolderPath() -> String? {
         return shipRootPath()
     }
@@ -964,6 +1051,32 @@ struct ContentView: View {
     private func openOutputFolder() {
         guard let path = outputFolderPath() else { return }
         openFolder(path)
+    }
+
+    private func openArchiveRoot() {
+        guard let repo = resolvedRepoRoot() else { return }
+        let archiveRoot = (repo as NSString).appendingPathComponent("deliverables/archive")
+        if FileManager.default.fileExists(atPath: archiveRoot) {
+            openFolder(archiveRoot)
+        } else {
+            openFolder(repo)
+        }
+    }
+
+    private func openTodaysArchive() {
+        guard let repo = resolvedRepoRoot() else { return }
+        let archiveRoot = (repo as NSString).appendingPathComponent("deliverables/archive")
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let today = formatter.string(from: Date())
+        let todayPath = (archiveRoot as NSString).appendingPathComponent(today)
+        if FileManager.default.fileExists(atPath: todayPath) {
+            openFolder(todayPath)
+        } else if FileManager.default.fileExists(atPath: archiveRoot) {
+            openFolder(archiveRoot)
+        } else {
+            openFolder(repo)
+        }
     }
 
     private func readyToSendHint() -> String? {
