@@ -9,16 +9,14 @@ enum ScopeRepoError: Error {
 }
 
 struct ScopeRepoLocator {
+    static let bookmarkKey = "scopeEngineBookmark"
+
     static var appSupportDir: String {
         let fm = FileManager.default
         let base = (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true))?.path
         let dir = (base ?? NSHomeDirectory() + "/Library/Application Support") + "/SCOPE"
         try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
         return dir
-    }
-
-    static var savedRepoPathFile: String {
-        appSupportDir + "/repo_path.txt"
     }
 
     static func isRepoRoot(_ path: String) -> Bool {
@@ -35,27 +33,47 @@ struct ScopeRepoLocator {
         return true
     }
 
-    static func locateRepo() throws -> String {
-        // 1) saved
-        if let saved = try? String(contentsOfFile: savedRepoPathFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
-           !saved.isEmpty,
-           isRepoRoot(saved) {
-            return saved
+    static func resolveBookmark() -> URL? {
+        guard let data = UserDefaults.standard.data(forKey: bookmarkKey) else { return nil }
+        var stale = false
+        guard let url = try? URL(
+            resolvingBookmarkData: data,
+            options: [.withSecurityScope],
+            relativeTo: nil,
+            bookmarkDataIsStale: &stale
+        ) else { return nil }
+        if stale {
+            if let refreshed = try? url.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            ) {
+                UserDefaults.standard.set(refreshed, forKey: bookmarkKey)
+            }
         }
+        return url
+    }
 
-        // 2) heuristics
-        let candidates = [
-            NSHomeDirectory() + "/Desktop/deterministic-website-audit",
-            NSHomeDirectory() + "/Documents/deterministic-website-audit"
-        ]
-        for c in candidates where isRepoRoot(c) { return c }
+    static func locateRepoURL() throws -> URL {
+        guard let url = resolveBookmark(), isRepoRoot(url.path) else {
+            throw ScopeRepoError.notFound
+        }
+        return url
+    }
 
-        throw ScopeRepoError.notFound
+    static func locateRepo() throws -> String {
+        try locateRepoURL().path
     }
 
     static func saveRepoPath(_ path: String) throws {
-        guard isRepoRoot(path) else { throw ScopeRepoError.invalidRepo }
-        try path.write(toFile: savedRepoPathFile, atomically: true, encoding: .utf8)
+        let url = URL(fileURLWithPath: path)
+        try saveRepoURL(url)
+    }
+
+    static func saveRepoURL(_ url: URL) throws {
+        guard isRepoRoot(url.path) else { throw ScopeRepoError.invalidRepo }
+        let data = try url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
+        UserDefaults.standard.set(data, forKey: bookmarkKey)
     }
 }
 
@@ -75,6 +93,13 @@ struct ScopeResult {
 // MARK: - ContentView
 
 struct ContentView: View {
+    enum RunState {
+        case idle
+        case running
+        case done
+        case error
+    }
+
     // Inputs
     @State private var urlsText: String = ""
     @State private var campaign: String = ""
@@ -83,8 +108,11 @@ struct ContentView: View {
 
     // Runtime state
     @State private var isRunning: Bool = false
+    @State private var runState: RunState = .idle
     @State private var logOutput: String = ""
     @State private var lastExitCode: Int32? = nil
+    @State private var currentTask: Process? = nil
+    @State private var cancelRequested: Bool = false
 
     // Results
     @State private var result: ScopeResult? = nil
@@ -237,11 +265,51 @@ struct ContentView: View {
                     .padding(8)
                 }
                 .modifier(CardStyle(theme: theme))
+                .disabled(isRunning)
+
+                GroupBox(label: Text("Engine Folder").font(.headline)) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 12) {
+                            let selectDisabled = isRunning
+                            Button { selectEngineFolder() } label: {
+                                Label("Select Engine Folder", systemImage: "folder.badge.plus")
+                            }
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                            .disabled(selectDisabled)
+                            .opacity(buttonOpacity(disabled: selectDisabled))
+                            .help("Select the deterministic-website-audit repo folder")
+
+                            let showDisabled = isRunning || !engineFolderAvailable()
+                            Button { showEngineFolder() } label: {
+                                Label("Show Engine Folder", systemImage: "folder")
+                            }
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                            .disabled(showDisabled)
+                            .opacity(buttonOpacity(disabled: showDisabled))
+                            .help("Reveal the selected engine folder in Finder")
+
+                            Spacer()
+                        }
+
+                        if repoRoot != nil {
+                            Text("Engine folder selected.")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("Select Engine Folder to continue.")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                }
+                .modifier(CardStyle(theme: theme))
 
                 GroupBox(label: Text("Run").font(.headline)) {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 12) {
-                            let runDisabled = isRunning || !hasAtLeastOneValidURL() || !campaignIsValid()
+                            let runDisabled = isRunning || !hasAtLeastOneValidURL() || !campaignIsValid() || !engineFolderAvailable()
                             Button { runAudit() } label: {
                                 Label("Run", systemImage: "play.fill")
                             }
@@ -252,14 +320,13 @@ struct ContentView: View {
                             .help(runHelpText())
                             InfoButton(text: "Runs the audit engine and prepares deliverables. When finished, use Ship Root to send the ZIP.")
 
-                            let repoDisabled = isRunning
-                            Button { setRepoPath() } label: {
-                                Label("Set Repo", systemImage: "folder.badge.plus")
+                            if isRunning {
+                                Button("Cancel") {
+                                    cancelRun()
+                                }
+                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                                .help("Cancel the running audit")
                             }
-                            .buttonStyle(.bordered)
-                            .disabled(repoDisabled)
-                            .opacity(buttonOpacity(disabled: repoDisabled))
-                            .help("Select the deterministic-website-audit folder")
 
                             let resetDisabled = isRunning
                             Button { resetForNextClient() } label: {
@@ -270,7 +337,7 @@ struct ContentView: View {
                             .opacity(buttonOpacity(disabled: resetDisabled))
                             .help("Clear inputs and UI state for next client")
 
-                            let demoDisabled = isRunning
+                            let demoDisabled = isRunning || !engineFolderAvailable()
                             Button { runDemo() } label: {
                                 Label("Run Demo", systemImage: "sparkles")
                             }
@@ -295,6 +362,32 @@ struct ContentView: View {
                             Text(reason)
                                 .font(.footnote)
                                 .foregroundColor(.secondary)
+                        }
+
+                        if runState != .idle {
+                            Text(runStatusLine())
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+
+                        HStack(spacing: 12) {
+                            let outputDisabled = isRunning || outputFolderPath() == nil
+                            Button { openOutputFolder() } label: {
+                                Label("Reveal Output", systemImage: "folder")
+                            }
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                            .disabled(outputDisabled)
+                            .opacity(buttonOpacity(disabled: outputDisabled))
+                            .help("Reveal the output folder for the last run")
+
+                            let logsDisabled = isRunning || ((result?.logFile == nil) && (result?.archivedLogFile == nil))
+                            Button { openLogs() } label: {
+                                Label("Open Logs", systemImage: "doc.text.magnifyingglass")
+                            }
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                            .disabled(logsDisabled)
+                            .opacity(buttonOpacity(disabled: logsDisabled))
+                            .help("Open the latest run log")
                         }
 
                         if demoDeliverablePath != nil {
@@ -516,7 +609,7 @@ struct ContentView: View {
 
                         let repoAvailable = (resolvedRepoRoot() != nil)
                         if !repoAvailable {
-                            Text("Set Repo to view history.")
+                            Text("Select Engine Folder to view history.")
                                 .font(.footnote)
                                 .foregroundColor(.secondary)
                         } else if recentCampaigns.isEmpty {
@@ -667,12 +760,11 @@ struct ContentView: View {
                                 Text("Log")
                                     .font(.headline)
 
-                                TextEditor(text: .constant(logOutput))
-                                    .font(.system(.body, design: .monospaced))
-                                    .foregroundColor(theme.textPrimary)
+                                Text(clientSafeLogSummary())
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
                                     .padding(8)
-                                    .frame(minHeight: 180)
-                                    .disabled(true)
+                                    .frame(minHeight: 80, alignment: .topLeading)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 10)
                                             .stroke(theme.border, lineWidth: 1)
@@ -681,7 +773,7 @@ struct ContentView: View {
                                         RoundedRectangle(cornerRadius: 10)
                                             .fill(theme.textEditorBackground)
                                     )
-                                    .help("Live runner output (read-only)")
+                                    .help("Summary only. Use Open Logs for details.")
                             }
 
                             Divider()
@@ -903,6 +995,7 @@ struct ContentView: View {
         lastRunCampaign = nil
         lastRunLang = nil
         lastRunStatus = nil
+        runState = .idle
     }
 
     // MARK: - URL validation
@@ -926,6 +1019,54 @@ struct ContentView: View {
         return urls
     }
 
+    private func validateTargetsContent(_ text: String) -> (valid: [String], invalid: [String]) {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        var valid: [String] = []
+        var invalid: [String] = []
+        valid.reserveCapacity(lines.count)
+
+        for raw in lines {
+            let original = String(raw)
+            let trimmed = original.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { continue }
+
+            guard let u = URL(string: trimmed),
+                  let scheme = u.scheme,
+                  (scheme == "http" || scheme == "https"),
+                  u.host != nil
+            else {
+                invalid.append(original)
+                continue
+            }
+            valid.append(trimmed)
+        }
+
+        return (valid, invalid)
+    }
+
+    private func validateTargetsInput() -> [String]? {
+        let text = urlsText
+        guard let data = text.data(using: .utf8) else {
+            alert(title: "Invalid targets", message: "Targets must be valid UTF-8 text.")
+            return nil
+        }
+        if data.count > 1_048_576 {
+            alert(title: "Targets file too large", message: "The targets list must be 1 MB or less.")
+            return nil
+        }
+
+        let (validLines, invalidLines) = validateTargetsContent(text)
+        if !invalidLines.isEmpty {
+            alertInvalidTargets(invalidLines: invalidLines)
+            return nil
+        }
+        if validLines.isEmpty {
+            alert(title: "No valid URLs", message: "Adaugă cel puțin un URL valid (http/https).")
+            return nil
+        }
+        return validLines
+    }
+
     private func hasAtLeastOneValidURL() -> Bool {
         !extractURLs(from: urlsText).isEmpty
     }
@@ -936,6 +1077,7 @@ struct ContentView: View {
 
     private func runDisabledReason() -> String? {
         if isRunning { return "Run disabled: Running…" }
+        if !engineFolderAvailable() { return "Select Engine Folder to continue." }
         if !hasAtLeastOneValidURL() { return "Run disabled: Add at least 1 valid URL" }
         if !campaignIsValid() { return "Run disabled: Enter Campaign" }
         return nil
@@ -1087,14 +1229,34 @@ struct ContentView: View {
         a.runModal()
     }
 
-    private func writeTargetsTempFile() -> String {
-        let urls = extractURLs(from: urlsText)
-        let content = urls.joined(separator: "\n") + "\n"
+    private func alertInvalidTargets(invalidLines: [String]) {
+        let maxList = 10
+        let shown = invalidLines.prefix(maxList)
+        var message = "Each line must be a valid http/https URL. Please fix the following lines:\n\n"
+        message += shown.map { "• \($0)" }.joined(separator: "\n")
+        if invalidLines.count > maxList {
+            message += "\n\n…and \(invalidLines.count - maxList) more."
+        }
+        alert(title: "Invalid target URLs", message: message)
+    }
 
+    private func writeTargetsTempFile(validLines: [String]) -> String {
+        let content = validLines.joined(separator: "\n") + "\n"
         let tmp = FileManager.default.temporaryDirectory.path
         let path = (tmp as NSString).appendingPathComponent("scope_targets.txt")
         try? content.write(toFile: path, atomically: true, encoding: .utf8)
         return path
+    }
+
+    private func makeRunLogFilePath(outputDir: String, prefix: String) -> String {
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: outputDir) {
+            try? fm.createDirectory(atPath: outputDir, withIntermediateDirectories: true)
+        }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd_HHmmss"
+        let stamp = formatter.string(from: Date())
+        return (outputDir as NSString).appendingPathComponent("\(prefix)_\(stamp).log")
     }
 
     private struct CardStyle: ViewModifier {
@@ -1164,7 +1326,7 @@ struct ContentView: View {
 
     // MARK: - Repo chooser
 
-    private func setRepoPath() {
+    private func selectEngineFolder() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -1174,10 +1336,10 @@ struct ContentView: View {
         panel.begin { resp in
             if resp == .OK, let url = panel.url {
                 do {
-                    try ScopeRepoLocator.saveRepoPath(url.path)
+                    try ScopeRepoLocator.saveRepoURL(url)
                     self.repoRoot = url.path
                     self.refreshRecentCampaigns()
-                    self.alert(title: "Repo set", message: url.path)
+                    self.alert(title: "Engine folder set", message: "Engine folder selected.")
                 } catch {
                     self.alert(title: "Invalid repo", message: "Folderul ales nu pare repo-ul corect.")
                 }
@@ -1185,12 +1347,20 @@ struct ContentView: View {
         }
     }
 
+    private func showEngineFolder() {
+        guard let engineURL = beginEngineAccess() else {
+            alert(title: "Engine folder missing", message: "Select Engine Folder to continue.")
+            return
+        }
+        openFolder(engineURL.path)
+        endEngineAccess(engineURL)
+    }
+
     // MARK: - Run audit (sequential)
 
     private func runAudit() {
-        let urls = extractURLs(from: urlsText)
-        guard !urls.isEmpty else {
-            alert(title: "No valid URLs", message: "Adaugă cel puțin un URL valid (http/https).")
+        guard !isRunning else { return }
+        guard let validLines = validateTargetsInput() else {
             return
         }
         guard campaignIsValid() else {
@@ -1199,29 +1369,31 @@ struct ContentView: View {
         }
 
         isRunning = true
+        runState = .running
         logOutput = ""
         lastExitCode = nil
         result = nil
         selectedPDF = nil
         selectedZIPLang = "ro"
         readyToSend = false
+        cancelRequested = false
 
         let baseCampaign = campaign.trimmingCharacters(in: .whitespacesAndNewlines)
         let camp = baseCampaign.isEmpty ? "Default" : baseCampaign
 
-        runRunner(selectedLang: lang, baseCampaign: camp)
+        runRunner(selectedLang: lang, baseCampaign: camp, validLines: validLines)
     }
 
     private func runDemo() {
-        let repoRoot: String
-        do {
-            repoRoot = try ScopeRepoLocator.locateRepo()
-        } catch {
-            alert(title: "Repo not found", message: "Apasă Set Repo… și selectează repo-ul corect.")
+        guard !isRunning else { return }
+        guard let engineURL = beginEngineAccess() else {
+            alert(title: "Engine folder missing", message: "Select Engine Folder to continue.")
             return
         }
+        let repoRoot = engineURL.path
 
         isRunning = true
+        runState = .running
         logOutput = ""
         lastExitCode = nil
         result = nil
@@ -1229,6 +1401,7 @@ struct ContentView: View {
         selectedPDF = nil
         selectedZIPLang = "en"
         demoDeliverablePath = nil
+        cancelRequested = false
 
         let tmp = FileManager.default.temporaryDirectory.path
         let targetsFile = (tmp as NSString).appendingPathComponent("scope_demo_targets.txt")
@@ -1237,10 +1410,13 @@ struct ContentView: View {
 
         let (scriptName, demoCampaign) = demoScriptAndCampaign(for: lang)
         let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/\(scriptName)")
+        let outputDir = (repoRoot as NSString).appendingPathComponent("deliverables/out/\(demoCampaign)")
+        let logFilePath = makeRunLogFilePath(outputDir: outputDir, prefix: "scope_demo")
+        FileManager.default.createFile(atPath: logFilePath, contents: nil)
         let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/bash")
+        currentTask = task
+        task.executableURL = URL(fileURLWithPath: scriptPath)
         task.arguments = [
-            scriptPath,
             targetsFile,
             "--campaign",
             demoCampaign,
@@ -1249,6 +1425,7 @@ struct ContentView: View {
         task.currentDirectoryURL = URL(fileURLWithPath: repoRoot)
 
         let pipe = Pipe()
+        let logHandle = FileHandle(forWritingAtPath: logFilePath)
         task.standardOutput = pipe
         task.standardError = pipe
 
@@ -1259,16 +1436,27 @@ struct ContentView: View {
                     self.logOutput += str
                 }
             }
+            logHandle?.write(data)
         }
 
         task.terminationHandler = { p in
             DispatchQueue.main.async {
                 pipe.fileHandleForReading.readabilityHandler = nil
+                logHandle?.closeFile()
+                self.endEngineAccess(engineURL)
+                self.currentTask = nil
                 let code = p.terminationStatus
                 self.lastExitCode = code
                 self.lastRunCampaign = demoCampaign
                 self.lastRunLang = (self.lang == "en") ? "en" : "ro"
-                self.lastRunStatus = self.statusLabel(for: code)
+                if self.cancelRequested {
+                    self.lastRunStatus = "Canceled"
+                    self.runState = .error
+                    self.cancelRequested = false
+                } else {
+                    self.lastRunStatus = self.statusLabel(for: code)
+                    self.runState = (code == 0 || code == 1) ? .done : .error
+                }
                 self.readyToSend = (code == 0 || code == 1)
 
                 if code == 0 || code == 1 {
@@ -1284,30 +1472,35 @@ struct ContentView: View {
             try task.run()
         } catch {
             DispatchQueue.main.async {
+                self.endEngineAccess(engineURL)
+                self.currentTask = nil
                 self.isRunning = false
+                self.runState = .error
                 self.alert(title: "Demo failed", message: "Nu am putut porni demo-ul.")
             }
         }
     }
 
-    private func runRunner(selectedLang: String, baseCampaign: String) {
-        let repoRoot: String
-        do {
-            repoRoot = try ScopeRepoLocator.locateRepo()
-        } catch {
-            alert(title: "Repo not found", message: "Apasă Set Repo… și selectează repo-ul corect.")
+    private func runRunner(selectedLang: String, baseCampaign: String, validLines: [String]) {
+        guard let engineURL = beginEngineAccess() else {
+            alert(title: "Engine folder missing", message: "Select Engine Folder to continue.")
             isRunning = false
             return
         }
+        let repoRoot = engineURL.path
 
-        let targetsFile = writeTargetsTempFile()
+        let targetsFile = writeTargetsTempFile(validLines: validLines)
         let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/scope_run.sh")
+        let outputSuffix = (selectedLang == "both") ? "ro" : selectedLang
+        let outputDir = (repoRoot as NSString).appendingPathComponent("deliverables/out/\(baseCampaign)_\(outputSuffix)")
+        let logFilePath = makeRunLogFilePath(outputDir: outputDir, prefix: "scope_run")
+        FileManager.default.createFile(atPath: logFilePath, contents: nil)
 
         // Build arguments: scope_run.sh <targets> <lang> <campaign> <cleanup>
         let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/bash")
+        currentTask = task
+        task.executableURL = URL(fileURLWithPath: scriptPath)
         task.arguments = [
-            scriptPath,
             targetsFile,
             selectedLang,
             baseCampaign,
@@ -1316,6 +1509,7 @@ struct ContentView: View {
         task.currentDirectoryURL = URL(fileURLWithPath: repoRoot)
 
         let pipe = Pipe()
+        let logHandle = FileHandle(forWritingAtPath: logFilePath)
         task.standardOutput = pipe
         task.standardError = pipe
 
@@ -1326,11 +1520,15 @@ struct ContentView: View {
                     self.logOutput += str
                 }
             }
+            logHandle?.write(data)
         }
 
         task.terminationHandler = { p in
             DispatchQueue.main.async {
                 pipe.fileHandleForReading.readabilityHandler = nil
+                logHandle?.closeFile()
+                self.endEngineAccess(engineURL)
+                self.currentTask = nil
 
                 let code = p.terminationStatus
                 self.lastExitCode = code
@@ -1358,14 +1556,25 @@ struct ContentView: View {
                 if self.selectedPDF == nil { self.selectedPDF = r.pdfPaths.first }
                 self.syncSelectedZIPLang(with: r, selectedLang: selectedLang)
 
-                if code == 0 || code == 1 {
-                    self.readyToSend = true
-                } else {
+                if self.cancelRequested {
+                    self.lastRunStatus = "Canceled"
+                    self.runState = .error
+                    self.cancelRequested = false
                     self.readyToSend = false
+                } else {
+                    if code == 0 || code == 1 {
+                        self.readyToSend = true
+                        self.runState = .done
+                    } else {
+                        self.readyToSend = false
+                        self.runState = .error
+                    }
                 }
                 self.lastRunCampaign = baseCampaign
                 self.lastRunLang = selectedLang
-                self.lastRunStatus = self.statusLabel(for: code)
+                if self.lastRunStatus == nil || self.lastRunStatus == self.statusLabel(for: code) {
+                    self.lastRunStatus = self.statusLabel(for: code)
+                }
 
                 self.isRunning = false
                 self.refreshRecentCampaigns()
@@ -1376,9 +1585,54 @@ struct ContentView: View {
             try task.run()
         } catch {
             DispatchQueue.main.async {
+                self.endEngineAccess(engineURL)
+                self.currentTask = nil
                 self.isRunning = false
+                self.runState = .error
                 self.alert(title: "Run failed", message: "Nu am putut porni runner-ul.")
             }
+        }
+    }
+
+    private func cancelRun() {
+        guard isRunning else { return }
+        cancelRequested = true
+        currentTask?.terminate()
+    }
+
+    private func runStatusLine() -> String {
+        switch runState {
+        case .idle:
+            return ""
+        case .running:
+            return "Status: Running…"
+        case .done:
+            let label = lastRunStatus ?? "OK"
+            return "Status: Completed (\(label))"
+        case .error:
+            let label = lastRunStatus ?? "Run failed"
+            return "Status: \(label)"
+        }
+    }
+
+    private func clientSafeLogSummary() -> String {
+        if isRunning {
+            return "Running. Logs are saved to file."
+        }
+        guard let status = lastRunStatus else {
+            return "No run yet."
+        }
+        switch status {
+        case "OK":
+            return "Success: audit completed."
+        case "BROKEN":
+            return "Completed with issues found."
+        case "FATAL":
+            return "Failed: audit did not complete."
+        case "Canceled":
+            return "Canceled by operator."
+        default:
+            return "Run finished."
         }
     }
 
@@ -1497,8 +1751,28 @@ struct ContentView: View {
         openFolder(path)
     }
 
+    private func resolvedEngineURL() -> URL? {
+        if let root = repoRoot, ScopeRepoLocator.isRepoRoot(root) {
+            return URL(fileURLWithPath: root)
+        }
+        return try? ScopeRepoLocator.locateRepoURL()
+    }
+
+    private func engineFolderAvailable() -> Bool {
+        resolvedEngineURL() != nil
+    }
+
+    private func beginEngineAccess() -> URL? {
+        guard let url = resolvedEngineURL() else { return nil }
+        return url.startAccessingSecurityScopedResource() ? url : nil
+    }
+
+    private func endEngineAccess(_ url: URL) {
+        url.stopAccessingSecurityScopedResource()
+    }
+
     private func resolvedRepoRoot() -> String? {
-        return repoRoot ?? (try? ScopeRepoLocator.locateRepo())
+        return resolvedEngineURL()?.path
     }
 
     private func outputFolderPath() -> String? {
