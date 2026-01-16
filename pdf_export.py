@@ -92,6 +92,48 @@ def humanize_fetch_error_label(reason: str, lang: str = "en") -> str:
     return "Site-ul nu a putut fi accesat." if is_ro else "The website could not be reached."
 
 
+def decision_verdict(audit_result: dict, lang: str) -> str:
+    labels = {
+        "ro": {
+            "worth_it": "MERITĂ",
+            "caution": "ATENȚIE",
+            "not_worth_it": "NU MERITĂ",
+        },
+        "en": {
+            "worth_it": "WORTH IT",
+            "caution": "CAUTION",
+            "not_worth_it": "NOT WORTH IT",
+        },
+    }
+    lang_key = (lang or "en").lower().strip()
+    if lang_key not in labels:
+        lang_key = "en"
+
+    status = (audit_result.get("status") or audit_result.get("mode") or "").upper()
+    if status == "BROKEN":
+        return labels[lang_key]["not_worth_it"]
+
+    signals = audit_result.get("signals", {}) or {}
+    raw_score = audit_result.get("clarity_score")
+    if raw_score is None:
+        raw_score = signals.get("clarity_score")
+    if raw_score is None:
+        raw_score = signals.get("score")
+    if raw_score is None:
+        raw_score = audit_result.get("score")
+
+    try:
+        score = int(raw_score or 0)
+    except (TypeError, ValueError):
+        score = 0
+
+    if score < 40:
+        return labels[lang_key]["not_worth_it"]
+    if score < 70:
+        return labels[lang_key]["caution"]
+    return labels[lang_key]["worth_it"]
+
+
 def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unknown") -> str:
     _register_font()
 
@@ -362,6 +404,13 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         textColor=colors.HexColor("#111827"),
         spaceAfter=4,
     ))
+    styles.add(ParagraphStyle(
+        name="Verdict",
+        fontName="Helvetica-Bold",
+        fontSize=11,
+        leading=13,
+        textColor=colors.HexColor("#111827"),
+    ))
 
     url = audit_result.get("url", "")
     mode = audit_result.get("mode", "ok")
@@ -507,10 +556,15 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         ("ALIGN", (0, 0), (0, 0), "LEFT"),
         ("ALIGN", (1, 0), (1, 0), "RIGHT"),
     ]))
+    verdict_label = decision_verdict(audit_result, lang)
+    verdict_prefix = "VERDICT DECIZIONAL: " if lang == "ro" else "DECISION VERDICT: "
+    verdict_line = f"{verdict_prefix}{verdict_label}"
     cover_block = [
         Paragraph(labels["cover_title"], styles["H1"]),
         Paragraph(labels["cover_subtitle"], styles["Small"]),
         Paragraph(labels["cover_tagline"], styles["Small"]),
+        Spacer(1, 6),
+        Paragraph(verdict_line, styles["Verdict"]),
         Spacer(1, 10),
         HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=0.6, width="100%"),
         Spacer(1, 10),
