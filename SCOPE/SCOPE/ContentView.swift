@@ -113,6 +113,7 @@ struct ContentView: View {
     @State private var deleteIncompleteCount: Int = 0
     @State private var deleteOlderCount: Int = 0
     @State private var historyCleanupStatus: String? = nil
+    @State private var showAbout: Bool = false
     @AppStorage("scopeTheme") private var themeRaw: String = Theme.light.rawValue
 
     private var theme: Theme { Theme(rawValue: themeRaw) ?? .light }
@@ -121,9 +122,17 @@ struct ContentView: View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Audit decizional – operator mode")
-                        .font(.title3)
-                        .foregroundColor(.primary)
+                    HStack {
+                        Text("Audit decizional – operator mode")
+                            .font(.title3)
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Button("About") {
+                            showAbout = true
+                        }
+                        .buttonStyle(.bordered)
+                        .help("Open About and Method details")
+                    }
                     Divider()
                 }
 
@@ -781,6 +790,10 @@ struct ContentView: View {
         .tint(theme.accent)
         .animation(.easeInOut(duration: 0.2), value: themeRaw)
         .frame(minWidth: 980, minHeight: 720)
+        .sheet(isPresented: $showAbout) {
+            AboutView()
+                .frame(width: 520, height: 560)
+        }
         .onAppear {
             repoRoot = resolvedRepoRoot()
             refreshRecentCampaigns()
