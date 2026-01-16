@@ -1,11 +1,28 @@
 import SwiftUI
 
 struct AboutView: View {
+    @Environment(\.dismiss) private var dismiss
     private let maxWidth: CGFloat = 480
 
     var body: some View {
         ScrollView {
             VStack(alignment: .center, spacing: 20) {
+                HStack {
+                    Spacer()
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.secondary)
+                            .padding(6)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.cancelAction)
+                    .help("Close")
+                }
+
                 VStack(spacing: 6) {
                     Text("About SCOPE")
                         .font(.title2)
@@ -52,6 +69,12 @@ struct AboutView: View {
                     .font(.footnote)
                     .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, alignment: .center)
+
+                Button("Close") {
+                    dismiss()
+                }
+                .buttonStyle(.bordered)
+                .keyboardShortcut(.cancelAction)
             }
             .padding(24)
             .frame(maxWidth: .infinity)

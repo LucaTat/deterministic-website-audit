@@ -131,7 +131,7 @@ struct ContentView: View {
                         Button("About") {
                             showAbout = true
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                         .help("Open About and Method details")
                     }
                     Divider()
@@ -245,9 +245,8 @@ struct ContentView: View {
                             Button { runAudit() } label: {
                                 Label("Run", systemImage: "play.fill")
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(NeonPrimaryButtonStyle(theme: theme, isRunning: isRunning))
                             .controlSize(.large)
-                            .tint(.accentColor)
                             .disabled(runDisabled)
                             .opacity(buttonOpacity(disabled: runDisabled))
                             .help(runHelpText())
@@ -275,7 +274,7 @@ struct ContentView: View {
                             Button { runDemo() } label: {
                                 Label("Run Demo", systemImage: "sparkles")
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                             .disabled(demoDisabled)
                             .opacity(buttonOpacity(disabled: demoDisabled))
                             .help("Run a deterministic demo using example.com")
@@ -284,6 +283,12 @@ struct ContentView: View {
 
                             statusBadge
                                 .help("Last run status (OK/BROKEN/FATAL)")
+                        }
+
+                        if isRunning {
+                            NeonStatusLine(theme: theme)
+                                .frame(maxWidth: 180)
+                                .padding(.leading, 2)
                         }
 
                         if let reason = runDisabledReason() {
@@ -298,10 +303,10 @@ struct ContentView: View {
                                 Button { revealDemoDeliverable() } label: {
                                     Label("Reveal Demo Deliverable", systemImage: "folder.fill")
                                 }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                                 .disabled(revealDisabled)
                                 .opacity(buttonOpacity(disabled: revealDisabled))
-                                .help("Reveal deliverables/out/DEMO")
+                                .help("Reveal deliverables/out/DEMO_EN or DEMO_RO")
                             }
                         }
                     }
@@ -317,10 +322,9 @@ struct ContentView: View {
                             Button { openShipRoot() } label: {
                                 Label("Open Ship Root", systemImage: "shippingbox.fill")
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                             .controlSize(.large)
                             .font(.headline)
-                            .tint(.accentColor)
                             .disabled(shipRootDisabled)
                             .opacity(buttonOpacity(disabled: shipRootDisabled))
                             .help(shipRootHelpText())
@@ -354,7 +358,7 @@ struct ContentView: View {
                                     Button { openShipFolder(forLang: "ro") } label: {
                                         Label("Open RO", systemImage: "shippingbox.fill")
                                     }
-                                    .buttonStyle(.bordered)
+                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                                     .disabled(shipRoDisabled)
                                     .opacity(buttonOpacity(disabled: shipRoDisabled))
                                     .help(shipHelpText(forLang: "ro"))
@@ -366,7 +370,7 @@ struct ContentView: View {
                                     Button { openShipFolder(forLang: "en") } label: {
                                         Label("Open EN", systemImage: "shippingbox.fill")
                                     }
-                                    .buttonStyle(.bordered)
+                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                                     .disabled(shipEnDisabled)
                                     .opacity(buttonOpacity(disabled: shipEnDisabled))
                                     .help(shipHelpText(forLang: "en"))
@@ -378,7 +382,7 @@ struct ContentView: View {
                                     Button { openZIP(forLang: "ro") } label: {
                                         Label("Reveal ZIP RO", systemImage: "archivebox.fill")
                                     }
-                                    .buttonStyle(.bordered)
+                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                                     .disabled(zipRoDisabled)
                                     .opacity(buttonOpacity(disabled: zipRoDisabled))
                                     .help(zipHelpText(forLang: "ro"))
@@ -390,7 +394,7 @@ struct ContentView: View {
                                     Button { openZIP(forLang: "en") } label: {
                                         Label("Reveal ZIP EN", systemImage: "archivebox.fill")
                                     }
-                                    .buttonStyle(.bordered)
+                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                                     .disabled(zipEnDisabled)
                                     .opacity(buttonOpacity(disabled: zipEnDisabled))
                                     .help(zipHelpText(forLang: "en"))
@@ -402,7 +406,7 @@ struct ContentView: View {
                                     Button { openShipFolder(forLang: lang) } label: {
                                         Label(lang == "ro" ? "Open RO" : "Open EN", systemImage: "shippingbox.fill")
                                     }
-                                    .buttonStyle(.bordered)
+                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                                     .disabled(shipSingleDisabled)
                                     .opacity(buttonOpacity(disabled: shipSingleDisabled))
                                     .help(shipHelpText(forLang: lang))
@@ -414,7 +418,7 @@ struct ContentView: View {
                                     Button { openZIPIfAny() } label: {
                                         Label("Reveal ZIP", systemImage: "archivebox.fill")
                                     }
-                                    .buttonStyle(.bordered)
+                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                                     .disabled(zipSingleDisabled)
                                     .opacity(buttonOpacity(disabled: zipSingleDisabled))
                                     .help(zipHelpText(forLang: lang))
@@ -427,7 +431,7 @@ struct ContentView: View {
                                 Button { openLogs() } label: {
                                     Label("Open Logs", systemImage: "doc.text.magnifyingglass")
                                 }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                                 .tint(.secondary)
                                 .disabled(logsDisabled)
                                 .opacity(buttonOpacity(disabled: logsDisabled))
@@ -806,6 +810,8 @@ struct ContentView: View {
                 .modifier(CardStyle(theme: theme))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .modifier(NeonPanel(theme: theme))
             .padding(16)
         }
         .background(theme.background)
@@ -1229,14 +1235,15 @@ struct ContentView: View {
         let content = "https://example.com\n"
         try? content.write(toFile: targetsFile, atomically: true, encoding: .utf8)
 
-        let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/ship_en.sh")
+        let (scriptName, demoCampaign) = demoScriptAndCampaign(for: lang)
+        let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/\(scriptName)")
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/bash")
         task.arguments = [
             scriptPath,
             targetsFile,
             "--campaign",
-            "DEMO",
+            demoCampaign,
             "--cleanup"
         ]
         task.currentDirectoryURL = URL(fileURLWithPath: repoRoot)
@@ -1259,13 +1266,13 @@ struct ContentView: View {
                 pipe.fileHandleForReading.readabilityHandler = nil
                 let code = p.terminationStatus
                 self.lastExitCode = code
-                self.lastRunCampaign = "DEMO"
-                self.lastRunLang = "en"
+                self.lastRunCampaign = demoCampaign
+                self.lastRunLang = (self.lang == "en") ? "en" : "ro"
                 self.lastRunStatus = self.statusLabel(for: code)
                 self.readyToSend = (code == 0 || code == 1)
 
                 if code == 0 || code == 1 {
-                    let demoPath = (repoRoot as NSString).appendingPathComponent("deliverables/out/DEMO")
+                    let demoPath = (repoRoot as NSString).appendingPathComponent("deliverables/out/\(demoCampaign)")
                     self.demoDeliverablePath = demoPath
                 }
 
@@ -1380,12 +1387,20 @@ struct ContentView: View {
             alert(title: "Repo not found", message: "Apasă Set Repo… și selectează repo-ul corect.")
             return
         }
-        let path = demoDeliverablePath ?? (repoRoot as NSString).appendingPathComponent("deliverables/out/DEMO")
+        let (_, demoCampaign) = demoScriptAndCampaign(for: lang)
+        let path = demoDeliverablePath ?? (repoRoot as NSString).appendingPathComponent("deliverables/out/\(demoCampaign)")
         if FileManager.default.fileExists(atPath: path) {
             openFolder(path)
         } else {
             alert(title: "Demo not found", message: "Nu am găsit deliverables/out/DEMO.")
         }
+    }
+
+    private func demoScriptAndCampaign(for lang: String) -> (script: String, campaign: String) {
+        if lang == "en" {
+            return ("ship_en.sh", "DEMO_EN")
+        }
+        return ("ship_ro.sh", "DEMO_RO")
     }
 
     private func parseScopeHints(from output: String) -> (logFile: String?, zipByLang: [String: String], outDirByLang: [String: String], shipDirByLang: [String: String], shipZipByLang: [String: String], shipRoot: String?, archivedLogFile: String?) {
