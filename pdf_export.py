@@ -15,6 +15,7 @@ from reportlab.platypus import (
     ListFlowable,
     KeepTogether,
     PageBreak,
+    Flowable,
 )
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -92,6 +93,57 @@ def humanize_fetch_error_label(reason: str, lang: str = "en") -> str:
     return "Site-ul nu a putut fi accesat." if is_ro else "The website could not be reached."
 
 
+def get_primary_score(audit_result: dict) -> int:
+    signals = audit_result.get("signals", {}) or {}
+    raw_score = audit_result.get("clarity_score")
+    if raw_score is None:
+        raw_score = signals.get("clarity_score")
+    if raw_score is None:
+        raw_score = signals.get("score")
+    if raw_score is None:
+        raw_score = audit_result.get("score")
+
+    try:
+        return int(raw_score or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def score_to_risk_label(score: int, lang: str) -> str:
+    is_ro = (lang or "").lower().strip() == "ro"
+    if score < 40:
+        return "RIDICAT" if is_ro else "HIGH"
+    if score < 70:
+        return "MEDIU" if is_ro else "MEDIUM"
+    return "SCĂZUT" if is_ro else "LOW"
+
+
+def status_label(audit_result: dict, lang: str) -> str:
+    status = (audit_result.get("status") or audit_result.get("mode") or "").lower().strip()
+    return "BROKEN" if status == "broken" else "OK"
+
+
+def certainty_label(audit_result: dict, lang: str) -> str:
+    client_narrative = audit_result.get("client_narrative", {}) or {}
+    confidence = (client_narrative.get("confidence") or "").strip()
+    if confidence:
+        return confidence
+
+    score = get_primary_score(audit_result)
+    if (lang or "").lower().strip() == "ro":
+        if score < 70:
+            return "Ridicată"
+        if score < 85:
+            return "Medie"
+        return "Scăzută"
+
+    if score < 70:
+        return "High"
+    if score < 85:
+        return "Medium"
+    return "Low"
+
+
 def decision_verdict(audit_result: dict, lang: str) -> str:
     labels = {
         "ro": {
@@ -113,25 +165,79 @@ def decision_verdict(audit_result: dict, lang: str) -> str:
     if status == "BROKEN":
         return labels[lang_key]["not_worth_it"]
 
-    signals = audit_result.get("signals", {}) or {}
-    raw_score = audit_result.get("clarity_score")
-    if raw_score is None:
-        raw_score = signals.get("clarity_score")
-    if raw_score is None:
-        raw_score = signals.get("score")
-    if raw_score is None:
-        raw_score = audit_result.get("score")
-
-    try:
-        score = int(raw_score or 0)
-    except (TypeError, ValueError):
-        score = 0
+    score = get_primary_score(audit_result)
 
     if score < 40:
         return labels[lang_key]["not_worth_it"]
     if score < 70:
         return labels[lang_key]["caution"]
     return labels[lang_key]["worth_it"]
+
+
+def draw_scorecard(c, audit_result: dict, lang: str, x: float, y: float) -> None:
+    width = 70 * mm
+    height = 28 * mm
+    padding = 3 * mm
+    row_height = 6 * mm
+    label_col_width = 28 * mm
+    font_size = 9
+
+    labels = {
+        "ro": ["CLARITATE", "RISC", "STATUS", "CERTITUDINE"],
+        "en": ["CLARITY", "RISK", "STATUS", "CERTAINTY"],
+    }
+    lang_key = (lang or "en").lower().strip()
+    if lang_key not in labels:
+        lang_key = "en"
+
+    def _truncate(text: str, max_chars: int) -> str:
+        text = str(text or "")
+        if len(text) <= max_chars:
+            return text
+        return text[: max_chars - 3] + "..."
+
+    score = get_primary_score(audit_result)
+    values = [
+        f"{score}/100",
+        score_to_risk_label(score, lang_key),
+        status_label(audit_result, lang_key),
+        certainty_label(audit_result, lang_key),
+    ]
+
+    c.saveState()
+    c.setLineWidth(0.6)
+    c.setStrokeColor(colors.HexColor("#e5e7eb"))
+    c.rect(x, y, width, height, stroke=1, fill=0)
+
+    row_top = y + height - padding
+    for i, label in enumerate(labels[lang_key]):
+        row_center = row_top - (i + 0.5) * row_height
+        baseline = row_center - (font_size / 2)
+        c.setFont("Helvetica-Bold", font_size)
+        c.setFillColor(colors.HexColor("#111827"))
+        c.drawString(x + padding, baseline, label)
+
+        c.setFont("Helvetica", font_size)
+        c.setFillColor(colors.HexColor("#111827"))
+        value = _truncate(values[i], 16)
+        c.drawString(x + padding + label_col_width, baseline, value)
+
+    c.restoreState()
+
+
+class ScorecardFlowable(Flowable):
+    def __init__(self, audit_result: dict, lang: str):
+        super().__init__()
+        self.audit_result = audit_result
+        self.lang = lang
+        self.width = 70 * mm
+        self.height = 28 * mm
+
+    def wrap(self, availWidth, availHeight):
+        return self.width, self.height
+
+    def draw(self):
+        draw_scorecard(self.canv, self.audit_result, self.lang, 0, 0)
 
 
 def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unknown") -> str:
@@ -559,12 +665,15 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     verdict_label = decision_verdict(audit_result, lang)
     verdict_prefix = "VERDICT DECIZIONAL: " if lang == "ro" else "DECISION VERDICT: "
     verdict_line = f"{verdict_prefix}{verdict_label}"
+    scorecard = ScorecardFlowable(audit_result, lang)
     cover_block = [
         Paragraph(labels["cover_title"], styles["H1"]),
         Paragraph(labels["cover_subtitle"], styles["Small"]),
         Paragraph(labels["cover_tagline"], styles["Small"]),
         Spacer(1, 6),
         Paragraph(verdict_line, styles["Verdict"]),
+        Spacer(1, 6),
+        scorecard,
         Spacer(1, 10),
         HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=0.6, width="100%"),
         Spacer(1, 10),
