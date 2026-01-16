@@ -16,6 +16,7 @@ from reportlab.platypus import (
     KeepTogether,
     PageBreak,
     Flowable,
+    CondPageBreak,
 )
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -172,6 +173,66 @@ def decision_verdict(audit_result: dict, lang: str) -> str:
     if score < 70:
         return labels[lang_key]["caution"]
     return labels[lang_key]["worth_it"]
+
+
+def build_next_steps(audit_result: dict, lang: str) -> list[str]:
+    lang_key = (lang or "en").lower().strip()
+    if lang_key not in ("en", "ro"):
+        lang_key = "en"
+
+    status = (audit_result.get("status") or audit_result.get("mode") or "").upper()
+    if status == "BROKEN":
+        return [
+            "Restaurează accesibilitatea site-ului (DNS / server) înainte de orice altă acțiune."
+            if lang_key == "ro"
+            else "Restore site accessibility (DNS / server) before any other action."
+        ]
+
+    steps: list[str] = []
+    signals = audit_result.get("signals", {}) or {}
+    findings = audit_result.get("findings", []) or []
+    score = get_primary_score(audit_result)
+
+    def add_step(text: str) -> None:
+        if text and text not in steps:
+            steps.append(text)
+
+    if score < 40:
+        add_step(
+            "Clarifică oferta și CTA-ul principal deasupra fold-ului."
+            if lang_key == "ro"
+            else "Clarify the offer and primary CTA above the fold."
+        )
+
+    if not signals.get("booking_detected"):
+        add_step(
+            "Adaugă un CTA clar de programare / cerere ofertă, vizibil imediat."
+            if lang_key == "ro"
+            else "Add a clear booking / quote CTA that is visible immediately."
+        )
+
+    if any((f or {}).get("category") == "indexability_technical_access" for f in findings):
+        add_step(
+            "Rezolvă problemele de indexare (robots/noindex) pentru crawl și vizibilitate."
+            if lang_key == "ro"
+            else "Fix indexation issues (robots/noindex) so pages can be crawled and indexed."
+        )
+
+    if any((f or {}).get("category") in ("social", "share_meta") for f in findings):
+        add_step(
+            "Întărește semnalele de încredere (recenzii, dovadă socială, credențiale)."
+            if lang_key == "ro"
+            else "Strengthen trust signals (reviews, social proof, credentials)."
+        )
+
+    if score >= 85:
+        add_step(
+            "Validează rezultatele și optimizează fin mesajul și plasarea CTA."
+            if lang_key == "ro"
+            else "Validate the wins and fine-tune messaging and CTA placement."
+        )
+
+    return steps[:5]
 
 
 def draw_scorecard(c, audit_result: dict, lang: str, x: float, y: float) -> None:
@@ -515,6 +576,21 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         fontName="Helvetica-Bold",
         fontSize=11,
         leading=13,
+        textColor=colors.HexColor("#111827"),
+    ))
+    styles.add(ParagraphStyle(
+        name="NextStepsTitle",
+        fontName="Helvetica-Bold",
+        fontSize=12,
+        leading=14,
+        textColor=colors.HexColor("#111827"),
+        spaceAfter=4,
+    ))
+    styles.add(ParagraphStyle(
+        name="NextStepsBody",
+        fontName="Helvetica",
+        fontSize=10,
+        leading=14,
         textColor=colors.HexColor("#111827"),
     ))
 
@@ -1094,6 +1170,27 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             ))
             story.append(Spacer(1, 6))
             story.append(Paragraph("A BROKEN result is a valid finding, not a delivery error.", styles["Small"]))
+
+    recommended_steps = build_next_steps(audit_result, lang)
+    if recommended_steps:
+        steps_title = "PAȘII URMĂTORI RECOMANDAȚI" if lang == "ro" else "RECOMMENDED NEXT STEPS"
+        steps_list = ListFlowable(
+            [Paragraph(step, styles["NextStepsBody"]) for step in recommended_steps],
+            bulletType="1",
+            start="1",
+            leftIndent=12,
+            bulletFontName="Helvetica-Bold",
+            bulletFontSize=9,
+            bulletOffsetY=2,
+        )
+        est_height = (22 + (8 * len(recommended_steps))) * mm
+        story.append(CondPageBreak(est_height))
+        story.append(KeepTogether([
+            Paragraph(steps_title, styles["NextStepsTitle"]),
+            Spacer(1, 4),
+            steps_list,
+        ]))
+        story.append(Spacer(1, 6))
 
     def draw_header_footer(canvas, doc_obj):
         canvas.saveState()
