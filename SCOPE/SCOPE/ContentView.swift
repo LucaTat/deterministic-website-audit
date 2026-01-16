@@ -114,6 +114,7 @@ struct ContentView: View {
     @State private var deleteOlderCount: Int = 0
     @State private var historyCleanupStatus: String? = nil
     @State private var showAbout: Bool = false
+    @State private var demoDeliverablePath: String? = nil
     @AppStorage("scopeTheme") private var themeRaw: String = Theme.light.rawValue
 
     private var theme: Theme { Theme(rawValue: themeRaw) ?? .light }
@@ -270,6 +271,15 @@ struct ContentView: View {
                             .opacity(buttonOpacity(disabled: resetDisabled))
                             .help("Clear inputs and UI state for next client")
 
+                            let demoDisabled = isRunning
+                            Button { runDemo() } label: {
+                                Label("Run Demo", systemImage: "sparkles")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(demoDisabled)
+                            .opacity(buttonOpacity(disabled: demoDisabled))
+                            .help("Run a deterministic demo using example.com")
+
                             Spacer()
 
                             statusBadge
@@ -280,6 +290,19 @@ struct ContentView: View {
                             Text(reason)
                                 .font(.footnote)
                                 .foregroundColor(.secondary)
+                        }
+
+                        if demoDeliverablePath != nil {
+                            HStack(spacing: 8) {
+                                let revealDisabled = isRunning || demoDeliverablePath == nil
+                                Button { revealDemoDeliverable() } label: {
+                                    Label("Reveal Demo Deliverable", systemImage: "folder.fill")
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(revealDisabled)
+                                .opacity(buttonOpacity(disabled: revealDisabled))
+                                .help("Reveal deliverables/out/DEMO")
+                            }
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1183,6 +1206,83 @@ struct ContentView: View {
         runRunner(selectedLang: lang, baseCampaign: camp)
     }
 
+    private func runDemo() {
+        let repoRoot: String
+        do {
+            repoRoot = try ScopeRepoLocator.locateRepo()
+        } catch {
+            alert(title: "Repo not found", message: "Apasă Set Repo… și selectează repo-ul corect.")
+            return
+        }
+
+        isRunning = true
+        logOutput = ""
+        lastExitCode = nil
+        result = nil
+        readyToSend = false
+        selectedPDF = nil
+        selectedZIPLang = "en"
+        demoDeliverablePath = nil
+
+        let tmp = FileManager.default.temporaryDirectory.path
+        let targetsFile = (tmp as NSString).appendingPathComponent("scope_demo_targets.txt")
+        let content = "https://example.com\n"
+        try? content.write(toFile: targetsFile, atomically: true, encoding: .utf8)
+
+        let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/ship_en.sh")
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/bash")
+        task.arguments = [
+            scriptPath,
+            targetsFile,
+            "--campaign",
+            "DEMO",
+            "--cleanup"
+        ]
+        task.currentDirectoryURL = URL(fileURLWithPath: repoRoot)
+
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = pipe
+
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if let str = String(data: data, encoding: .utf8), !str.isEmpty {
+                DispatchQueue.main.async {
+                    self.logOutput += str
+                }
+            }
+        }
+
+        task.terminationHandler = { p in
+            DispatchQueue.main.async {
+                pipe.fileHandleForReading.readabilityHandler = nil
+                let code = p.terminationStatus
+                self.lastExitCode = code
+                self.lastRunCampaign = "DEMO"
+                self.lastRunLang = "en"
+                self.lastRunStatus = self.statusLabel(for: code)
+                self.readyToSend = (code == 0 || code == 1)
+
+                if code == 0 || code == 1 {
+                    let demoPath = (repoRoot as NSString).appendingPathComponent("deliverables/out/DEMO")
+                    self.demoDeliverablePath = demoPath
+                }
+
+                self.isRunning = false
+            }
+        }
+
+        do {
+            try task.run()
+        } catch {
+            DispatchQueue.main.async {
+                self.isRunning = false
+                self.alert(title: "Demo failed", message: "Nu am putut porni demo-ul.")
+            }
+        }
+    }
+
     private func runRunner(selectedLang: String, baseCampaign: String) {
         let repoRoot: String
         do {
@@ -1272,6 +1372,19 @@ struct ContentView: View {
                 self.isRunning = false
                 self.alert(title: "Run failed", message: "Nu am putut porni runner-ul.")
             }
+        }
+    }
+
+    private func revealDemoDeliverable() {
+        guard let repoRoot = try? ScopeRepoLocator.locateRepo() else {
+            alert(title: "Repo not found", message: "Apasă Set Repo… și selectează repo-ul corect.")
+            return
+        }
+        let path = demoDeliverablePath ?? (repoRoot as NSString).appendingPathComponent("deliverables/out/DEMO")
+        if FileManager.default.fileExists(atPath: path) {
+            openFolder(path)
+        } else {
+            alert(title: "Demo not found", message: "Nu am găsit deliverables/out/DEMO.")
         }
     }
 
