@@ -137,9 +137,19 @@ def status_label(audit_result: dict, lang: str) -> str:
     return "BROKEN" if status == "broken" else "OK"
 
 
+def _preferred_narrative(audit_result: dict) -> dict:
+    ai_narrative = audit_result.get("ai_narrative")
+    if isinstance(ai_narrative, dict) and ai_narrative:
+        return ai_narrative
+    positive_narrative = audit_result.get("positive_narrative")
+    if isinstance(positive_narrative, dict) and positive_narrative:
+        return positive_narrative
+    return audit_result.get("client_narrative", {}) or {}
+
+
 def certainty_label(audit_result: dict, lang: str) -> str:
-    client_narrative = audit_result.get("client_narrative", {}) or {}
-    confidence = (client_narrative.get("confidence") or "").strip()
+    narrative = _preferred_narrative(audit_result)
+    confidence = (narrative.get("confidence") or "").strip()
     if confidence:
         return confidence
 
@@ -535,7 +545,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     url = audit_result.get("url", "")
     mode = audit_result.get("mode", "ok")
     signals = audit_result.get("signals", {}) or {}
-    client_narrative = audit_result.get("client_narrative", {}) or {}
+    client_narrative = _preferred_narrative(audit_result)
     findings = audit_result.get("findings", []) or []
     overview = client_narrative.get("overview", []) or []
     primary = client_narrative.get("primary_issue", {}) or {}
@@ -602,7 +612,12 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             break
     summary_html = "<br/>".join([f"• {s}" for s in summary_items[:3]]) if summary_items else "N/A"
     primary_text = primary_title.lower() if isinstance(primary_title, str) else ""
-    no_major_issues = ("nu am detectat probleme majore" in primary_text) or ("no major issues detected" in primary_text)
+    no_major_issues = (
+        ("nu am detectat probleme majore" in primary_text)
+        or ("no major issues detected" in primary_text)
+        or ("validare pozitiv" in primary_text)
+        or ("positive validation" in primary_text)
+    )
     expert_context = (
         (
             ("Primary findings highlight optimization opportunities to improve clarity and response rates.<br/>"
@@ -803,7 +818,9 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     ai_advisory = audit_result.get("ai_advisory") or {}
     if isinstance(ai_advisory, dict) and ai_advisory:
         ai_status = (ai_advisory.get("ai_status") or "").strip()
-        if ai_status in ("ok", "fallback"):
+        if ai_status == "fallback" and no_major_issues:
+            pass
+        elif ai_status in ("ok", "fallback"):
             for flow in _section_heading(labels["ai_advisory"]):
                 story.append(flow)
             story.append(Paragraph(f"<b>{labels['ai_status']}:</b> {ai_status}", styles["Body"]))
@@ -1016,8 +1033,8 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         )
     action_prefix = "If you do one thing now:" if lang == "en" else "Dacă faceți un singur lucru acum:"
     action_line = f"{action_prefix} {primary_action}"
-    if lang == "ro" and isinstance(primary_action, str) and primary_action.startswith("Nu am detectat probleme majore"):
-        action_line = "Dacă faceți un singur lucru acum: Mențineți structura actuală, dar accentuați CTA-ul principal pentru a maximiza conversiile."
+    if lang == "ro" and no_major_issues:
+        action_line = "Dacă faceți un singur lucru acum: Mențineți structura actuală și validați performanța prin introducerea controlată de trafic."
     if lang == "en" and isinstance(primary_action, str) and primary_action.startswith("No major issues detected"):
         action_line = "If you do one thing now: Keep the current structure, but emphasize the primary CTA to maximize conversions."
     if not action_line.endswith("."):
