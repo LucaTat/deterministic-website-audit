@@ -34,10 +34,10 @@ def main() -> None:
         # Invariants: category must exist, even if no findings are emitted
         findings = result.get("findings") or []
         cats = {
-           (f or {}).get("category")
-           for f in findings
-           if isinstance(f, dict) and (f or {}).get("category")
-    }
+            (f or {}).get("category")
+            for f in findings
+            if isinstance(f, dict) and (f or {}).get("category")
+        }
 
         # Indexability category: may be 0 findings, that's OK. But must not crash.
 

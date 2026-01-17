@@ -132,6 +132,8 @@ def score_to_risk_label(score: int, lang: str) -> str:
 
 def status_label(audit_result: dict, lang: str) -> str:
     status = (audit_result.get("status") or audit_result.get("mode") or "").lower().strip()
+    if status == "no_website":
+        return "NO WEBSITE"
     return "BROKEN" if status == "broken" else "OK"
 
 

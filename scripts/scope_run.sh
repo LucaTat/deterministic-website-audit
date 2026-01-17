@@ -74,7 +74,8 @@ run_ship () {
   local SHIP="$2"
   local CAMP="$3"
   local TMP_DIR="$ROOT_DIR/deliverables/tmp"
-  local SAFE_CAMP="$(echo "$CAMP" | tr ' /' '__' | tr -cd '[:alnum:]_-.')"
+  local SAFE_CAMP
+  SAFE_CAMP="$(echo "$CAMP" | tr ' /' '__' | tr -cd '[:alnum:]_-.')"
   local TMP_TARGETS="$TMP_DIR/scope_targets_${SAFE_CAMP}_${L}_${TS}.txt"
 
   log ""

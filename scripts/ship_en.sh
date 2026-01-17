@@ -81,9 +81,6 @@ fi
 OUT_DIR="deliverables/out/${CAMPAIGN}"
 ZIP_PATH="deliverables/out/${CAMPAIGN}.zip"
 mkdir -p "${OUT_DIR}"
-LANG_TAG="EN"
-SAFE_CAMPAIGN="$(echo "${CAMPAIGN}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g' | sed -E 's/^-+//; s/-+$//')"
-
 echo "== Running audit (EN) =="
 RUN_LOG="${OUT_DIR}/run.log"
 
@@ -119,22 +116,6 @@ while read -r PDF_PATH; do
   fi
   CLIENT_DIR="$(basename "$(dirname "$(dirname "${PDF_PATH}")")")"
   DOMAIN_LABEL="$(echo "${CLIENT_DIR}" | tr '_' '.' )"
-  JSON_PATH="$(dirname "${PDF_PATH}")/audit.json"
-  STATUS="UNKNOWN"
-  if [[ -f "${JSON_PATH}" ]]; then
-    MODE="$("${PYTHON_BIN}" - <<'PY' "${JSON_PATH}"
-import json,sys
-with open(sys.argv[1], "r", encoding="utf-8") as f:
-    print((json.load(f).get("mode") or "").strip())
-PY
-)"
-    if [[ "${MODE}" == "ok" ]]; then
-      STATUS="OK"
-    elif [[ "${MODE}" == "broken" ]]; then
-      STATUS="BROKEN"
-    fi
-  fi
-
   DEST="${OUT_DIR}/Website Audit - ${DOMAIN_LABEL} - EN.pdf"
   cp -f "${PDF_PATH}" "${DEST}"
   echo "Copied: ${DEST}"
@@ -156,7 +137,7 @@ while IFS= read -r pdf_out; do
     SORTED_DOMAINS+=("${domain_label}")
     LAST_DOMAIN="${domain_label}"
   fi
-done < <(ls -1 "${OUT_DIR}"/Website\ Audit\ -\ *\ -\ EN.pdf 2>/dev/null | LC_ALL=C sort)
+done < <(find "${OUT_DIR}" -maxdepth 1 -type f -name "Website Audit - * - EN.pdf" -print0 2>/dev/null | LC_ALL=C sort -z | tr '\0' '\n')
 
 # Generate Decision Brief TXT/PDF per domain (optional)
 for DOMAIN_LABEL in "${SORTED_DOMAINS[@]}"; do
@@ -169,7 +150,7 @@ for DOMAIN_LABEL in "${SORTED_DOMAINS[@]}"; do
     CLIENT_DIR="$(basename "$(dirname "$(dirname "${PDF_PATH}")")")"
     DOMAIN_FROM_PATH="$(echo "${CLIENT_DIR}" | tr '_' '.' )"
     if [[ "${DOMAIN_FROM_PATH}" == "${DOMAIN_LABEL}" ]]; then
-      JSON_PATH="$(dirname "${PDF_PATH}")/audit.json"
+      JSON_PATH="$(dirname "${PDF_PATH}")/audit_en.json"
       break
     fi
   done < "${LIST_FILE}"
@@ -246,7 +227,7 @@ rm -f "${OUT_DIR}/run.log" "${OUT_DIR}"/pdf_list.* 2>/dev/null || true
 # Create ZIP
 echo "== Creating ZIP =="
 ZIP_LIST="$(mktemp "${OUT_DIR}/zip_list.XXXXXX")"
-> "${ZIP_LIST}"
+: > "${ZIP_LIST}"
 for DOMAIN_LABEL in "${SORTED_DOMAINS[@]}"; do
   DECISION_PDF="${OUT_DIR}/Decision Brief - ${DOMAIN_LABEL} - EN.pdf"
   WEBSITE_PDF="${OUT_DIR}/Website Audit - ${DOMAIN_LABEL} - EN.pdf"

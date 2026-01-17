@@ -394,6 +394,9 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
 
 
 
+    if u and "://" not in u:
+        u = "https://" + u
+
     try:
         html = fetch_html(u)
         signals = build_all_signals(html, page_url=u)
