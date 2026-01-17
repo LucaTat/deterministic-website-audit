@@ -1035,8 +1035,8 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     action_line = f"{action_prefix} {primary_action}"
     if lang == "ro" and no_major_issues:
         action_line = "Dacă faceți un singur lucru acum: Mențineți structura actuală și validați performanța prin introducerea controlată de trafic."
-    if lang == "en" and isinstance(primary_action, str) and primary_action.startswith("No major issues detected"):
-        action_line = "If you do one thing now: Keep the current structure, but emphasize the primary CTA to maximize conversions."
+    if lang == "en" and no_major_issues:
+        action_line = "If you do one thing now: Keep the current structure and validate performance by introducing paid traffic in a controlled way."
     if not action_line.endswith("."):
         action_line += "."
     next_steps_block.append(Paragraph(action_line, styles["Body"]))

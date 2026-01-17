@@ -278,3 +278,56 @@ def build_client_narrative(signals: dict, lang: str = "en") -> dict:
         "confidence": confidence,
         "scope_note": scope_note,
     }
+
+
+def build_positive_validation_narrative(lang: str, confidence: str) -> dict:
+    """
+    Deterministic positive validation narrative for structurally sound sites.
+    """
+    lang = (lang or "en").lower().strip()
+    if lang not in ("en", "ro"):
+        lang = "en"
+
+    if lang == "ro":
+        overview = [
+            "Structura de bază este solidă: informațiile esențiale sunt prezente și accesibile.",
+            "Prioritatea nu este repararea unor lipsuri, ci menținerea clarității și a ritmului de decizie."
+        ]
+        primary_issue = {
+            "title": "Validare pozitivă: nu există blocaje majore de conversie în verificările de bază",
+            "impact": (
+                "Fundamentul este stabil, ceea ce reduce fricțiunea pentru vizitatori și susține programările/contactul. "
+                "Câștigurile vin din ajustări fine, nu din remedieri critice."
+            ),
+        }
+        plan = [
+            "Păstrați structura actuală, dar întăriți ierarhia vizuală a CTA-ului principal.",
+            "Monitorizați performanța pe mobil și actualizați periodic secțiunile-cheie pentru claritate."
+        ]
+        disclaimer = "Narațiune deterministă. Constatările deterministice rămân autoritare."
+    else:
+        overview = [
+            "The site’s core structure is solid: essential decision information is present and accessible.",
+            "Priority is optimization, not fixes: preserve clarity and decision momentum as traffic increases."
+        ]
+        primary_issue = {
+            "title": "Positive validation: no major conversion blockers in baseline checks",
+            "impact": (
+                "The site is suitable to support paid traffic without obvious structural risk. "
+                "Gains come from fine-tuning, not critical remediation."
+            ),
+        }
+        plan = [
+            "Keep the current structure, but reinforce the primary CTA’s visual hierarchy.",
+            "Monitor mobile performance and refresh key sections periodically for clarity."
+        ]
+        disclaimer = "Automated report based on accessible content at the time of the run."
+
+    return {
+        "overview": overview,
+        "primary_issue": primary_issue,
+        "secondary_issues": [],
+        "plan": plan,
+        "confidence": confidence,
+        "disclaimer": disclaimer,
+    }
