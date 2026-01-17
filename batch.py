@@ -667,8 +667,8 @@ def main():
             evidence_dir = os.path.join(out_folder, "evidence")
             save_html_evidence(result.get("html", ""), evidence_dir, "home.html")
 
-        pdf_path = os.path.join(out_folder, "audit.pdf")
-        json_path = os.path.join(out_folder, "audit.json")
+        pdf_path = os.path.join(out_folder, f"audit_{lang}.pdf")
+        json_path = os.path.join(out_folder, f"audit_{lang}.json")
 
         export_audit_pdf(result, pdf_path, tool_version=tool_version)
         save_json(result, json_path)
@@ -735,4 +735,3 @@ if __name__ == "__main__":
         if globals().get("verbose", False):
             print(f"[FATAL] {type(e).__name__}: {e}", file=sys.stderr)
         sys.exit(2)
-

@@ -23,21 +23,32 @@ from reportlab.pdfbase.ttfonts import TTFont
 
 AGENCY_NAME = "Digital Audit Studio"
 AGENCY_CONTACT = "contact@digitalaudit.ro"
+BODY_FONT = "DejaVuSans"
+BOLD_FONT = "DejaVuSans-Bold"
 
 
-def _register_font() -> str:
-    import os
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
-
+def _register_fonts() -> tuple[str, str]:
+    global BODY_FONT, BOLD_FONT
     here = os.path.dirname(os.path.abspath(__file__))
-    font_path = os.path.join(here, "fonts", "DejaVuSans.ttf")
+    font_dir = os.path.join(here, "assets", "fonts")
+    body_path = os.path.join(font_dir, "DejaVuSans.ttf")
+    bold_path = os.path.join(font_dir, "DejaVuSans-Bold.ttf")
 
-    if os.path.exists(font_path):
-        pdfmetrics.registerFont(TTFont("AuditFont", font_path))
-        return "AuditFont"
+    if os.path.exists(body_path) and os.path.exists(bold_path):
+        pdfmetrics.registerFont(TTFont(BODY_FONT, body_path))
+        pdfmetrics.registerFont(TTFont(BOLD_FONT, bold_path))
+        pdfmetrics.registerFontFamily(
+            BODY_FONT,
+            normal=BODY_FONT,
+            bold=BOLD_FONT,
+            italic=BODY_FONT,
+            boldItalic=BOLD_FONT,
+        )
+        return BODY_FONT, BOLD_FONT
 
-    return "Helvetica"
+    BODY_FONT = "Helvetica"
+    BOLD_FONT = "Helvetica-Bold"
+    return BODY_FONT, BOLD_FONT
 
 
 def quick_wins_en(mode: str, signals: dict) -> list[str]:
@@ -175,72 +186,12 @@ def decision_verdict(audit_result: dict, lang: str) -> str:
     return labels[lang_key]["worth_it"]
 
 
-def build_next_steps(audit_result: dict, lang: str) -> list[str]:
-    lang_key = (lang or "en").lower().strip()
-    if lang_key not in ("en", "ro"):
-        lang_key = "en"
-
-    status = (audit_result.get("status") or audit_result.get("mode") or "").upper()
-    if status == "BROKEN":
-        return [
-            "Restaurează accesibilitatea site-ului (DNS / server) înainte de orice altă acțiune."
-            if lang_key == "ro"
-            else "Restore site accessibility (DNS / server) before any other action."
-        ]
-
-    steps: list[str] = []
-    signals = audit_result.get("signals", {}) or {}
-    findings = audit_result.get("findings", []) or []
-    score = get_primary_score(audit_result)
-
-    def add_step(text: str) -> None:
-        if text and text not in steps:
-            steps.append(text)
-
-    if score < 40:
-        add_step(
-            "Clarifică oferta și CTA-ul principal deasupra fold-ului."
-            if lang_key == "ro"
-            else "Clarify the offer and primary CTA above the fold."
-        )
-
-    if not signals.get("booking_detected"):
-        add_step(
-            "Adaugă un CTA clar de programare / cerere ofertă, vizibil imediat."
-            if lang_key == "ro"
-            else "Add a clear booking / quote CTA that is visible immediately."
-        )
-
-    if any((f or {}).get("category") == "indexability_technical_access" for f in findings):
-        add_step(
-            "Rezolvă problemele de indexare (robots/noindex) pentru crawl și vizibilitate."
-            if lang_key == "ro"
-            else "Fix indexation issues (robots/noindex) so pages can be crawled and indexed."
-        )
-
-    if any((f or {}).get("category") in ("social", "share_meta") for f in findings):
-        add_step(
-            "Întărește semnalele de încredere (recenzii, dovadă socială, credențiale)."
-            if lang_key == "ro"
-            else "Strengthen trust signals (reviews, social proof, credentials)."
-        )
-
-    if score >= 85:
-        add_step(
-            "Validează rezultatele și optimizează fin mesajul și plasarea CTA."
-            if lang_key == "ro"
-            else "Validate the wins and fine-tune messaging and CTA placement."
-        )
-
-    return steps[:5]
-
-
 def draw_scorecard(c, audit_result: dict, lang: str, x: float, y: float) -> None:
-    width = 70 * mm
+    width = 78 * mm
     height = 28 * mm
     padding = 3 * mm
     row_height = 6 * mm
-    label_col_width = 28 * mm
+    label_col_width = 34 * mm
     font_size = 9
 
     labels = {
@@ -258,11 +209,12 @@ def draw_scorecard(c, audit_result: dict, lang: str, x: float, y: float) -> None
         return text[: max_chars - 3] + "..."
 
     score = get_primary_score(audit_result)
+    certainty = str(certainty_label(audit_result, lang_key)).upper()
     values = [
         f"{score}/100",
         score_to_risk_label(score, lang_key),
         status_label(audit_result, lang_key),
-        certainty_label(audit_result, lang_key),
+        certainty,
     ]
 
     c.saveState()
@@ -274,11 +226,11 @@ def draw_scorecard(c, audit_result: dict, lang: str, x: float, y: float) -> None
     for i, label in enumerate(labels[lang_key]):
         row_center = row_top - (i + 0.5) * row_height
         baseline = row_center - (font_size / 2)
-        c.setFont("Helvetica-Bold", font_size)
+        c.setFont(BOLD_FONT, font_size)
         c.setFillColor(colors.HexColor("#111827"))
         c.drawString(x + padding, baseline, label)
 
-        c.setFont("Helvetica", font_size)
+        c.setFont(BODY_FONT, font_size)
         c.setFillColor(colors.HexColor("#111827"))
         value = _truncate(values[i], 16)
         c.drawString(x + padding + label_col_width, baseline, value)
@@ -302,7 +254,7 @@ class ScorecardFlowable(Flowable):
 
 
 def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unknown") -> str:
-    _register_font()
+    body_font, bold_font = _register_fonts()
 
     if not out_path.lower().endswith(".pdf"):
         out_path += ".pdf"
@@ -517,15 +469,14 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         author="Website Audit Tool",
     )
 
-    font_name = _register_font()
     styles = getSampleStyleSheet()
 
     for s in styles.byName.values():
-        s.fontName = font_name
+        s.fontName = body_font
 
     styles.add(ParagraphStyle(
         name="H1",
-        fontName=font_name,
+        fontName=body_font,
         fontSize=18,
         leading=22,
         textColor=colors.HexColor("#111827"),
@@ -533,7 +484,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
 
     styles.add(ParagraphStyle(
         name="H2",
-        fontName=font_name,
+        fontName=body_font,
         fontSize=14,
         leading=18,
         textColor=colors.HexColor("#111827"),
@@ -543,7 +494,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
 
     styles.add(ParagraphStyle(
         name="Body",
-        fontName=font_name,
+        fontName=body_font,
         fontSize=10,
         leading=15,
         textColor=colors.HexColor("#111827"),
@@ -551,21 +502,21 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
 
     styles.add(ParagraphStyle(
         name="Small",
-        fontName=font_name,
+        fontName=body_font,
         fontSize=9,
         leading=13,
         textColor=colors.HexColor("#374151"),
     ))
     styles.add(ParagraphStyle(
         name="Meta",
-        fontName=font_name,
+        fontName=body_font,
         fontSize=8,
         leading=10,
         textColor=colors.HexColor("#6b7280"),
     ))
     styles.add(ParagraphStyle(
         name="CardTitle",
-        fontName=font_name,
+        fontName=body_font,
         fontSize=15,
         leading=19,
         textColor=colors.HexColor("#111827"),
@@ -573,24 +524,9 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     ))
     styles.add(ParagraphStyle(
         name="Verdict",
-        fontName="Helvetica-Bold",
+        fontName=bold_font,
         fontSize=11,
         leading=13,
-        textColor=colors.HexColor("#111827"),
-    ))
-    styles.add(ParagraphStyle(
-        name="NextStepsTitle",
-        fontName="Helvetica-Bold",
-        fontSize=12,
-        leading=14,
-        textColor=colors.HexColor("#111827"),
-        spaceAfter=4,
-    ))
-    styles.add(ParagraphStyle(
-        name="NextStepsBody",
-        fontName="Helvetica",
-        fontSize=10,
-        leading=14,
         textColor=colors.HexColor("#111827"),
     ))
 
@@ -615,7 +551,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
 
     def _style_table(tbl: Table, rows: list, header: bool = False, zebra: bool = False) -> None:
         style = [
-            ("FONTNAME", (0, 0), (-1, -1), font_name),
+            ("FONTNAME", (0, 0), (-1, -1), body_font),
             ("FONTSIZE", (0, 0), (-1, -1), 9),
             ("GRID", (0, 0), (-1, -1), 0.2, colors.HexColor("#e5e7eb")),
             ("LEFTPADDING", (0, 0), (-1, -1), 8),
@@ -625,7 +561,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         ]
         if header:
             style.append(("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")))
-            style.append(("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"))
+            style.append(("FONTNAME", (0, 0), (-1, 0), bold_font))
         if zebra and len(rows) > 2:
             for i in range(1, len(rows), 2):
                 style.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#f7f7f7")))
@@ -761,32 +697,11 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         Paragraph(labels["cover_expert_interpretation"], styles["H2"]),
         Paragraph(expert_context, styles["Body"]),
         Spacer(1, 8),
-        Table(
-            [
-                [Paragraph(f'<b>{labels["cover_next_steps"]}</b>', styles["Small"])],
-                [ListFlowable(
-                    [Paragraph(item, styles["Small"]) for item in (
-                        labels["cover_next_steps_ok"] if mode == "ok" else labels["cover_next_steps_issues"]
-                    )],
-                    bulletType="bullet",
-                    leftIndent=10,
-                )],
-            ],
-            colWidths=[155 * mm],
-            hAlign="LEFT",
-            style=TableStyle([
-                ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#e5e7eb")),
-                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f9fafb")),
-                ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                ("TOPPADDING", (0, 0), (-1, -1), 6),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ]),
-        ),
+        # Removed cover "next steps" to avoid duplicate sections and orphaned bullets.
         cover_footer,
     ]
-    story.append(Spacer(1, 55 * mm))
-    story.append(KeepTogether(cover_block))
+    # Keep the top spacer inside KeepTogether to avoid a blank first page.
+    story.append(KeepTogether([Spacer(1, 55 * mm)] + cover_block))
     story.append(PageBreak())
 
     client_name = (audit_result.get("client_name") or "").strip()
@@ -959,7 +874,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                     Paragraph(rec or "", styles["Body"]),
                 ])
 
-            tbl = Table(rows, colWidths=[22 * mm, 78 * mm, 72 * mm], hAlign="LEFT")
+            tbl = Table(rows, colWidths=[26 * mm, 76 * mm, 72 * mm], hAlign="LEFT")
             _style_table(tbl, rows, header=True, zebra=True)
             social_block = _section_heading(labels["social_findings"]) + [tbl]
         else:
@@ -990,7 +905,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                     Paragraph(rec or "", styles["Body"]),
                 ])
 
-            tbl = Table(rows, colWidths=[22 * mm, 78 * mm, 72 * mm], hAlign="LEFT")
+            tbl = Table(rows, colWidths=[26 * mm, 76 * mm, 72 * mm], hAlign="LEFT")
             _style_table(tbl, rows, header=True, zebra=True)
             story.append(KeepTogether(_section_heading(labels["share_meta_findings"]) + [tbl]))
 
@@ -1022,7 +937,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                     Paragraph(rec or "", styles["Body"]),
                 ])
 
-            tbl = Table(rows, colWidths=[22 * mm, 78 * mm, 72 * mm], hAlign="LEFT")
+            tbl = Table(rows, colWidths=[26 * mm, 76 * mm, 72 * mm], hAlign="LEFT")
             _style_table(tbl, rows, header=True, zebra=True)
             index_block.append(tbl)
         story.append(KeepTogether(index_block))
@@ -1060,7 +975,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 Paragraph(str(conf), styles["Body"]),
             ])
 
-        tbl = Table(rows, colWidths=[18 * mm, 80 * mm, 32 * mm, 42 * mm], hAlign="LEFT")
+        tbl = Table(rows, colWidths=[24 * mm, 76 * mm, 32 * mm, 42 * mm], hAlign="LEFT")
         _style_table(tbl, rows, header=True, zebra=True)
         conv_block = _section_heading(labels["conversion_loss_findings"])
         if lang == "ro":
@@ -1171,26 +1086,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             story.append(Spacer(1, 6))
             story.append(Paragraph("A BROKEN result is a valid finding, not a delivery error.", styles["Small"]))
 
-    recommended_steps = build_next_steps(audit_result, lang)
-    if recommended_steps:
-        steps_title = "PAȘII URMĂTORI RECOMANDAȚI" if lang == "ro" else "RECOMMENDED NEXT STEPS"
-        steps_list = ListFlowable(
-            [Paragraph(step, styles["NextStepsBody"]) for step in recommended_steps],
-            bulletType="1",
-            start="1",
-            leftIndent=12,
-            bulletFontName="Helvetica-Bold",
-            bulletFontSize=9,
-            bulletOffsetY=2,
-        )
-        est_height = (22 + (8 * len(recommended_steps))) * mm
-        story.append(CondPageBreak(est_height))
-        story.append(KeepTogether([
-            Paragraph(steps_title, styles["NextStepsTitle"]),
-            Spacer(1, 4),
-            steps_list,
-        ]))
-        story.append(Spacer(1, 6))
+    # Removed recommended next steps block to prevent duplicate sections.
 
     def draw_header_footer(canvas, doc_obj):
         canvas.saveState()
@@ -1200,7 +1096,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         header_y = height - 12 * mm
         footer_y = 10 * mm
 
-        canvas.setFont(font_name, 8)
+        canvas.setFont(body_font, 8)
         canvas.setFillColor(colors.HexColor("#6b7280"))
         canvas.drawString(left, header_y, url or "")
         header_right = campaign if campaign != "-" else cover_date
