@@ -27,6 +27,7 @@ from share_meta_findings import build_share_meta_findings
 from conversion_loss_findings import build_conversion_loss, build_conversion_loss_findings
 from indexability_signals import extract_indexability_signals, INDEXABILITY_PACK_VERSION
 from indexability_findings import build_indexability_findings
+from crawl_v1 import crawl_site
 
 from client_narrative import build_client_narrative
 from pdf_export import export_audit_pdf
@@ -353,6 +354,13 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
             "mode": "no_website",
             "lang": lang,
             "html": "",
+            "crawl_v1": {
+                "discovered_count": 0,
+                "discovered_urls": [],
+                "analyzed_count": 0,
+                "pages": [],
+                "sources": {},
+            },
             "signals": {},
             "findings": findings,
             "meta": {"indexability_pack_version": INDEXABILITY_PACK_VERSION},
@@ -399,6 +407,16 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
 
     try:
         html = fetch_html(u)
+        try:
+            crawl_payload = crawl_site(u)
+        except Exception as crawl_exc:
+            crawl_payload = {
+                "discovered_count": 0,
+                "discovered_urls": [],
+                "analyzed_count": 0,
+                "pages": [],
+                "sources": {"error": str(crawl_exc)},
+            }
         signals = build_all_signals(html, page_url=u)
         idx_signals = extract_indexability_signals(url=u, html=html, signals=signals)
         signals["indexability"] = idx_signals
@@ -437,6 +455,7 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
             "mode": "ok",
             "lang": lang,
             "html": html,
+            "crawl_v1": crawl_payload,
             "signals": signals,
             "findings": findings,
             "meta": {"indexability_pack_version": INDEXABILITY_PACK_VERSION},
@@ -481,6 +500,13 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
             "mode": "broken",  # ← unreachable website
             "lang": lang,
             "html": "",
+            "crawl_v1": {
+                "discovered_count": 0,
+                "discovered_urls": [],
+                "analyzed_count": 0,
+                "pages": [],
+                "sources": {},
+            },
             "signals": {"reason": reason},
             "findings": findings,
             "meta": {"indexability_pack_version": INDEXABILITY_PACK_VERSION},
@@ -543,6 +569,13 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
             "mode": "broken",
             "lang": lang,
             "html": "",
+            "crawl_v1": {
+                "discovered_count": 0,
+                "discovered_urls": [],
+                "analyzed_count": 0,
+                "pages": [],
+                "sources": {},
+            },
             "signals": {"reason": reason, "traceback": tb},
             "findings": findings,
             "meta": {"indexability_pack_version": INDEXABILITY_PACK_VERSION},
