@@ -277,6 +277,17 @@ def fetch_pages(urls: list[str]) -> list[dict]:
         try:
             resp = requests.get(url, headers=HEADERS, timeout=15)
             status = resp.status_code
+            content_type = resp.headers.get("Content-Type", "") or ""
+            if "text/html" not in content_type:
+                pages.append({
+                    "url": url,
+                    "status": status,
+                    "title": None,
+                    "snippets": [],
+                    "error": "non_html",
+                    "content_type": content_type,
+                })
+                continue
             html = resp.text or ""
         except Exception:
             html = ""
