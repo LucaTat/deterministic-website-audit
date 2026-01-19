@@ -61,6 +61,35 @@ def classify_audit(mode: str, findings: list[dict]) -> tuple[str, str]:
     return ("opportunity", "no_critical_failures")
 
 
+def _truncate_crawl_pages(pages: list, max_pages: int = 25, max_snippets: int = 5) -> list:
+    out = []
+    for page in pages[:max_pages]:
+        if not isinstance(page, dict):
+            continue
+        page_copy = dict(page)
+        snippets = page_copy.get("snippets")
+        if isinstance(snippets, list):
+            page_copy["snippets"] = snippets[:max_snippets]
+        out.append(page_copy)
+    return out
+
+
+def _build_evidence_pack(crawl_v1: dict, existing: dict | None = None) -> dict:
+    pack = dict(existing) if isinstance(existing, dict) else {}
+    pages = crawl_v1.get("pages") if isinstance(crawl_v1, dict) else None
+    if isinstance(pages, list):
+        pack["crawl_pages"] = _truncate_crawl_pages(pages)
+    if isinstance(crawl_v1, dict):
+        crawl_meta = {
+            "discovered_count": crawl_v1.get("discovered_count"),
+            "analyzed_count": crawl_v1.get("analyzed_count"),
+        }
+        if "used_playwright" in crawl_v1:
+            crawl_meta["used_playwright"] = crawl_v1.get("used_playwright")
+        pack["crawl_meta"] = crawl_meta
+    return pack
+
+
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--lang", choices=["en", "ro"], default="en", help="PDF/client narrative language")
@@ -687,6 +716,10 @@ def main():
         result = audit_one(url, lang=lang, business_inputs=business_inputs)
         result["client_name"] = client_name
         result["tool_version"] = tool_version
+        result["evidence_pack"] = _build_evidence_pack(
+            result.get("crawl_v1") or {},
+            result.get("evidence_pack"),
+        )
 
         ai_advisory = build_ai_advisory(result)
         if ai_advisory:

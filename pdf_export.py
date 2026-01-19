@@ -632,6 +632,26 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     if mode in ("no_website", "broken"):
         score = 0
     evidence_items = _select_crawl_evidence(crawl_v1, max_items=4)
+    pages = crawl_v1.get("pages") or []
+    analyzed = crawl_v1.get("analyzed_count")
+    if analyzed is None:
+        analyzed = len(pages)
+    discovered = crawl_v1.get("discovered_count")
+    if discovered is None:
+        discovered = len(crawl_v1.get("discovered_urls") or [])
+    low_coverage = analyzed < 10
+    coverage_warning = (
+        f"Certitudine scăzută: au fost analizate doar {analyzed} pagini (descoperite: {discovered}). "
+        "Concluziile sunt limitate de accesibilitatea paginilor (ex: sitemap inaccesibil / conținut randat din JS)."
+        if lang == "ro"
+        else f"Low certainty: only {analyzed} pages were analyzed (discovered: {discovered}). "
+             "Conclusions are limited by page accessibility (e.g., sitemap inaccessible / JS-rendered content)."
+    )
+    coverage_recommendation = (
+        "Recomandare: activați fallback de randare (Playwright) sau corectați sitemap-ul pentru a permite analiză multi-page."
+        if lang == "ro"
+        else "Recommendation: enable a rendering fallback (Playwright) or fix the sitemap to allow multi-page analysis."
+    )
 
     overview_keywords = ("noindex", "robots", "sitemap", "canonical", "meta robots")
     overview_filtered = []
@@ -857,7 +877,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             impact_text = _impact_label(score, lang)
         primary_lines.append(impact_text)
     primary_body = [Paragraph("<br/>".join(primary_lines) if primary_lines else "N/A", styles["Body"])]
-    if evidence_items:
+    if evidence_items and not low_coverage:
         evidence_title = "Dovezi (multi-page)" if lang == "ro" else "Evidence (multi-page)"
         bullets = []
         for item in evidence_items[:4]:
@@ -865,6 +885,9 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         primary_body.append(Spacer(1, 4))
         primary_body.append(Paragraph(evidence_title, styles["Small"]))
         primary_body.append(Paragraph("<br/>".join(bullets), styles["Body"]))
+    elif low_coverage:
+        primary_body.append(Spacer(1, 4))
+        primary_body.append(Paragraph(coverage_warning, styles["Small"]))
     story.append(_card(labels["primary"], primary_body))
     story.append(Spacer(1, 12))
 
@@ -908,7 +931,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         ]
     wins_html = "<br/>".join([f"• {w}" for w in wins]) if wins else "N/A"
     quickwins_body.append(Paragraph(wins_html, styles["Body"]))
-    if evidence_items:
+    if evidence_items and not low_coverage:
         evidence_title = "Dovezi (multi-page)" if lang == "ro" else "Evidence (multi-page)"
         bullets = []
         for item in evidence_items[:4]:
@@ -916,6 +939,9 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         quickwins_body.append(Spacer(1, 4))
         quickwins_body.append(Paragraph(evidence_title, styles["Small"]))
         quickwins_body.append(Paragraph("<br/>".join(bullets), styles["Body"]))
+    elif low_coverage:
+        quickwins_body.append(Spacer(1, 4))
+        quickwins_body.append(Paragraph(coverage_warning, styles["Small"]))
     story.append(_card(labels["quickwins"], quickwins_body))
     story.append(Spacer(1, 12))
 
@@ -1161,19 +1187,15 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         )
 
     next_steps_block.append(Paragraph(cta_text, styles["Body"]))
+    if low_coverage:
+        next_steps_block.append(Spacer(1, 6))
+        next_steps_block.append(Paragraph(coverage_recommendation, styles["Body"]))
     scope_note = (
         "This evaluation is based on pages accessible at run time (homepage + a deterministic set of internal pages)."
         if lang == "en"
         else "Această evaluare se bazează pe paginile accesibile la momentul rulării (homepage + un set determinist de pagini interne)."
     )
     if crawl_v1:
-        pages = crawl_v1.get("pages") or []
-        discovered = crawl_v1.get("discovered_count")
-        if discovered is None:
-            discovered = len(crawl_v1.get("discovered_urls") or [])
-        analyzed = crawl_v1.get("analyzed_count")
-        if analyzed is None:
-            analyzed = len(pages)
         scope_note += (
             f" Pages discovered: {discovered}. Pages analyzed: {analyzed}."
             if lang == "en"
