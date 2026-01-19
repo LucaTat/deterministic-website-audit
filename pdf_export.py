@@ -747,32 +747,48 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     cover_date = labels["date_fmt"]()
     campaign = (audit_result.get("campaign") or "").strip() or "-"
 
-    status_table = Table(
-        [[Paragraph(
-            f'{cover_status_display}<br/><font size="8" color="#6b7280">'
-            f'{labels["cover_status_raw_label"]}: {cover_status}</font><br/>'
-            f'<font size="7" color="#6b7280">{labels["cover_status_note"]}</font>',
-            styles["Body"],
-        )]],
-        colWidths=[45 * mm],
-        hAlign="LEFT",
-    )
-    status_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f9fafb")),
-        ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#111827")),
-        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#d1d5db")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-    ]))
+    verdict_label = decision_verdict(audit_result, lang)
+    verdict_prefix = "VERDICT DECIZIONAL: " if lang == "ro" else "DECISION VERDICT: "
+    verdict_line = f"{verdict_prefix}{verdict_label}"
+    if lang == "ro":
+        if verdict_label == "MERITĂ":
+            verdict_line = "MERITĂ INVESTIȚIA ÎN MARKETING"
+        elif verdict_label == "NU MERITĂ":
+            verdict_line = "NU MERITĂ INVESTIȚIA ÎN MARKETING"
+        else:
+            verdict_line = f"{verdict_prefix}{verdict_label}"
+    else:
+        if verdict_label == "WORTH IT":
+            verdict_line = "WORTH INVESTING IN MARKETING"
+        elif verdict_label == "NOT WORTH IT":
+            verdict_line = "NOT WORTH INVESTING IN MARKETING"
+        else:
+            verdict_line = f"{verdict_prefix}{verdict_label}"
+    if lang == "ro":
+        if verdict_label == "MERITĂ":
+            verdict_subtitle = "Nu au fost identificate blocaje critice de conversie care să invalideze investiția în marketing pe website-ul actual."
+        elif verdict_label == "ATENȚIE":
+            verdict_subtitle = "Nu au fost confirmate blocaje critice, dar evaluarea are acoperire limitată (pagini analizate insuficiente)."
+        elif verdict_label == "NU MERITĂ":
+            verdict_subtitle = "Au fost identificate blocaje critice de conversie care fac investiția în marketing ineficientă în acest moment."
+        else:
+            verdict_subtitle = "Nu au fost identificate blocaje critice de conversie care să invalideze investiția în marketing pe website-ul actual."
+    else:
+        if verdict_label == "WORTH IT":
+            verdict_subtitle = "No critical conversion blockers were identified that would invalidate marketing investment on the current website."
+        elif verdict_label == "CAUTION":
+            verdict_subtitle = "No critical blockers were confirmed, but evaluation coverage is limited (too few pages analyzed)."
+        elif verdict_label == "NOT WORTH IT":
+            verdict_subtitle = "Critical conversion blockers were identified that make marketing investment ineffective at this time."
+        else:
+            verdict_subtitle = "No critical conversion blockers were identified that would invalidate marketing investment on the current website."
+
     cover_meta = [
         [Paragraph(f'{labels["cover_audited_domain"]}:', styles["Small"]), Paragraph(url or "-", styles["Body"])],
         [Paragraph(f'{labels["date"]}:', styles["Small"]), Paragraph(cover_date, styles["Body"])],
-        [Paragraph(f'{labels["cover_campaign"]}:', styles["Small"]), Paragraph(campaign, styles["Body"])],
-        [Paragraph(f'{labels["status"]}:', styles["Small"]), status_table],
     ]
+    if campaign and campaign != "-":
+        cover_meta.append([Paragraph(f'{labels["cover_campaign"]}:', styles["Small"]), Paragraph(campaign, styles["Body"])])
     cover_meta_table = Table(cover_meta, colWidths=[35 * mm, 120 * mm], hAlign="LEFT")
     cover_meta_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -781,9 +797,33 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
     ]))
+
+    cover_header_lines = [labels["cover_title"], labels["cover_subtitle"]]
+    risk_label = score_to_risk_label(score, lang)
+    cta_opportunity_ro = "Oportunitatea principală este îmbunătățirea clarității și a accentului pe acțiune (CTA)."
+    cta_opportunity_en = "The main opportunity is improving clarity and emphasis on action (CTA)."
+    primary_bullet = primary_title if primary_title and primary_title != "N/A" else (cta_opportunity_ro if lang == "ro" else cta_opportunity_en)
+    score_risk_bullet = (
+        f"Scor claritate conversie: {score} / 100; Risc conversie: {risk_label}"
+        if lang == "ro"
+        else f"Conversion clarity score: {score} / 100; Conversion risk: {risk_label}"
+    )
+    coverage_bullet = (
+        "Acoperire/ certitudine limitată: pagini analizate insuficiente."
+        if lang == "ro"
+        else "Limited coverage/certainty: too few pages analyzed."
+    )
+    low_confidence = confidence.lower() in ("low", "scăzută")
+    third_bullet = coverage_bullet if (low_coverage or low_confidence) else (cta_opportunity_ro if lang == "ro" else cta_opportunity_en)
+    summary_bullets = [primary_bullet, score_risk_bullet, third_bullet]
+    summary_html = "<br/>".join([f"• {s}" for s in summary_bullets[:3]])
+    cover_footer_text = f"Raport generat automat • Tool version: {tool_version}"
     cover_footer = Table(
-        [[Paragraph(url or "-", styles["Small"]), Paragraph(cover_date, styles["Small"])]],
-        colWidths=[80 * mm, 75 * mm],
+        [[
+            Paragraph(cover_footer_text, styles["Small"]),
+            Paragraph(cover_date, styles["Small"]),
+        ]],
+        colWidths=[110 * mm, 45 * mm],
         hAlign="LEFT",
     )
     cover_footer.setStyle(TableStyle([
@@ -795,30 +835,28 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         ("ALIGN", (0, 0), (0, 0), "LEFT"),
         ("ALIGN", (1, 0), (1, 0), "RIGHT"),
     ]))
-    verdict_label = decision_verdict(audit_result, lang)
-    verdict_prefix = "VERDICT DECIZIONAL: " if lang == "ro" else "DECISION VERDICT: "
-    verdict_line = f"{verdict_prefix}{verdict_label}"
-    scorecard = ScorecardFlowable(audit_result, lang)
+
+    verdict_style = styles["Verdict"] if "Verdict" in styles else styles["H1"]
     cover_block = [
-        Paragraph(labels["cover_title"], styles["H1"]),
-        Paragraph(labels["cover_subtitle"], styles["Small"]),
-        Paragraph(labels["cover_tagline"], styles["Small"]),
+        Paragraph("<br/>".join(cover_header_lines), styles["Small"]),
         Spacer(1, 6),
-        Paragraph(verdict_line, styles["Verdict"]),
+        Paragraph(verdict_line, verdict_style),
         Spacer(1, 6),
-        scorecard,
-        Spacer(1, 10),
-        HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=0.6, width="100%"),
+        Paragraph(verdict_subtitle, styles["Body"]),
+        Spacer(1, 8),
+        Paragraph(
+            "<br/>".join([
+                f"Scor claritate conversie: {score} / 100" if lang == "ro" else f"Conversion clarity score: {score} / 100",
+                f"Risc conversie: {risk_label}" if lang == "ro" else f"Conversion risk: {risk_label}",
+            ]),
+            styles["Body"],
+        ),
         Spacer(1, 10),
         cover_meta_table,
         Spacer(1, 12),
         Paragraph(labels["cover_executive_summary"], styles["H2"]),
         Paragraph(summary_html, styles["Body"]),
-        Spacer(1, 6),
-        Paragraph(labels["cover_expert_interpretation"], styles["H2"]),
-        Paragraph(expert_context, styles["Body"]),
         Spacer(1, 8),
-        # Removed cover "next steps" to avoid duplicate sections and orphaned bullets.
         cover_footer,
     ]
     # Keep the top spacer inside KeepTogether to avoid a blank first page.
