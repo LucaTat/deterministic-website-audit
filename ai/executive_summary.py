@@ -27,7 +27,9 @@ def build_ai_advisory(
     if not api_key:
         return None
 
-    model = os.getenv("OPENAI_MODEL", "gpt-5").strip() or "gpt-5"
+    model = os.getenv("OPENAI_MODEL", "").strip()
+    if not model:
+     return None
     lang = (lang or "en").lower().strip()
     if lang not in ("en", "ro"):
         lang = "en"
@@ -127,7 +129,7 @@ def _call_openai(api_key: str, model: str, prompt: str) -> str:
                     {"role": "system", "content": [{"type": "text", "text": "Return JSON only."}]},
                     {"role": "user", "content": [{"type": "text", "text": prompt}]},
                 ],
-                "temperature": 0.2,
+                "temperature": 0,
             },
             timeout=30,
         )

@@ -117,7 +117,9 @@ def _build_prompt(
 
 
 def _call_openai(api_key: str, prompt: str) -> tuple[str, str | None]:
-    model = os.getenv("OPENAI_MODEL", "gpt-5").strip() or "gpt-5"
+    model = os.getenv("OPENAI_MODEL", "").strip()
+    if not model:
+     return "", "missing_openai_model"
     try:
         resp = requests.post(
             "https://api.openai.com/v1/responses",
@@ -131,7 +133,7 @@ def _call_openai(api_key: str, prompt: str) -> tuple[str, str | None]:
                     {"role": "system", "content": [{"type": "text", "text": "Return JSON only."}]},
                     {"role": "user", "content": [{"type": "text", "text": prompt}]},
                 ],
-                "temperature": 0.2,
+                "temperature": 0,
             },
             timeout=30,
         )
