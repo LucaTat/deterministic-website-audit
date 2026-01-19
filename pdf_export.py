@@ -1,6 +1,7 @@
 # pdf_export.py
 import os
 import datetime as dt
+from urllib.parse import urlparse
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
@@ -83,6 +84,77 @@ def quick_wins_ro(mode: str, signals: dict) -> list[str]:
     if not wins:
         wins.append("Nu am detectat lipsuri majore la aceste verificări de bază.")
     return wins[:3]
+
+
+def _get_crawl_v1(audit_result: dict) -> dict:
+    crawl = audit_result.get("crawl_v1")
+    if isinstance(crawl, dict):
+        return crawl
+    signals = audit_result.get("signals", {}) or {}
+    crawl = signals.get("crawl_v1")
+    return crawl if isinstance(crawl, dict) else {}
+
+
+def _select_crawl_evidence(crawl_v1: dict, max_items: int = 4) -> list[dict]:
+    pages = crawl_v1.get("pages") or []
+    evidence: list[dict] = []
+    homepage_idx = None
+
+    def _is_homepage(url: str) -> bool:
+        try:
+            path = urlparse(url).path
+        except Exception:
+            return False
+        return path in ("", "/")
+
+    def _first_snippet(page: dict) -> str:
+        snippets = page.get("snippets") or []
+        if not snippets:
+            return ""
+        return str(snippets[0] or "").strip()
+
+    for i, page in enumerate(pages):
+        url = str(page.get("url") or "").strip()
+        if not url:
+            continue
+        if _is_homepage(url):
+            snippet = _first_snippet(page)
+            if snippet:
+                evidence.append({"url": url, "snippet": snippet[:180]})
+                homepage_idx = i
+            break
+
+    for i, page in enumerate(pages):
+        if len(evidence) >= max_items:
+            break
+        if homepage_idx is not None and i == homepage_idx:
+            continue
+        url = str(page.get("url") or "").strip()
+        if not url:
+            continue
+        if _is_homepage(url) and homepage_idx is None:
+            snippet = _first_snippet(page)
+            if snippet:
+                evidence.append({"url": url, "snippet": snippet[:180]})
+                homepage_idx = i
+            continue
+        snippet = _first_snippet(page)
+        if not snippet:
+            continue
+        evidence.append({"url": url, "snippet": snippet[:180]})
+
+    return evidence[:max_items]
+
+
+def _impact_label(score: int, lang: str) -> str:
+    is_ro = (lang or "").lower().strip() == "ro"
+    if score < 70:
+        label = "ridicat" if is_ro else "high"
+    elif score < 90:
+        label = "mediu" if is_ro else "medium"
+    else:
+        label = "scăzut" if is_ro else "low"
+    return f"Impact probabil: {label}" if is_ro else f"Likely impact: {label}"
 
 
 def humanize_fetch_error_label(reason: str, lang: str = "en") -> str:
@@ -545,6 +617,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     url = audit_result.get("url", "")
     mode = audit_result.get("mode", "ok")
     signals = audit_result.get("signals", {}) or {}
+    crawl_v1 = _get_crawl_v1(audit_result)
     client_narrative = _preferred_narrative(audit_result)
     findings = audit_result.get("findings", []) or []
     overview = client_narrative.get("overview", []) or []
@@ -558,6 +631,17 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     score = int(signals.get("score", 0) or 0)
     if mode in ("no_website", "broken"):
         score = 0
+    evidence_items = _select_crawl_evidence(crawl_v1, max_items=4)
+
+    overview_keywords = ("noindex", "robots", "sitemap", "canonical", "meta robots")
+    overview_filtered = []
+    overview_technical = []
+    for item in overview:
+        text = str(item or "").lower()
+        if any(keyword in text for keyword in overview_keywords):
+            overview_technical.append(item)
+        else:
+            overview_filtered.append(item)
 
     story = []
 
@@ -740,7 +824,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     story.append(HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=1, width="100%"))
     story.append(Spacer(1, 10))
 
-    overview_body = [Paragraph("<br/>".join(overview) if overview else "N/A", styles["Body"])]
+    overview_body = [Paragraph("<br/>".join(overview_filtered) if overview_filtered else "N/A", styles["Body"])]
     if mode == "broken":
         reason = signals.get("reason", "")
         label = humanize_fetch_error_label(reason, lang)
@@ -768,8 +852,20 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     if p_title:
         primary_lines.append(f"<b>{p_title}</b>")
     if p_impact:
-        primary_lines.append(p_impact)
-    story.append(_card(labels["primary"], [Paragraph("<br/>".join(primary_lines) if primary_lines else "N/A", styles["Body"])]))
+        impact_text = str(p_impact)
+        if "%" in impact_text or "Impact estimat" in impact_text or "Estimated impact" in impact_text:
+            impact_text = _impact_label(score, lang)
+        primary_lines.append(impact_text)
+    primary_body = [Paragraph("<br/>".join(primary_lines) if primary_lines else "N/A", styles["Body"])]
+    if evidence_items:
+        evidence_title = "Dovezi (multi-page)" if lang == "ro" else "Evidence (multi-page)"
+        bullets = []
+        for item in evidence_items[:4]:
+            bullets.append(f'• URL: {item["url"]}<br/>Snippet: "{item["snippet"]}"')
+        primary_body.append(Spacer(1, 4))
+        primary_body.append(Paragraph(evidence_title, styles["Small"]))
+        primary_body.append(Paragraph("<br/>".join(bullets), styles["Body"]))
+    story.append(_card(labels["primary"], primary_body))
     story.append(Spacer(1, 12))
 
     if secondary:
@@ -812,6 +908,14 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         ]
     wins_html = "<br/>".join([f"• {w}" for w in wins]) if wins else "N/A"
     quickwins_body.append(Paragraph(wins_html, styles["Body"]))
+    if evidence_items:
+        evidence_title = "Dovezi (multi-page)" if lang == "ro" else "Evidence (multi-page)"
+        bullets = []
+        for item in evidence_items[:4]:
+            bullets.append(f'• URL: {item["url"]}<br/>Snippet: "{item["snippet"]}"')
+        quickwins_body.append(Spacer(1, 4))
+        quickwins_body.append(Paragraph(evidence_title, styles["Small"]))
+        quickwins_body.append(Paragraph("<br/>".join(bullets), styles["Body"]))
     story.append(_card(labels["quickwins"], quickwins_body))
     story.append(Spacer(1, 12))
 
@@ -936,6 +1040,10 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 styles["Small"],
             ))
         index_block = _section_heading(labels["indexability_findings"])
+        if overview_technical:
+            tech_html = "<br/>".join([f"• {s}" for s in overview_technical])
+            index_block.append(Paragraph(tech_html, styles["Body"]))
+            index_block.append(Spacer(1, 6))
         if not index_findings:
             no_issues = (
                 "No issues detected in this section based on the checks performed."
@@ -1053,7 +1161,24 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         )
 
     next_steps_block.append(Paragraph(cta_text, styles["Body"]))
-    scope_note = client_narrative.get("scope_note", "") or ""
+    scope_note = (
+        "This evaluation is based on pages accessible at run time (homepage + a deterministic set of internal pages)."
+        if lang == "en"
+        else "Această evaluare se bazează pe paginile accesibile la momentul rulării (homepage + un set determinist de pagini interne)."
+    )
+    if crawl_v1:
+        pages = crawl_v1.get("pages") or []
+        discovered = crawl_v1.get("discovered_count")
+        if discovered is None:
+            discovered = len(crawl_v1.get("discovered_urls") or [])
+        analyzed = crawl_v1.get("analyzed_count")
+        if analyzed is None:
+            analyzed = len(pages)
+        scope_note += (
+            f" Pages discovered: {discovered}. Pages analyzed: {analyzed}."
+            if lang == "en"
+            else f" Pagini descoperite: {discovered}. Pagini analizate: {analyzed}."
+        )
     if scope_note:
         next_steps_block.append(Spacer(1, 8))
         next_steps_block.append(Paragraph(scope_note, styles["Small"]))
