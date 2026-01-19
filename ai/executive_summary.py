@@ -26,6 +26,9 @@ def build_ai_advisory(
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return None
+    use_ai = os.getenv("SCOPE_USE_AI", "").strip()
+    if use_ai != "1":
+        return None
 
     model = os.getenv("OPENAI_MODEL", "").strip()
     if not model:

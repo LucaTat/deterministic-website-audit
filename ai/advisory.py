@@ -24,6 +24,9 @@ def build_ai_advisory(audit_result: dict[str, Any]) -> Optional[dict[str, Any]]:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return None
+    use_ai = os.getenv("SCOPE_USE_AI", "").strip()
+    if use_ai != "1":
+        return None
 
     lang = _normalize_lang(audit_result.get("lang"))
     findings = audit_result.get("findings", []) or []
