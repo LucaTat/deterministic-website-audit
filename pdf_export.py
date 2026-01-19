@@ -1282,6 +1282,90 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     ]))
     story.append(KeepTogether([next_steps_card]))
 
+    evidence_pack = audit_result.get("evidence_pack") or {}
+    if isinstance(evidence_pack, dict):
+        crawl_meta = evidence_pack.get("crawl_meta") or {}
+        crawl_pages = evidence_pack.get("crawl_pages") or []
+        if isinstance(crawl_pages, list) and (crawl_pages or crawl_meta):
+            evidence_title = "Evidence Pack" if lang == "en" else "Pachet de dovezi"
+            summary_title = "Evidence Pack Summary" if lang == "en" else "Sumar pachet dovezi"
+            story.append(CondPageBreak(80 * mm))
+            for flow in _section_heading(evidence_title):
+                story.append(flow)
+
+            meta_parts = []
+            if isinstance(crawl_meta, dict):
+                discovered_count = crawl_meta.get("discovered_count")
+                analyzed_count = crawl_meta.get("analyzed_count")
+                used_playwright = crawl_meta.get("used_playwright")
+                if discovered_count is not None:
+                    meta_parts.append(f"discovered: {discovered_count}")
+                if analyzed_count is not None:
+                    meta_parts.append(f"analyzed: {analyzed_count}")
+                if used_playwright is not None:
+                    meta_parts.append(f"playwright: {used_playwright}")
+                caps = crawl_meta.get("caps")
+                if isinstance(caps, dict):
+                    max_pages = caps.get("max_pages")
+                    max_snippets = caps.get("max_snippets")
+                    if max_pages is not None or max_snippets is not None:
+                        caps_text = "caps: "
+                        caps_bits = []
+                        if max_pages is not None:
+                            caps_bits.append(f"pages={max_pages}")
+                        if max_snippets is not None:
+                            caps_bits.append(f"snippets={max_snippets}")
+                        meta_parts.append(caps_text + ", ".join(caps_bits))
+
+            if meta_parts:
+                summary_body = [Paragraph("; ".join(meta_parts), styles["Small"])]
+                story.append(_card(summary_title, summary_body))
+                story.append(Spacer(1, 6))
+
+            def _truncate_text(text: str, max_chars: int = 90) -> str:
+                text = str(text or "")
+                if len(text) <= max_chars:
+                    return text
+                return text[: max_chars - 1] + "…"
+
+            for page in crawl_pages:
+                if not isinstance(page, dict):
+                    continue
+                url = _truncate_text(page.get("url", ""), 90)
+                status = str(page.get("status") or "")
+                title = _truncate_text(page.get("title", ""), 90)
+                row = [[
+                    Paragraph(url or "-", styles["Small"]),
+                    Paragraph(status or "-", styles["Small"]),
+                    Paragraph(title or "-", styles["Small"]),
+                ]]
+                tbl = Table(row, colWidths=[90 * mm, 18 * mm, 62 * mm], hAlign="LEFT")
+                tbl.setStyle(TableStyle([
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ]))
+                story.append(tbl)
+
+                snippets = page.get("snippets") or []
+                if isinstance(snippets, list) and snippets:
+                    snippet_lines = []
+                    for s in snippets:
+                        s_clean = str(s).strip()
+                        if not s_clean or s_clean in ("•", "-", "—"):
+                            continue
+                        s_stripped = s_clean.lstrip("•-—").strip()
+                        if not s_stripped:
+                            continue
+                        snippet_lines.append(s_clean)
+                    if snippet_lines:
+                        for line in snippet_lines:
+                            story.append(Paragraph(f"• {line}", styles["Small"]))
+                        story.append(Spacer(1, 2))
+                story.append(Spacer(1, 6))
+
     story.append(Spacer(1, 6))
     story.append(Paragraph(f"Tool version: {tool_version}", styles["Small"]))
     story.append(Paragraph(labels["note"], styles["Small"]))
