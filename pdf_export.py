@@ -627,6 +627,17 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     confidence = client_narrative.get("confidence", "") or ""
     p_title = primary.get("title", "")
     primary_title = p_title.strip() if isinstance(p_title, str) and p_title.strip() else "N/A"
+    blockers_candidates = [
+        audit_result.get("blockers"),
+        (audit_result.get("verdict") or {}).get("blockers"),
+        signals.get("blockers"),
+        client_narrative.get("blockers"),
+    ]
+    blockers = []
+    for candidate in blockers_candidates:
+        if isinstance(candidate, list) and all(isinstance(item, str) for item in candidate):
+            blockers = [item for item in candidate if item.strip()]
+            break
 
     score = int(signals.get("score", 0) or 0)
     if mode in ("no_website", "broken"):
@@ -882,6 +893,21 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     story.append(HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=1, width="100%"))
     story.append(Spacer(1, 10))
 
+    blockers_title = "Blocaje critice de conversie" if lang == "ro" else "Critical Conversion Blockers"
+    for flow in _section_heading(blockers_title):
+        story.append(flow)
+    if blockers:
+        blockers_html = "<br/>".join([f"• {b}" for b in blockers[:5]])
+        story.append(Paragraph(blockers_html, styles["Body"]))
+    else:
+        no_blockers = (
+            "Nu au fost identificate blocaje critice de conversie."
+            if lang == "ro"
+            else "No critical conversion blockers were identified."
+        )
+        story.append(Paragraph(no_blockers, styles["Body"]))
+    story.append(Spacer(1, 10))
+
     overview_body = [Paragraph("<br/>".join(overview_filtered) if overview_filtered else "N/A", styles["Body"])]
     if mode == "broken":
         reason = signals.get("reason", "")
@@ -892,6 +918,12 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             overview_body.append(Paragraph(f"{prefix}{label}", styles["Small"]))
     story.append(_card(labels["overview"], overview_body))
     story.append(Spacer(1, 12))
+
+    if low_coverage:
+        limits_title = "Limitări ale evaluării" if lang == "ro" else "Evaluation Limitations"
+        limits_body = [Paragraph(coverage_warning, styles["Body"])]
+        story.append(_card(limits_title, limits_body))
+        story.append(Spacer(1, 12))
 
     scope_note = (
         "This is a decision and prioritization audit based on observable page elements. "
@@ -923,11 +955,8 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         primary_body.append(Spacer(1, 4))
         primary_body.append(Paragraph(evidence_title, styles["Small"]))
         primary_body.append(Paragraph("<br/>".join(bullets), styles["Body"]))
-    elif low_coverage:
-        primary_body.append(Spacer(1, 4))
-        primary_body.append(Paragraph(coverage_warning, styles["Small"]))
-    story.append(_card(labels["primary"], primary_body))
-    story.append(Spacer(1, 12))
+    primary_label = "Problemă principală de optimizare" if lang == "ro" else "Primary Optimization Issue"
+    primary_block = [_card(primary_label, primary_body), Spacer(1, 12)]
 
     if secondary:
         for flow in _section_heading(labels["secondary"]):
@@ -937,20 +966,23 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         story.append(Spacer(1, 10))
 
     plan_html = "<br/>".join([f"• {s}" for s in plan]) if plan else "N/A"
-    story.append(_card(labels["plan"], [Paragraph(plan_html, styles["Body"])]))
-    story.append(Spacer(1, 12))
+    plan_block = [_card(labels["plan"], [Paragraph(plan_html, styles["Body"])]), Spacer(1, 12)]
+    story.append(KeepTogether(primary_block + plan_block))
 
     if confidence:
+        conf_block = []
         for flow in _section_heading(labels["confidence"]):
-            story.append(flow)
+            conf_block.append(flow)
         conf_note = (
             "Refers to confidence in the assessment and impact estimate, not brand trust."
             if lang == "en"
             else "Se referă la certitudinea evaluării și impactului estimat, nu la încrederea în brand."
         )
-        story.append(Paragraph(conf_note, styles["Small"]))
-        story.append(Paragraph(confidence, styles["Body"]))
-        story.append(Spacer(1, 10))
+        conf_block.append(Paragraph(conf_note, styles["Small"]))
+        conf_block.append(Paragraph(confidence, styles["Body"]))
+        conf_block.append(Spacer(1, 10))
+        story.append(CondPageBreak(80 * mm))
+        story.append(KeepTogether(conf_block))
 
     quickwins_body = []
     if lang == "ro":
@@ -977,9 +1009,6 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         quickwins_body.append(Spacer(1, 4))
         quickwins_body.append(Paragraph(evidence_title, styles["Small"]))
         quickwins_body.append(Paragraph("<br/>".join(bullets), styles["Body"]))
-    elif low_coverage:
-        quickwins_body.append(Spacer(1, 4))
-        quickwins_body.append(Paragraph(coverage_warning, styles["Small"]))
     story.append(_card(labels["quickwins"], quickwins_body))
     story.append(Spacer(1, 12))
 
