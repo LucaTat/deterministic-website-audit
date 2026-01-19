@@ -6,6 +6,11 @@ Focus: high-signal issues that directly impact conversions.
 
 No AI is used in analysis. All outputs are deterministic.
 
+## Setup
+1. `python -m venv .venv`
+2. `source .venv/bin/activate`
+3. `pip install -r requirements.txt`
+
 ## Outputs
 - audit.pdf → client-facing, clean, consultant-grade
 - audit.json → technical evidence and raw signals
