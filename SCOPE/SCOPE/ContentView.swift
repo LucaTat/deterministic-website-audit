@@ -144,6 +144,7 @@ struct ContentView: View {
     @State private var showAbout: Bool = false
     @State private var demoDeliverablePath: String? = nil
     @AppStorage("scopeTheme") private var themeRaw: String = Theme.light.rawValue
+    @AppStorage("scope_use_ai") private var useAI: Bool = true
 
     private var theme: Theme { Theme(rawValue: themeRaw) ?? .light }
 
@@ -231,6 +232,10 @@ struct ContentView: View {
                                 }
                                 .pickerStyle(.segmented)
                                 .frame(maxWidth: 220)
+
+                                Toggle("Use AI", isOn: $useAI)
+                                    .toggleStyle(.checkbox)
+                                    .help("Enable AI summaries and priorities when available")
 
                                 Toggle("Cleanup temporary files", isOn: $cleanup)
                                     .toggleStyle(.checkbox)
@@ -1423,6 +1428,9 @@ struct ContentView: View {
             "--cleanup"
         ]
         task.currentDirectoryURL = URL(fileURLWithPath: repoRoot)
+        var environment = task.environment ?? ProcessInfo.processInfo.environment
+        environment["SCOPE_USE_AI"] = useAI ? "1" : "0"
+        task.environment = environment
 
         let pipe = Pipe()
         let logHandle = FileHandle(forWritingAtPath: logFilePath)
@@ -1507,6 +1515,9 @@ struct ContentView: View {
             cleanup ? "1" : "0"
         ]
         task.currentDirectoryURL = URL(fileURLWithPath: repoRoot)
+        var environment = task.environment ?? ProcessInfo.processInfo.environment
+        environment["SCOPE_USE_AI"] = useAI ? "1" : "0"
+        task.environment = environment
 
         let pipe = Pipe()
         let logHandle = FileHandle(forWritingAtPath: logFilePath)
