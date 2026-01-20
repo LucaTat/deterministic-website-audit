@@ -145,6 +145,11 @@ struct ContentView: View {
     @State private var demoDeliverablePath: String? = nil
     @AppStorage("scopeTheme") private var themeRaw: String = Theme.light.rawValue
     @AppStorage("scope_use_ai") private var useAI: Bool = true
+    @AppStorage("scope_analysis_mode") private var analysisModeRaw: String = "standard"
+
+    private var analysisMode: String {
+        analysisModeRaw == "extended" ? "extended" : "standard"
+    }
 
     private var theme: Theme { Theme(rawValue: themeRaw) ?? .light }
 
@@ -236,6 +241,14 @@ struct ContentView: View {
                                 Toggle("Use AI", isOn: $useAI)
                                     .toggleStyle(.checkbox)
                                     .help("Enable AI summaries and priorities when available")
+
+                                Picker("", selection: $analysisModeRaw) {
+                                    Text("Standard").tag("standard")
+                                    Text("Extended").tag("extended")
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(maxWidth: 200)
+                                .help("Extended increases page discovery to raise evaluation certainty. Conclusions remain deterministic.")
 
                                 Toggle("Cleanup temporary files", isOn: $cleanup)
                                     .toggleStyle(.checkbox)
@@ -1430,6 +1443,7 @@ struct ContentView: View {
         task.currentDirectoryURL = URL(fileURLWithPath: repoRoot)
         var environment = task.environment ?? ProcessInfo.processInfo.environment
         environment["SCOPE_USE_AI"] = useAI ? "1" : "0"
+        environment["SCOPE_ANALYSIS_MODE"] = analysisMode
         task.environment = environment
 
         let pipe = Pipe()
@@ -1517,6 +1531,7 @@ struct ContentView: View {
         task.currentDirectoryURL = URL(fileURLWithPath: repoRoot)
         var environment = task.environment ?? ProcessInfo.processInfo.environment
         environment["SCOPE_USE_AI"] = useAI ? "1" : "0"
+        environment["SCOPE_ANALYSIS_MODE"] = analysisMode
         task.environment = environment
 
         let pipe = Pipe()
