@@ -520,8 +520,8 @@ def crawl_site(site_root: str, max_pages: int = TARGET_ANALYZED, analysis_mode: 
             playwright_reason = error
         else:
             already = set(discovered_urls)
-            new_candidates = [u for u in extra_urls if u not in already]
-            new_candidates = sorted(new_candidates)
+            sorted_candidates = sorted(extra_urls)[:50]
+            new_candidates = [u for u in sorted_candidates if u not in already]
             added = 0
             for url in new_candidates:
                 if len(discovered_urls) >= HARD_CAP_DISCOVERED:
@@ -529,6 +529,43 @@ def crawl_site(site_root: str, max_pages: int = TARGET_ANALYZED, analysis_mode: 
                 discovered_urls.append(url)
                 already.add(url)
                 added += 1
+            if added == 0:
+                html = ""
+                try:
+                    resp = requests.get(site_root, headers=HEADERS, timeout=15)
+                    html = resp.text or ""
+                except Exception:
+                    html = ""
+                if html:
+                    soup = BeautifulSoup(html, "html.parser")
+                    html_hrefs: list[str] = []
+                    for a in soup.find_all("a"):
+                        href = a.get("href")
+                        if href:
+                            html_hrefs.append(href)
+                    html_candidates: list[str] = []
+                    seen_html: set[str] = set()
+                    base = _site_root(site_root)
+                    for raw in html_hrefs:
+                        normalized = _normalize_url(raw, site_root)
+                        if not normalized:
+                            continue
+                        if not _same_host(normalized, base):
+                            continue
+                        if not _is_html_candidate(normalized):
+                            continue
+                        if normalized in seen_html:
+                            continue
+                        seen_html.add(normalized)
+                        html_candidates.append(normalized)
+                    for url in sorted(html_candidates)[:50]:
+                        if url in already:
+                            continue
+                        if len(discovered_urls) >= HARD_CAP_DISCOVERED:
+                            break
+                        discovered_urls.append(url)
+                        already.add(url)
+                        added += 1
             sources["playwright"]["urls_added"] = added
             used_playwright = added > 0
             if not used_playwright:
