@@ -1319,13 +1319,16 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             if isinstance(crawl_meta, dict):
                 discovered_count = crawl_meta.get("discovered_count")
                 analyzed_count = crawl_meta.get("analyzed_count")
-                used_playwright = crawl_meta.get("used_playwright")
+                attempted = crawl_meta.get("playwright_attempted")
+                used = crawl_meta.get("used_playwright")
                 if discovered_count is not None:
                     meta_parts.append(f"discovered: {discovered_count}")
                 if analyzed_count is not None:
                     meta_parts.append(f"analyzed: {analyzed_count}")
-                if used_playwright is not None:
-                    meta_parts.append(f"playwright: {used_playwright}")
+                if isinstance(attempted, bool):
+                    meta_parts.append(f"playwright_attempted: {attempted}")
+                if isinstance(used, bool):
+                    meta_parts.append(f"playwright_used: {used}")
                 caps = crawl_meta.get("caps")
                 if isinstance(caps, dict):
                     max_pages = caps.get("max_pages")
@@ -1342,6 +1345,13 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             if meta_parts:
                 summary_body: list[Flowable] = [Paragraph("; ".join(meta_parts), styles["Small"])]
                 story.append(_card(summary_title, summary_body))
+                if attempted is True and used is False:
+                    note = (
+                        "Playwright a rulat, dar nu a descoperit URL-uri noi."
+                        if lang == "ro"
+                        else "Playwright ran but found no new URLs."
+                    )
+                    story.append(Paragraph(note, styles["Small"]))
                 story.append(Spacer(1, 6))
 
             def _truncate_text(text: str, max_chars: int = 90) -> str:
