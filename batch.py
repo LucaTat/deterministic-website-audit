@@ -81,11 +81,15 @@ def _build_evidence_pack(crawl_v1: dict, existing: dict | None = None) -> dict:
         pack["crawl_pages"] = _truncate_crawl_pages(pages)
     if isinstance(crawl_v1, dict):
         crawl_meta = {
+            "analysis_mode": crawl_v1.get("analysis_mode"),
             "discovered_count": crawl_v1.get("discovered_count"),
             "analyzed_count": crawl_v1.get("analyzed_count"),
+            "used_playwright": crawl_v1.get("used_playwright", False),
+            "fallback_triggered": crawl_v1.get("fallback_triggered", False),
+            "fallback_threshold": crawl_v1.get("fallback_threshold", 5),
         }
-        if "used_playwright" in crawl_v1:
-            crawl_meta["used_playwright"] = crawl_v1.get("used_playwright")
+        if crawl_v1.get("playwright_reason"):
+            crawl_meta["playwright_reason"] = crawl_v1.get("playwright_reason")
         pack["crawl_meta"] = crawl_meta
     return pack
 
@@ -358,6 +362,9 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
     lang = (lang or "en").lower().strip()
     if lang not in ("en", "ro"):
         lang = "en"
+    analysis_mode = os.getenv("SCOPE_ANALYSIS_MODE", "standard").strip().lower()
+    if analysis_mode not in ("standard", "extended"):
+        analysis_mode = "standard"
     u = (url or "").strip()
     summary_text = ""
 
@@ -384,11 +391,16 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
             "lang": lang,
             "html": "",
             "crawl_v1": {
+                "analysis_mode": analysis_mode,
                 "discovered_count": 0,
                 "discovered_urls": [],
                 "analyzed_count": 0,
                 "pages": [],
                 "sources": {},
+                "used_playwright": False,
+                "playwright_reason": None,
+                "fallback_triggered": False,
+                "fallback_threshold": 5,
             },
             "signals": {},
             "findings": findings,
@@ -437,14 +449,19 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
     try:
         html = fetch_html(u)
         try:
-            crawl_payload = crawl_site(u)
+            crawl_payload = crawl_site(u, analysis_mode=analysis_mode)
         except Exception as crawl_exc:
             crawl_payload = {
+                "analysis_mode": analysis_mode,
                 "discovered_count": 0,
                 "discovered_urls": [],
                 "analyzed_count": 0,
                 "pages": [],
                 "sources": {"error": str(crawl_exc)},
+                "used_playwright": False,
+                "playwright_reason": str(crawl_exc),
+                "fallback_triggered": False,
+                "fallback_threshold": 5,
             }
         signals = build_all_signals(html, page_url=u)
         idx_signals = extract_indexability_signals(url=u, html=html, signals=signals)

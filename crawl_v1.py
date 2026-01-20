@@ -301,6 +301,21 @@ def fetch_pages(urls: list[str]) -> list[dict]:
     return pages
 
 
+def _is_html_page(page: dict) -> bool:
+    if not isinstance(page, dict):
+        return False
+    if page.get("error") == "non_html":
+        return False
+    content_type = str(page.get("content_type") or "").lower()
+    if content_type and "text/html" not in content_type:
+        return False
+    return True
+
+
+def _count_analyzed_html(pages: list[dict]) -> int:
+    return sum(1 for page in pages if _is_html_page(page))
+
+
 def _extract_onclick_urls(onclick: str) -> list[str]:
     if not onclick:
         return []
@@ -308,6 +323,72 @@ def _extract_onclick_urls(onclick: str) -> list[str]:
         r"(?:location\\.href|window\\.location|document\\.location)\\s*=\\s*['\\\"]([^'\\\"]+)['\\\"]"
     )
     return [m.group(1) for m in pattern.finditer(onclick)]
+
+
+def _playwright_discover_urls(start_url: str, max_urls: int = 50) -> tuple[list[str], str | None]:
+    try:
+        from playwright.sync_api import sync_playwright  # type: ignore
+    except Exception as exc:
+        return [], str(exc)
+
+    base = urlparse(start_url)
+    if not base.scheme or not base.netloc:
+        return [], "invalid_start_url"
+
+    hrefs: list[str] = []
+    error: str | None = None
+    browser = None
+    context = None
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context()
+            page = context.new_page()
+            page.goto(start_url, wait_until="networkidle", timeout=10000)
+            page.wait_for_timeout(1000)
+            selectors = ["nav a[href]", "header a[href]", "footer a[href]", "main a[href]"]
+            for selector in selectors:
+                items = page.eval_on_selector_all(
+                    selector,
+                    "els => els.map(e => e.getAttribute('href')).filter(Boolean)",
+                )
+                if isinstance(items, list):
+                    hrefs.extend([str(item) for item in items if item])
+    except Exception as exc:
+        error = str(exc)
+    finally:
+        try:
+            if context is not None:
+                context.close()
+        except Exception:
+            pass
+        try:
+            if browser is not None:
+                browser.close()
+        except Exception:
+            pass
+
+    if error:
+        return [], error
+
+    filtered: list[str] = []
+    seen: set[str] = set()
+    for raw in hrefs:
+        normalized = _normalize_url(raw, start_url)
+        if not normalized:
+            continue
+        parsed = urlparse(normalized)
+        if parsed.scheme != base.scheme or parsed.netloc != base.netloc:
+            continue
+        if not _is_html_candidate(normalized):
+            continue
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        filtered.append(normalized)
+
+    filtered = sorted(filtered)
+    return filtered[:max_urls], None
 
 
 def _playwright_discover(homepage_url: str) -> tuple[list[str], dict, str]:
@@ -378,33 +459,42 @@ def _playwright_discover(homepage_url: str) -> tuple[list[str], dict, str]:
     return filtered, counts, error
 
 
-def crawl_site(site_root: str, max_pages: int = TARGET_ANALYZED) -> dict:
+def _merge_pages(existing: list[dict], new_pages: list[dict]) -> list[dict]:
+    out = list(existing)
+    index: dict[str, int] = {}
+    for i, page in enumerate(out):
+        if isinstance(page, dict):
+            url = page.get("url")
+            if isinstance(url, str) and url:
+                index[url] = i
+    for page in new_pages:
+        if not isinstance(page, dict):
+            continue
+        url = page.get("url")
+        if not isinstance(url, str) or not url:
+            continue
+        if url not in index:
+            index[url] = len(out)
+            out.append(page)
+            continue
+        current = out[index[url]]
+        if _is_html_page(current):
+            continue
+        if _is_html_page(page):
+            out[index[url]] = page
+    return out
+
+
+def crawl_site(site_root: str, max_pages: int = TARGET_ANALYZED, analysis_mode: str = "standard") -> dict:
+    mode = (analysis_mode or "standard").strip().lower()
+    if mode not in ("standard", "extended"):
+        mode = "standard"
+
     discovered_urls, sources = _discover_urls_with_sources(site_root)
-    discovered_html = len(discovered_urls)
-    if discovered_html < TARGET_ANALYZED and site_root:
-        extra_urls, counts, error = _playwright_discover(site_root)
-        sources["playwright"]["used"] = not bool(error)
-        sources["playwright"]["error"] = error
-        sources["playwright"]["from_href"] = counts.get("from_href", 0)
-        sources["playwright"]["from_data"] = counts.get("from_data", 0)
-        sources["playwright"]["from_onclick"] = counts.get("from_onclick", 0)
-        sources["playwright"]["from_network"] = counts.get("from_network", 0)
-        for url in extra_urls:
-            normalized = _normalize_url(url, site_root)
-            if not normalized:
-                continue
-            if not _same_host(normalized, _site_root(site_root)):
-                continue
-            if not _is_html_candidate(normalized):
-                continue
-            if "/cdn-cgi/" in normalized:
-                continue
-            if normalized in discovered_urls:
-                continue
-            if len(discovered_urls) >= HARD_CAP_DISCOVERED:
-                break
-            discovered_urls.append(normalized)
-            sources["playwright"]["urls_added"] += 1
+    used_playwright = False
+    playwright_reason = ""
+    fallback_triggered = False
+    fallback_threshold = 5
 
     analyzed_urls = select_urls(
         discovered_urls,
@@ -412,10 +502,50 @@ def crawl_site(site_root: str, max_pages: int = TARGET_ANALYZED) -> dict:
         caps={"hard_cap_analyzed": HARD_CAP_ANALYZED},
     )
     pages = fetch_pages(analyzed_urls)
+    analyzed_html_count = _count_analyzed_html(pages)
+
+    if mode == "extended" and analyzed_html_count < fallback_threshold and site_root:
+        fallback_triggered = True
+        extra_urls, error = _playwright_discover_urls(site_root, max_urls=50)
+        sources["playwright"]["used"] = not bool(error)
+        sources["playwright"]["error"] = error or ""
+        if error:
+            used_playwright = False
+            playwright_reason = error
+        else:
+            used_playwright = True
+            already = set(discovered_urls)
+            new_candidates = [u for u in extra_urls if u not in already]
+            new_candidates = sorted(new_candidates)
+            added = 0
+            for url in new_candidates:
+                if len(discovered_urls) >= HARD_CAP_DISCOVERED:
+                    break
+                discovered_urls.append(url)
+                already.add(url)
+                added += 1
+            sources["playwright"]["urls_added"] = added
+            analyzed_urls = select_urls(
+                discovered_urls,
+                max_pages=max_pages,
+                caps={"hard_cap_analyzed": HARD_CAP_ANALYZED},
+            )
+            existing_urls = {p.get("url") for p in pages if isinstance(p, dict)}
+            additional_urls = [u for u in analyzed_urls if u not in existing_urls]
+            if additional_urls:
+                additional_pages = fetch_pages(additional_urls)
+                pages = _merge_pages(pages, additional_pages)
+            analyzed_html_count = _count_analyzed_html(pages)
+
     return {
+        "analysis_mode": mode,
         "discovered_count": len(discovered_urls),
         "discovered_urls": discovered_urls,
-        "analyzed_count": len(analyzed_urls),
+        "analyzed_count": analyzed_html_count,
         "pages": pages,
         "sources": sources,
+        "used_playwright": used_playwright,
+        "playwright_reason": playwright_reason or None,
+        "fallback_triggered": fallback_triggered,
+        "fallback_threshold": fallback_threshold,
     }
