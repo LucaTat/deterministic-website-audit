@@ -492,6 +492,7 @@ def crawl_site(site_root: str, max_pages: int = TARGET_ANALYZED, analysis_mode: 
 
     discovered_urls, sources = _discover_urls_with_sources(site_root)
     used_playwright = False
+    playwright_attempted = False
     playwright_reason = ""
     fallback_triggered = False
     fallback_threshold = 5
@@ -506,14 +507,18 @@ def crawl_site(site_root: str, max_pages: int = TARGET_ANALYZED, analysis_mode: 
 
     if mode == "extended" and analyzed_html_count < fallback_threshold and site_root:
         fallback_triggered = True
-        extra_urls, error = _playwright_discover_urls(site_root, max_urls=50)
+        playwright_attempted = True
+        extra_urls, counts, error = _playwright_discover(site_root)
         sources["playwright"]["used"] = not bool(error)
         sources["playwright"]["error"] = error or ""
+        sources["playwright"]["from_href"] = counts.get("from_href", 0)
+        sources["playwright"]["from_data"] = counts.get("from_data", 0)
+        sources["playwright"]["from_onclick"] = counts.get("from_onclick", 0)
+        sources["playwright"]["from_network"] = counts.get("from_network", 0)
         if error:
             used_playwright = False
             playwright_reason = error
         else:
-            used_playwright = True
             already = set(discovered_urls)
             new_candidates = [u for u in extra_urls if u not in already]
             new_candidates = sorted(new_candidates)
@@ -525,6 +530,9 @@ def crawl_site(site_root: str, max_pages: int = TARGET_ANALYZED, analysis_mode: 
                 already.add(url)
                 added += 1
             sources["playwright"]["urls_added"] = added
+            used_playwright = added > 0
+            if not used_playwright:
+                playwright_reason = "no_new_urls"
             analyzed_urls = select_urls(
                 discovered_urls,
                 max_pages=max_pages,
@@ -544,6 +552,7 @@ def crawl_site(site_root: str, max_pages: int = TARGET_ANALYZED, analysis_mode: 
         "analyzed_count": analyzed_html_count,
         "pages": pages,
         "sources": sources,
+        "playwright_attempted": playwright_attempted,
         "used_playwright": used_playwright,
         "playwright_reason": playwright_reason or None,
         "fallback_triggered": fallback_triggered,

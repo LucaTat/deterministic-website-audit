@@ -85,6 +85,7 @@ def _build_evidence_pack(crawl_v1: dict, existing: dict | None = None) -> dict:
             "discovered_count": crawl_v1.get("discovered_count"),
             "analyzed_count": crawl_v1.get("analyzed_count"),
             "used_playwright": crawl_v1.get("used_playwright", False),
+            "playwright_attempted": crawl_v1.get("playwright_attempted", False),
             "fallback_triggered": crawl_v1.get("fallback_triggered", False),
             "fallback_threshold": crawl_v1.get("fallback_threshold", 5),
         }
