@@ -350,6 +350,10 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     if lang not in ("en", "ro"):
         lang = "en"
 
+    display_tool_version = str(tool_version or "").strip()
+    if not display_tool_version or display_tool_version.lower() == "unknown":
+        display_tool_version = "v2.0.0"
+
     labels = {
         "en": {
             "title": "Website Audit",
@@ -654,6 +658,9 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     if discovered is None:
         discovered = len(crawl_v1.get("discovered_urls") or [])
     low_coverage = analyzed < 10
+    confidence_display = confidence
+    if low_coverage:
+        confidence_display = "Medie (limitări de acoperire)" if lang == "ro" else "Medium (coverage limitations)"
     coverage_warning = (
         f"Certitudine scăzută: au fost analizate doar {analyzed} pagini (descoperite: {discovered}). "
         "Concluziile sunt limitate de accesibilitatea paginilor (ex: sitemap inaccesibil / conținut randat din JS)."
@@ -831,7 +838,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     third_bullet = coverage_bullet if (low_coverage or low_confidence) else (cta_opportunity_ro if lang == "ro" else cta_opportunity_en)
     summary_bullets = [primary_bullet, score_risk_bullet, third_bullet]
     summary_html = "<br/>".join([f"• {s}" for s in summary_bullets[:3]])
-    cover_footer_text = f"Raport generat automat • Tool version: {tool_version}"
+    cover_footer_text = f"Raport generat automat • Tool version: {display_tool_version}"
     cover_footer = Table(
         [[
             Paragraph(cover_footer_text, styles["Small"]),
@@ -975,7 +982,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     plan_block: list[Flowable] = [_card(labels["plan"], plan_body), Spacer(1, 12)]
     story.append(KeepTogether(primary_block + plan_block))
 
-    if confidence:
+    if confidence_display:
         conf_block: list[Flowable] = []
         for flow in _section_heading(labels["confidence"]):
             conf_block.append(flow)
@@ -985,7 +992,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             else "Se referă la certitudinea evaluării și impactului estimat, nu la încrederea în brand."
         )
         conf_block.append(Paragraph(conf_note, styles["Small"]))
-        conf_block.append(Paragraph(confidence, styles["Body"]))
+        conf_block.append(Paragraph(confidence_display, styles["Body"]))
         conf_block.append(Spacer(1, 10))
         story.append(CondPageBreak(80 * mm))
         story.append(KeepTogether(conf_block))
@@ -1382,7 +1389,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
                 story.append(Spacer(1, 6))
 
     story.append(Spacer(1, 6))
-    story.append(Paragraph(f"Tool version: {tool_version}", styles["Small"]))
+    story.append(Paragraph(f"Tool version: {display_tool_version}", styles["Small"]))
     story.append(Paragraph(labels["note"], styles["Small"]))
 
     if mode == "broken":
@@ -1420,6 +1427,17 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
 
     # Removed recommended next steps block to prevent duplicate sections.
 
+    def _audited_domain(raw_url: str) -> str:
+        try:
+            parsed = urlparse(raw_url)
+            if parsed.netloc:
+                return parsed.netloc
+        except Exception:
+            pass
+        return str(raw_url or "").split("/")[0]
+
+    audited_domain = _audited_domain(url)
+
     def draw_header_footer(canvas, doc_obj):
         canvas.saveState()
         width, height = A4
@@ -1430,14 +1448,13 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
 
         canvas.setFont(body_font, 8)
         canvas.setFillColor(colors.HexColor("#6b7280"))
-        canvas.drawString(left, header_y, url or "")
-        header_right = campaign if campaign != "-" else cover_date
-        canvas.drawRightString(right, header_y, header_right)
+        header_line = f"{audited_domain} • {cover_date}" if audited_domain else cover_date
+        canvas.drawString(left, header_y, header_line)
 
         canvas.setStrokeColor(colors.HexColor("#e5e7eb"))
         canvas.setLineWidth(0.5)
         canvas.line(left, footer_y + 4 * mm, right, footer_y + 4 * mm)
-        canvas.drawString(left, footer_y, f"Deterministic Website Audit • v{tool_version}")
+        canvas.drawString(left, footer_y, f"Deterministic Website Audit • {display_tool_version}")
         canvas.drawRightString(right, footer_y, f"Pagina {canvas.getPageNumber()}")
         canvas.restoreState()
 
