@@ -328,6 +328,8 @@ def _apply_priority_rules(advisory: dict[str, Any], findings: list[dict[str, Any
         if level not in by_level or not isinstance(ids, list):
             continue
         for fid in ids:
+            if not isinstance(fid, str):
+                continue
             if fid not in allowed or any(x in fid for x in excluded):
                 continue
             by_level[level].append(fid)

@@ -1317,41 +1317,90 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
 
             meta_parts = []
             if isinstance(crawl_meta, dict):
-                discovered_count = crawl_meta.get("discovered_count")
-                analyzed_count = crawl_meta.get("analyzed_count")
+                discovered_count = crawl_meta.get("discovered_count") or 0
+                analyzed_count = crawl_meta.get("analyzed_count") or 0
                 attempted = crawl_meta.get("playwright_attempted")
+                if not isinstance(attempted, bool):
+                    attempted = None
                 used = crawl_meta.get("used_playwright")
-                if discovered_count is not None:
-                    meta_parts.append(f"discovered: {discovered_count}")
-                if analyzed_count is not None:
-                    meta_parts.append(f"analyzed: {analyzed_count}")
-                if isinstance(attempted, bool):
-                    meta_parts.append(f"playwright_attempted: {attempted}")
-                if isinstance(used, bool):
-                    meta_parts.append(f"playwright_used: {used}")
-                caps = crawl_meta.get("caps")
-                if isinstance(caps, dict):
-                    max_pages = caps.get("max_pages")
-                    max_snippets = caps.get("max_snippets")
-                    if max_pages is not None or max_snippets is not None:
-                        caps_text = "caps: "
-                        caps_bits = []
-                        if max_pages is not None:
-                            caps_bits.append(f"pages={max_pages}")
-                        if max_snippets is not None:
-                            caps_bits.append(f"snippets={max_snippets}")
-                        meta_parts.append(caps_text + ", ".join(caps_bits))
+                if not isinstance(used, bool):
+                    used = None
+                attempted_b = attempted is True
+                used_b = used is True
 
-            if meta_parts:
-                summary_body: list[Flowable] = [Paragraph("; ".join(meta_parts), styles["Small"])]
-                story.append(_card(summary_title, summary_body))
-                if attempted is True and used is False:
-                    note = (
-                        "Playwright a rulat, dar nu a descoperit URL-uri noi."
+                def _coverage_label(count: int) -> str:
+                    if count <= 2:
+                        return "foarte limitată" if lang == "ro" else "very limited"
+                    if count <= 9:
+                        return "limitata" if lang == "ro" else "limited"
+                    return "bună" if lang == "ro" else "good"
+
+                def _playwright_text(attempted_value: bool, used_value: bool) -> str:
+                    if not attempted_value:
+                        return (
+                            "Randare avansată: nu a fost rulată"
+                            if lang == "ro"
+                            else "Advanced rendering: not run"
+                        )
+                    if used_value:
+                        return (
+                            "Randare avansată: rulată, a adăugat pagini noi relevante"
+                            if lang == "ro"
+                            else "Advanced rendering: ran, added relevant new pages"
+                        )
+                    return (
+                        "Randare avansată: rulată, nu a identificat pagini suplimentare relevante"
                         if lang == "ro"
-                        else "Playwright ran but found no new URLs."
+                        else "Advanced rendering: ran, found no additional relevant pages"
                     )
-                    story.append(Paragraph(note, styles["Small"]))
+
+                def _implication_text(count: int) -> str:
+                    if count < 10:
+                        return (
+                            "Implicație: vizibilitatea limitată pentru sisteme automate poate crește riscul înainte de Ads/tracking."
+                            if lang == "ro"
+                            else "Implication: limited visibility for automated systems may raise risk before Ads/tracking."
+                        )
+                    return (
+                        "Implicație: acoperire suficientă pentru evaluare multi-page."
+                        if lang == "ro"
+                        else "Implication: sufficient coverage for multi-page evaluation."
+                    )
+
+                coverage_label = _coverage_label(int(analyzed_count))
+                playwright_text = _playwright_text(attempted_b, used_b)
+                implication_text = _implication_text(int(analyzed_count))
+
+                summary_body: list[Flowable] = [
+                    Paragraph(f"{'Acoperire evaluare' if lang == 'ro' else 'Coverage'}: {coverage_label}", styles["Small"]),
+                ]
+                if discovered_count is not None and analyzed_count is not None:
+                    summary_body.append(Paragraph(
+                        f"{'Pagini' if lang == 'ro' else 'Pages'}: "
+                        f"{'analizate' if lang == 'ro' else 'analyzed'} {analyzed_count} / "
+                        f"{'descoperite' if lang == 'ro' else 'discovered'} {discovered_count}",
+                        styles["Small"],
+                    ))
+                summary_body.append(Paragraph(playwright_text, styles["Small"]))
+                summary_body.append(Paragraph(implication_text, styles["Small"]))
+
+                yes_no = ("da" if lang == "ro" else "yes")
+                no_val = ("nu" if lang == "ro" else "no")
+                details_label = "Detalii tehnice" if lang == "ro" else "Technical details"
+                details_parts = [
+                    f"discovered={discovered_count}",
+                    f"analyzed={analyzed_count}",
+                ]
+                if attempted is not None:
+                    label = "playwright_rulat" if lang == "ro" else "playwright_ran"
+                    details_parts.append(f"{label}={(yes_no if attempted_b else no_val)}")
+                if used is not None:
+                    label = "pagini_noi" if lang == "ro" else "new_pages"
+                    details_parts.append(f"{label}={(yes_no if used_b else no_val)}")
+                details_line = f"{details_label}: " + " • ".join(details_parts)
+                summary_body.append(Paragraph(details_line, styles["Meta"]))
+
+                story.append(_card(summary_title, summary_body))
                 story.append(Spacer(1, 6))
 
             def _truncate_text(text: str, max_chars: int = 90) -> str:
