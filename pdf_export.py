@@ -770,21 +770,31 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
 
     verdict_label = decision_verdict(audit_result, lang)
     verdict_prefix = "VERDICT DECIZIONAL: " if lang == "ro" else "DECISION VERDICT: "
-    verdict_line = f"{verdict_prefix}{verdict_label}"
+    is_unauditable = mode in ("broken", "no_website") or analyzed == 0
     if lang == "ro":
-        if verdict_label == "MERITĂ":
-            verdict_line = "MERITĂ INVESTIȚIA ÎN MARKETING"
-        elif verdict_label == "NU MERITĂ":
-            verdict_line = "NU MERITĂ INVESTIȚIA ÎN MARKETING"
+        if is_unauditable:
+            verdict_display = "NEAUDITABIL"
+        elif low_coverage:
+            verdict_display = "LIMITAT"
+        elif verdict_label == "MERITĂ":
+            verdict_display = "OK"
         else:
-            verdict_line = f"{verdict_prefix}{verdict_label}"
+            verdict_display = "ATENȚIE"
     else:
-        if verdict_label == "WORTH IT":
-            verdict_line = "WORTH INVESTING IN MARKETING"
-        elif verdict_label == "NOT WORTH IT":
-            verdict_line = "NOT WORTH INVESTING IN MARKETING"
+        if is_unauditable:
+            verdict_display = "UNAUDITABLE"
+        elif low_coverage:
+            verdict_display = "LIMITED"
+        elif verdict_label == "WORTH IT":
+            verdict_display = "OK"
         else:
-            verdict_line = f"{verdict_prefix}{verdict_label}"
+            verdict_display = "CAUTION"
+    verdict_line = f"{verdict_prefix}{verdict_display}"
+    verdict_note = (
+        "Notă: Verdictul se referă strict la Ads orientate pe conversie și tracking."
+        if lang == "ro"
+        else "Note: The verdict applies strictly to conversion-oriented Ads and tracking."
+    )
     if lang == "ro":
         if verdict_label == "MERITĂ":
             verdict_subtitle = "Nu au fost identificate blocaje critice de conversie care să invalideze investiția în marketing pe website-ul actual."
@@ -862,6 +872,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         Paragraph("<br/>".join(cover_header_lines), styles["Small"]),
         Spacer(1, 6),
         Paragraph(verdict_line, verdict_style),
+        Paragraph(verdict_note, styles["Small"]),
         Spacer(1, 6),
         Paragraph(verdict_subtitle, styles["Body"]),
         Spacer(1, 8),
