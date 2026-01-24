@@ -1,6 +1,7 @@
 # pdf_export.py
 import os
 import datetime as dt
+import unicodedata
 from typing import Any, TypeAlias
 from urllib.parse import urlparse
 from reportlab.lib.pagesizes import A4
@@ -728,775 +729,368 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             Spacer(1, 4),
         ]
 
-    summary_items = []
-    for f in findings:
-        title = f.get("title_ro") if lang == "ro" else f.get("title_en")
-        if title and title not in summary_items:
-            summary_items.append(title)
-        if len(summary_items) >= 3:
-            break
-    summary_html = "<br/>".join([f"• {s}" for s in summary_items[:3]]) if summary_items else "N/A"
-    primary_text = primary_title.lower() if isinstance(primary_title, str) else ""
-    no_major_issues = (
-        ("nu am detectat probleme majore" in primary_text)
-        or ("no major issues detected" in primary_text)
-        or ("validare pozitiv" in primary_text)
-        or ("positive validation" in primary_text)
-    )
-    expert_context = (
-        (
-            ("Primary findings highlight optimization opportunities to improve clarity and response rates.<br/>"
-             if no_major_issues else
-             "Primary findings point to a bottleneck that shapes how visitors decide and act.<br/>")
-            + "Resolving the top issue typically improves clarity, reduces friction, and raises response rates.<br/>"
-            + "This interpretation is based on observable page elements, not internal business data.<br/>"
-            + f"This context refers to the primary issue: {primary_title}."
-        )
-        if lang == "en"
-        else (
-            ("Constatările principale indică oportunități de optimizare pentru claritate și răspuns.<br/>"
-             if no_major_issues else
-             "Constatările principale indică un blocaj care influențează decizia și acțiunea vizitatorilor.<br/>")
-            + "Rezolvarea problemei de top crește claritatea, reduce fricțiunea și îmbunătățește răspunsul.<br/>"
-            + "Interpretarea se bazează pe elemente observabile, nu pe date interne de business.<br/>"
-            + f"Acest context se referă la problema principală: {primary_title}."
-        )
-    )
-
-    cover_status = "OK" if mode == "ok" else "BROKEN"
-    cover_status_display = labels["cover_status_ok"] if mode == "ok" else labels["cover_status_issues"]
     cover_date = labels["date_fmt"]()
-    campaign = (audit_result.get("campaign") or "").strip() or "-"
 
-    verdict_label = decision_verdict(audit_result, lang)
-    verdict_prefix = "VERDICT DECIZIONAL: " if lang == "ro" else "DECISION VERDICT: "
-    is_unauditable = mode in ("broken", "no_website") or analyzed == 0
-    if lang == "ro":
-        if is_unauditable:
-            verdict_display = "NEAUDITABIL"
-        elif low_coverage:
-            verdict_display = "LIMITAT"
-        elif verdict_label == "MERITĂ":
-            verdict_display = "OK"
-        else:
-            verdict_display = "ATENȚIE"
-    else:
-        if is_unauditable:
-            verdict_display = "UNAUDITABLE"
-        elif low_coverage:
-            verdict_display = "LIMITED"
-        elif verdict_label == "WORTH IT":
-            verdict_display = "OK"
-        else:
-            verdict_display = "CAUTION"
-    verdict_line = f"{verdict_prefix}{verdict_display}"
-    verdict_note = (
-        "Notă: Verdictul se referă strict la Ads orientate pe conversie și tracking."
-        if lang == "ro"
-        else "Note: The verdict applies strictly to conversion-oriented Ads and tracking."
-    )
-    if lang == "ro":
-        if verdict_label == "MERITĂ":
-            verdict_subtitle = "Nu au fost identificate blocaje critice de conversie care să invalideze investiția în marketing pe website-ul actual."
-        elif verdict_label == "ATENȚIE":
-            verdict_subtitle = "Nu au fost confirmate blocaje critice, dar evaluarea are acoperire limitată (pagini analizate insuficiente)."
-        elif verdict_label == "NU MERITĂ":
-            verdict_subtitle = "Au fost identificate blocaje critice de conversie care fac investiția în marketing ineficientă în acest moment."
-        else:
-            verdict_subtitle = "Nu au fost identificate blocaje critice de conversie care să invalideze investiția în marketing pe website-ul actual."
-    else:
-        if verdict_label == "WORTH IT":
-            verdict_subtitle = "No critical conversion blockers were identified that would invalidate marketing investment on the current website."
-        elif verdict_label == "CAUTION":
-            verdict_subtitle = "No critical blockers were confirmed, but evaluation coverage is limited (too few pages analyzed)."
-        elif verdict_label == "NOT WORTH IT":
-            verdict_subtitle = "Critical conversion blockers were identified that make marketing investment ineffective at this time."
-        else:
-            verdict_subtitle = "No critical conversion blockers were identified that would invalidate marketing investment on the current website."
+    def _decision_label() -> str:
+        eligibility = audit_result.get("eligibility") if isinstance(audit_result.get("eligibility"), dict) else {}
+        eligible = bool(eligibility.get("eligible", True))
+        if not eligible or mode in ("broken", "no_website") or analyzed == 0:
+            return "STOP"
+        base_verdict = decision_verdict(audit_result, lang)
+        if base_verdict in ("ATENȚIE", "CAUTION", "LIMITED", "LIMITAT"):
+            return "GO WITH LIMITATIONS"
+        return "GO"
 
-    cover_meta = [
-        [Paragraph(f'{labels["cover_audited_domain"]}:', styles["Small"]), Paragraph(url or "-", styles["Body"])],
-        [Paragraph(f'{labels["date"]}:', styles["Small"]), Paragraph(cover_date, styles["Body"])],
-    ]
-    if campaign and campaign != "-":
-        cover_meta.append([Paragraph(f'{labels["cover_campaign"]}:', styles["Small"]), Paragraph(campaign, styles["Body"])])
-    cover_meta_table = Table(cover_meta, colWidths=[35 * mm, 120 * mm], hAlign="LEFT")
-    cover_meta_table.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-    ]))
+    def _decision_sentence(label: str) -> str:
+        if label == "GO":
+            return ("Pe baza elementelor observabile și a paginilor analizate, acest website poate fi utilizat pentru campanii de ads "
+                    "orientate pe conversie, fără riscuri structurale majore care să invalideze interpretarea rezultatelor.")
+        if label == "GO WITH LIMITATIONS":
+            return ("Website-ul poate fi utilizat pentru ads, dar există limitări structurale care pot afecta interpretarea rezultatelor. "
+                    "Recomandăm rulare controlată și interpretare atentă.")
+        return ("Website-ul nu permite evaluarea corectă a performanței ads orientate pe conversie în forma actuală. "
+                "Orice buget cheltuit acum are risc ridicat de irosire.")
 
-    cover_header_lines = [labels["cover_title"], labels["cover_subtitle"]]
-    risk_label = score_to_risk_label(score, lang)
-    cta_opportunity_ro = "Oportunitatea principală este îmbunătățirea clarității și a accentului pe acțiune (CTA)."
-    cta_opportunity_en = "The main opportunity is improving clarity and emphasis on action (CTA)."
-    primary_bullet = primary_title if primary_title and primary_title != "N/A" else (cta_opportunity_ro if lang == "ro" else cta_opportunity_en)
-    score_risk_bullet = (
-        f"Scor claritate conversie: {score} / 100; Risc conversie: {risk_label}"
-        if lang == "ro"
-        else f"Conversion clarity score: {score} / 100; Conversion risk: {risk_label}"
-    )
-    coverage_bullet = (
-        "Acoperire/ certitudine limitată: pagini analizate insuficiente."
-        if lang == "ro"
-        else "Limited coverage/certainty: too few pages analyzed."
-    )
-    low_confidence = confidence.lower() in ("low", "scăzută")
-    third_bullet = coverage_bullet if (low_coverage or low_confidence) else (cta_opportunity_ro if lang == "ro" else cta_opportunity_en)
-    summary_bullets = [primary_bullet, score_risk_bullet, third_bullet]
-    summary_html = "<br/>".join([f"• {s}" for s in summary_bullets[:3]])
-    cover_footer_text = f"Raport generat automat • Tool version: {display_tool_version}"
-    cover_footer = Table(
-        [[
-            Paragraph(cover_footer_text, styles["Small"]),
-            Paragraph(cover_date, styles["Small"]),
-        ]],
-        colWidths=[110 * mm, 45 * mm],
-        hAlign="LEFT",
-    )
-    cover_footer.setStyle(TableStyle([
-        ("LINEABOVE", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-        ("ALIGN", (0, 0), (0, 0), "LEFT"),
-        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
-    ]))
+    def _agency_box_lines(label: str) -> list[str]:
+        if label == "GO":
+            return [
+                "Ads pot fi rulate",
+                "Rezultatele pot fi interpretate corect",
+                "Performanța slabă NU este cauzată de blocaje structurale evidente în website",
+            ]
+        if label == "GO WITH LIMITATIONS":
+            return [
+                "Ads pot fi rulate, dar cu limitări",
+                "Rezultatele pot fi distorsionate de limitările identificate",
+                "Prioritizați remedierea limitărilor înainte de scalare",
+            ]
+        return [
+            "Nu rulați ads pentru conversie acum",
+            "Remediați blocajele și re-rulați evaluarea",
+            "După remediere, verdictul se poate schimba",
+        ]
 
-    verdict_style = styles["Verdict"] if "Verdict" in styles else styles["H1"]
-    cover_block: list[Flowable] = [
-        Paragraph("<br/>".join(cover_header_lines), styles["Small"]),
-        Spacer(1, 6),
-        Paragraph(verdict_line, verdict_style),
-        Paragraph(verdict_note, styles["Small"]),
-        Spacer(1, 6),
-        Paragraph(verdict_subtitle, styles["Body"]),
+    def _decision_marker(label: str) -> str:
+        color_map = {
+            "GO": "#16a34a",
+            "GO WITH LIMITATIONS": "#ca8a04",
+            "STOP": "#dc2626",
+        }
+        text_map = {
+            "GO": "GO",
+            "GO WITH LIMITATIONS": "GO WITH LIMITATIONS",
+            "STOP": "STOP",
+        }
+        color = color_map.get(label, "#111827")
+        text = text_map.get(label, label)
+        return f'<font color="{color}">●</font> {text}'
+
+    def _scope_lists() -> tuple[list[str], list[str]]:
+        return (
+            [
+                "Un decision gate înainte de ads",
+                "O evaluare a riscului structural pentru conversie",
+                "Un instrument de protecție a bugetului și reputației agenției",
+            ],
+            [
+                "Audit CRO complet",
+                "Strategie UX",
+                "Audit SEO",
+                "Promisiune de rezultate",
+            ],
+        )
+
+    def _sufficient_bullets() -> list[str]:
+        bullets = []
+        if signals.get("contact_detected"):
+            bullets.append("Contact vizibil (date esențiale).")
+        if signals.get("booking_detected"):
+            bullets.append("Mecanism de programare/cerere prezent.")
+        if signals.get("services_keywords_detected"):
+            bullets.append("Servicii/ofertă clar prezentate.")
+        if not bullets:
+            bullets.append("Nu există suficiente elemente clare pentru conversie.")
+        return bullets
+
+    def _limiting_bullets() -> list[str]:
+        items = []
+        if primary_title and primary_title != "N/A":
+            items.append(primary_title)
+        for item in secondary:
+            if len(items) >= 3:
+                break
+            items.append(str(item))
+        return items[:3]
+
+    def _coverage_section() -> list[Flowable]:
+        attempted = crawl_v1.get("playwright_attempted") if isinstance(crawl_v1, dict) else None
+        if isinstance(attempted, bool):
+            render_flag = "da" if attempted else "nu"
+        else:
+            used_playwright = crawl_v1.get("used_playwright") if isinstance(crawl_v1, dict) else None
+            render_flag = "da" if used_playwright else "nu"
+        lines = [
+            f"Pagini descoperite: {discovered}",
+            f"Pagini analizate: {analyzed}",
+            f"Randare avansată: {render_flag}",
+            ("Validitatea verdictului: Verdictul este valabil pentru structura actuală a website-ului și "
+             "paginile analizate la momentul rulării. Modificări majore pot invalida concluziile."),
+        ]
+        body = [Paragraph(line, styles["Body"]) for line in lines]
+        return body
+
+    def _appendix_pages(crawl_pages: list[dict]) -> list[Flowable]:
+        appendix: list[Flowable] = []
+        appendix.append(Paragraph("ANEXĂ – DOVEZI (TRANSPARENȚĂ)", styles["H1"]))
+        appendix.append(Paragraph("Notă: afișare eșantionată pentru concizie.", styles["Small"]))
+        appendix.append(Paragraph(
+            "Această secțiune arată exemple concrete din website care susțin verdictul de mai sus.",
+            styles["Small"],
+        ))
+        appendix.append(Paragraph(
+            "Nu este necesară pentru luarea deciziei.",
+            styles["Small"],
+        ))
+        appendix.append(Spacer(1, 6))
+        max_pages = 25
+        if len(crawl_pages) > max_pages:
+            appendix.append(Spacer(1, 4))
+
+        def _norm_text(text: str) -> str:
+            normalized = unicodedata.normalize("NFKC", str(text or ""))
+            cleaned = "".join(
+                ch for ch in normalized
+                if (ch in ("\n", "\t") or unicodedata.category(ch) != "Cc")
+            )
+            return cleaned.replace("\ufffd", "").replace("\ufffe", "").replace("\uffff", "")
+
+        def _dedupe_segments(text: str) -> str:
+            for sep in ("|", "•", "·", "/", ";", ">"):
+                while sep * 2 in text:
+                    text = text.replace(sep * 2, sep)
+                if sep in text:
+                    parts = [seg.strip() for seg in text.split(sep) if seg.strip()]
+                    seen = set()
+                    unique = []
+                    for part in parts:
+                        if part in seen:
+                            continue
+                        seen.add(part)
+                        unique.append(part)
+                    text = f" {sep} ".join(unique)
+            return text
+
+        def _is_boilerplatey_line(text: str) -> bool:
+            text_l = text.lower()
+            menu_terms = (
+                "acasa", "despre", "servicii", "serviciu", "echipa", "contact", "blog", "programare",
+                "portofoliu", "termeni", "politica", "confidentialitate", "cookie", "tarife", "preturi",
+                "program", "galerie", "produse", "rezervare",
+            )
+            words = [w for w in text_l.split() if w.isalpha()]
+            hits = sum(1 for w in words if w in menu_terms)
+            return len(words) >= 6 and hits >= 3
+
+        def _trim(text: str, max_chars: int) -> str:
+            if len(text) <= max_chars:
+                return text
+            return text[: max_chars - 1] + "…"
+
+        def _clean_snippet(text: str) -> str:
+            s = _norm_text(text)
+            while "Lucian&Partners;Lucian&Partners;" in s:
+                s = s.replace("Lucian&Partners;Lucian&Partners;", "Lucian&Partners;")
+            if "Lucian&Partners;" in s:
+                parts = s.split("Lucian&Partners;")
+                s = "Lucian&Partners;".join([parts[0], *[p for p in parts[1:] if p][:1]])
+            s = " ".join(s.split())
+            s = _dedupe_segments(s)
+            if _is_boilerplatey_line(s):
+                return ""
+            email_tokens = []
+            phone_tokens = []
+            for token in s.split():
+                if "@" in token and "." in token:
+                    email_tokens.append(token)
+                if sum(ch.isdigit() for ch in token) >= 6:
+                    phone_tokens.append(token)
+            no_contact = s
+            for token in email_tokens + phone_tokens:
+                no_contact = no_contact.replace(token, "")
+            no_contact = " ".join(no_contact.split())
+            if no_contact:
+                s = no_contact
+            else:
+                if email_tokens or phone_tokens:
+                    s = " ".join(email_tokens + phone_tokens)
+            return s
+
+        def _pick_label(url_text: str, snippet_texts: list[str]) -> str:
+            url_l = (url_text or "").lower()
+            combined = " ".join([url_l] + [s.lower() for s in snippet_texts])
+            if any(k in combined for k in ("cerere", "oferta", "formular", "programare", "programare", "booking", "rezerv")):
+                return "Mecanism de cerere / programare"
+            if "contact" in combined or "@" in combined:
+                return "Contact prezent"
+            if any(k in url_l for k in ("servicii", "services", "service", "oferta", "offer", "pricing", "tarife", "products", "produse", "product", "shop", "store")):
+                return "Servicii / ofertă descrise"
+            if any(k in url_l for k in ("blog", "articol", "article", "noutati", "news")):
+                return "Conținut informativ relevant"
+            return "Pagină accesibilă și funcțională"
+
+        def _truncate_text(text: str, max_chars: int = 90) -> str:
+            text = _norm_text(text)
+            if len(text) <= max_chars:
+                return text
+            return text[: max_chars - 1] + "…"
+
+        entries = []
+        for page in crawl_pages:
+            if not isinstance(page, dict):
+                continue
+            url_line = _truncate_text(page.get("url", ""), 90)
+            snippets = page.get("snippets") or []
+            snippet_lines = []
+            if isinstance(snippets, list) and snippets:
+                for s in snippets:
+                    s_clean = _clean_snippet(s)
+                    if not s_clean or s_clean in ("•", "-", "—"):
+                        continue
+                    s_stripped = s_clean.lstrip("•-—").strip()
+                    if not s_stripped:
+                        continue
+                    snippet_lines.append(_trim(s_clean, 170))
+                    break
+            label = _pick_label(url_line, snippet_lines)
+            entries.append({
+                "url": url_line or "-",
+                "label": label,
+                "snippet": snippet_lines[0] if snippet_lines else "",
+            })
+
+        priority = {
+            "Mecanism de cerere / programare": 1,
+            "Contact prezent": 2,
+            "Servicii / ofertă descrise": 3,
+            "Conținut informativ relevant": 4,
+            "Pagină accesibilă și funcțională": 5,
+        }
+        buckets = {k: [] for k in priority}
+        for entry in entries:
+            buckets.get(entry["label"], buckets["Pagină accesibilă și funcțională"]).append(entry)
+
+        label5_cap = 4
+        count = 0
+        for label in sorted(priority, key=priority.get):
+            for entry in buckets[label]:
+                if count >= max_pages:
+                    break
+                if label == "Pagină accesibilă și funcțională" and label5_cap <= 0:
+                    continue
+                appendix.append(Paragraph(f"URL: {entry['url']}", styles["Small"]))
+                appendix.append(Spacer(1, 1))
+                appendix.append(Paragraph(f"Dovadă: {entry['label']}", styles["Small"]))
+                appendix.append(Spacer(1, 1))
+                if entry["snippet"]:
+                    appendix.append(Paragraph(f"• \"{entry['snippet']}\"", styles["Small"]))
+                    appendix.append(Spacer(1, 1))
+                appendix.append(Spacer(1, 3))
+                count += 1
+                if label == "Pagină accesibilă și funcțională":
+                    label5_cap -= 1
+        return appendix
+
+    story: list[Flowable] = []
+
+    cover_block = [
+        Paragraph("SCOPE", styles["H1"]),
+        Paragraph("Ads Readiness Decision Report", styles["H2"]),
+        Paragraph("Evaluare deterministă pentru pornirea campaniilor de conversie", styles["Body"]),
         Spacer(1, 8),
-        Paragraph(
-            "<br/>".join([
-                f"Scor claritate conversie: {score} / 100" if lang == "ro" else f"Conversion clarity score: {score} / 100",
-                f"Risc conversie: {risk_label}" if lang == "ro" else f"Conversion risk: {risk_label}",
-            ]),
-            styles["Body"],
-        ),
+        Paragraph(f"Website auditat: {url or '-'}", styles["Body"]),
+        Paragraph(f"Data: {cover_date}", styles["Body"]),
+        Paragraph(f"Tool version: {display_tool_version}", styles["Body"]),
         Spacer(1, 10),
-        cover_meta_table,
-        Spacer(1, 12),
-        Paragraph(labels["cover_executive_summary"], styles["H2"]),
-        Paragraph(summary_html, styles["Body"]),
-        Spacer(1, 8),
-        cover_footer,
+        Paragraph("Client-safe • Determinist • Evidence-based", styles["Small"]),
     ]
-    # Keep the top spacer inside KeepTogether to avoid a blank first page.
-    cover_flowables: list[Flowable] = [Spacer(1, 55 * mm)]
-    cover_flowables.extend(cover_block)
-    story.append(KeepTogether(cover_flowables))
+    story.append(KeepTogether(cover_block))
     story.append(PageBreak())
 
-    client_name = (audit_result.get("client_name") or "").strip()
-    title = labels["title"] + (f" - {client_name}" if client_name else "")
-    story.append(Paragraph(title, styles["H1"]))
+    decision = _decision_label()
+    story.append(Paragraph("ADS DECISION", styles["H1"]))
     story.append(Spacer(1, 6))
-
-    meta = [
-        [labels["date"], labels["date_fmt"]()],
-        [labels["website"], url],
-        [labels["status"], labels["status_map"].get(mode, mode)],
-        [labels["score"], f"{score}/100"],
-    ]
-    meta_table = Table(meta, colWidths=[55 * mm, 117 * mm], hAlign="LEFT")
-    _style_table(meta_table, meta, header=False, zebra=False)
-    story.append(meta_table)
-
-    story.append(Spacer(1, 10))
-    story.append(HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=1, width="100%"))
-    story.append(Spacer(1, 10))
-
-    blockers_title = "Blocaje critice de conversie" if lang == "ro" else "Critical Conversion Blockers"
-    for flow in _section_heading(blockers_title):
-        story.append(flow)
-    if blockers:
-        blockers_html = "<br/>".join([f"• {b}" for b in blockers[:5]])
-        story.append(Paragraph(blockers_html, styles["Body"]))
-    else:
-        no_blockers = (
-            "Nu au fost identificate blocaje critice de conversie."
-            if lang == "ro"
-            else "No critical conversion blockers were identified."
-        )
-        story.append(Paragraph(no_blockers, styles["Body"]))
-    story.append(Spacer(1, 10))
-
-    overview_body: list[Flowable] = [Paragraph("<br/>".join(overview_filtered) if overview_filtered else "N/A", styles["Body"])]
-    if mode == "broken":
-        reason = signals.get("reason", "")
-        label = humanize_fetch_error_label(reason, lang)
-        if label:
-            prefix = "Cauză probabilă: " if lang == "ro" else "Probable cause: "
-            story.append(Spacer(1, 4))
-            overview_body.append(Paragraph(f"{prefix}{label}", styles["Small"]))
-    story.append(_card(labels["overview"], overview_body))
-    story.append(Spacer(1, 12))
-
-    if low_coverage:
-        limits_title = "Limitări ale evaluării" if lang == "ro" else "Evaluation Limitations"
-        limits_body: list[Flowable] = [Paragraph(coverage_warning, styles["Body"])]
-        story.append(_card(limits_title, limits_body))
-        story.append(Spacer(1, 12))
-
-    scope_note = (
-        "This is a decision and prioritization audit based on observable page elements. "
-        "It is not a full UX/CRO strategy, research program, or conversion experiment plan."
-        if lang == "en"
-        else "Acesta este un audit de decizie și prioritizare bazat pe elemente observabile. "
-             "Nu este o strategie completă de UX/CRO, cercetare sau plan de experimente de conversie."
-    )
-    for flow in _section_heading(labels["scope_limits"]):
-        story.append(flow)
-    story.append(Paragraph(scope_note, styles["Body"]))
-    story.append(Spacer(1, 10))
-
-    p_impact = primary.get("impact", "")
-    primary_lines = []
-    if p_title:
-        primary_lines.append(f"<b>{p_title}</b>")
-    if p_impact:
-        impact_text = str(p_impact)
-        if "%" in impact_text or "Impact estimat" in impact_text or "Estimated impact" in impact_text:
-            impact_text = _impact_label(score, lang)
-        primary_lines.append(impact_text)
-    primary_body: list[Flowable] = [Paragraph("<br/>".join(primary_lines) if primary_lines else "N/A", styles["Body"])]
-    if evidence_items and not low_coverage:
-        evidence_title = "Dovezi (multi-page)" if lang == "ro" else "Evidence (multi-page)"
-        bullets = []
-        for item in evidence_items[:4]:
-            bullets.append(f'• URL: {item["url"]}<br/>Snippet: "{item["snippet"]}"')
-        primary_body.append(Spacer(1, 4))
-        primary_body.append(Paragraph(evidence_title, styles["Small"]))
-        primary_body.append(Paragraph("<br/>".join(bullets), styles["Body"]))
-    primary_label = "Problemă principală de optimizare" if lang == "ro" else "Primary Optimization Issue"
-    primary_block: list[Flowable] = [_card(primary_label, primary_body), Spacer(1, 12)]
-
-    if secondary:
-        for flow in _section_heading(labels["secondary"]):
-            story.append(flow)
-        sec_html = "<br/>".join([f"• {s}" for s in secondary])
-        story.append(Paragraph(sec_html, styles["Body"]))
-        story.append(Spacer(1, 10))
-
-    plan_html = "<br/>".join([f"• {s}" for s in plan]) if plan else "N/A"
-    plan_body: list[Flowable] = [Paragraph(plan_html, styles["Body"])]
-    plan_block: list[Flowable] = [_card(labels["plan"], plan_body), Spacer(1, 12)]
-    story.append(KeepTogether(primary_block + plan_block))
-
-    if confidence_display:
-        conf_block: list[Flowable] = []
-        for flow in _section_heading(labels["confidence"]):
-            conf_block.append(flow)
-        conf_note = (
-            "Refers to confidence in the assessment and impact estimate, not brand trust."
-            if lang == "en"
-            else "Se referă la certitudinea evaluării și impactului estimat, nu la încrederea în brand."
-        )
-        conf_block.append(Paragraph(conf_note, styles["Small"]))
-        conf_block.append(Paragraph(confidence_display, styles["Body"]))
-        conf_block.append(Spacer(1, 10))
-        story.append(CondPageBreak(80 * mm))
-        story.append(KeepTogether(conf_block))
-
-    quickwins_body: list[Flowable] = []
-    if lang == "ro":
-        quickwins_body.append(Paragraph("Aceste îmbunătățiri pot fi implementate rapid, fără redesign complet.", styles["Small"]))
-        quickwins_body.append(Spacer(1, 4))
-    wins = quick_wins_ro(mode, signals) if lang == "ro" else quick_wins_en(mode, signals)
-    if no_major_issues:
-        wins = [
-            "Clarificați CTA-ul principal: un singur mesaj dominant, vizibil imediat.",
-            "Reduceți fricțiunea pe mobil: spații, butoane, viteză și formular simplu.",
-            "Adăugați elemente de încredere lângă CTA: recenzii, certificări, rezultate."
-        ] if lang == "ro" else [
-            "Clarify the primary CTA: one dominant message, visible immediately.",
-            "Reduce mobile friction: spacing, button size, speed, and a short form.",
-            "Add trust elements near the CTA: reviews, certifications, outcomes."
-        ]
-    wins_html = "<br/>".join([f"• {w}" for w in wins]) if wins else "N/A"
-    quickwins_body.append(Paragraph(wins_html, styles["Body"]))
-    if evidence_items and not low_coverage:
-        evidence_title = "Dovezi (multi-page)" if lang == "ro" else "Evidence (multi-page)"
-        bullets = []
-        for item in evidence_items[:4]:
-            bullets.append(f'• URL: {item["url"]}<br/>Snippet: "{item["snippet"]}"')
-        quickwins_body.append(Spacer(1, 4))
-        quickwins_body.append(Paragraph(evidence_title, styles["Small"]))
-        quickwins_body.append(Paragraph("<br/>".join(bullets), styles["Body"]))
-    story.append(_card(labels["quickwins"], quickwins_body))
-    story.append(Spacer(1, 12))
-
-    ai_advisory = audit_result.get("ai_advisory") or {}
-    if isinstance(ai_advisory, dict) and ai_advisory:
-        ai_status = (ai_advisory.get("ai_status") or "").strip()
-        if ai_status == "fallback" and no_major_issues:
-            pass
-        elif ai_status in ("ok", "fallback"):
-            for flow in _section_heading(labels["ai_advisory"]):
-                story.append(flow)
-            story.append(Paragraph(f"<b>{labels['ai_status']}:</b> {ai_status}", styles["Body"]))
-            if ai_status == "fallback":
-                story.append(Paragraph(labels["ai_fallback_note"], styles["Body"]))
-            summary = ai_advisory.get("executive_summary") or ""
-            if summary:
-                story.append(Paragraph(f"<b>{labels['ai_summary']}:</b> {summary}", styles["Body"]))
-
-            priorities = ai_advisory.get("priorities") or []
-            if isinstance(priorities, list) and priorities:
-                story.append(Spacer(1, 6))
-                for flow in _section_heading(labels["ai_priorities"]):
-                    story.append(flow)
-
-                findings_by_id = {f.get("id"): f for f in findings if f.get("id")}
-                level_labels = labels["ai_levels"]
-                for group in priorities:
-                    if not isinstance(group, dict):
-                        continue
-                    level = group.get("level")
-                    ids = group.get("finding_ids") or []
-                    if level not in level_labels or not isinstance(ids, list):
-                        continue
-                    items = []
-                    for fid in ids:
-                        f = findings_by_id.get(fid)
-                        if not f:
-                            continue
-                        title = f.get("title_ro") if lang == "ro" else f.get("title_en")
-                        if title:
-                            items.append(f"• {title}")
-                    if items:
-                        story.append(Paragraph(level_labels[level], styles["Body"]))
-                        story.append(Paragraph("<br/>".join(items), styles["Body"]))
-                        story.append(Spacer(1, 4))
-
-            disclaimer = ai_advisory.get("disclaimer") or labels["ai_disclaimer"]
-            if disclaimer:
-                story.append(Paragraph(disclaimer, styles["Small"]))
-            story.append(Spacer(1, 10))
-
-    if mode == "ok":
-        rows = [
-            [labels["booking"], labels["yes"] if signals.get("booking_detected") else labels["no"]],
-            [labels["contact"], labels["yes"] if signals.get("contact_detected") else labels["no"]],
-            [labels["services"], labels["yes"] if signals.get("services_keywords_detected") else labels["no"]],
-            [labels["pricing"], labels["yes"] if signals.get("pricing_keywords_detected") else labels["no"]],
-        ]
-        checks = Table(rows, colWidths=[80 * mm, 92 * mm], hAlign="LEFT")
-        _style_table(checks, rows, header=False, zebra=False)
-        checks_block: list[Flowable] = []
-        checks_block.extend(_section_heading(labels["checks"]))
-        checks_block.append(checks)
-        story.append(KeepTogether(checks_block))
-
-        social_findings = [f for f in findings if (f or {}).get("category") == "social"]
-        story.append(Spacer(1, 10))
-        social_block: list[Flowable] = []
-        if social_findings:
-            rows = [[labels["severity"], labels["finding_col"], labels["recommendation_col"]]]
-            for f in social_findings:
-                sev = (f.get("severity") or "").capitalize()
-                title = f.get("title_ro") if lang == "ro" else f.get("title_en")
-                rec = f.get("recommendation_ro") if lang == "ro" else f.get("recommendation_en")
-                if isinstance(title, str):
-                    title = title.replace("Twitter/X", "Twitter")
-                if isinstance(rec, str):
-                    rec = rec.replace("Twitter/X", "Twitter")
-
-                rows.append([
-                    Paragraph(sev, styles["Meta"]),
-                    Paragraph(title or "", styles["Body"]),
-                    Paragraph(rec or "", styles["Body"]),
-                ])
-
-            tbl = Table(rows, colWidths=[26 * mm, 76 * mm, 72 * mm], hAlign="LEFT")
-            _style_table(tbl, rows, header=True, zebra=True)
-            social_block.extend(_section_heading(labels["social_findings"]))
-            social_block.append(tbl)
-        else:
-            note = (
-                "Nu au fost detectate semnale sociale clare."
-                if lang == "ro"
-                else "No clear social signals were detected."
-            )
-            social_block.extend(_section_heading(labels["social_findings"]))
-            social_block.append(Paragraph(note, styles["Body"]))
-        story.append(KeepTogether(social_block))
-
-        share_meta_findings = [f for f in findings if (f or {}).get("category") == "share_meta"]
-        if share_meta_findings:
-            story.append(Spacer(1, 10))
-            rows = [[labels["severity"], labels["finding_col"], labels["recommendation_col"]]]
-            for f in share_meta_findings:
-                sev = (f.get("severity") or "").capitalize()
-                title = f.get("title_ro") if lang == "ro" else f.get("title_en")
-                rec = f.get("recommendation_ro") if lang == "ro" else f.get("recommendation_en")
-                if isinstance(title, str):
-                    title = title.replace("Twitter/X", "Twitter")
-                if isinstance(rec, str):
-                    rec = rec.replace("Twitter/X", "Twitter")
-
-                rows.append([
-                    Paragraph(sev, styles["Meta"]),
-                    Paragraph(title or "", styles["Body"]),
-                    Paragraph(rec or "", styles["Body"]),
-                ])
-
-            tbl = Table(rows, colWidths=[26 * mm, 76 * mm, 72 * mm], hAlign="LEFT")
-            _style_table(tbl, rows, header=True, zebra=True)
-            share_meta_block: list[Flowable] = []
-            share_meta_block.extend(_section_heading(labels["share_meta_findings"]))
-            share_meta_block.append(tbl)
-            story.append(KeepTogether(share_meta_block))
-
-        index_findings = [f for f in findings if (f or {}).get("category") == "indexability_technical_access"]
-        story.append(Spacer(1, 10))
-        if lang == "ro":
-            story.append(Paragraph(
-                "Următoarele verificări susțin stabilitatea și accesibilitatea website-ului, dar nu reprezintă probleme directe de conversie.",
-                styles["Small"],
-            ))
-        index_block = _section_heading(labels["indexability_findings"])
-        if overview_technical:
-            tech_html = "<br/>".join([f"• {s}" for s in overview_technical])
-            index_block.append(Paragraph(tech_html, styles["Body"]))
-            index_block.append(Spacer(1, 6))
-        if not index_findings:
-            no_issues = (
-                "No issues detected in this section based on the checks performed."
-                if lang != "ro"
-                else "Nu au fost detectate probleme în această secțiune pe baza verificărilor efectuate."
-            )
-            index_block.append(Paragraph(no_issues, styles["Body"]))
-        else:
-            rows = [[labels["severity"], labels["finding_col"], labels["recommendation_col"]]]
-            for f in index_findings:
-                sev = (f.get("severity") or "").capitalize()
-                title = f.get("title_ro") if lang == "ro" else f.get("title_en")
-                rec = f.get("recommendation_ro") if lang == "ro" else f.get("recommendation_en")
-
-                rows.append([
-                    Paragraph(sev, styles["Meta"]),
-                    Paragraph(title or "", styles["Body"]),
-                    Paragraph(rec or "", styles["Body"]),
-                ])
-
-            tbl = Table(rows, colWidths=[26 * mm, 76 * mm, 72 * mm], hAlign="LEFT")
-            _style_table(tbl, rows, header=True, zebra=True)
-            index_block.append(tbl)
-        story.append(KeepTogether(index_block))
-
-    conv_findings = [f for f in findings if (f or {}).get("category") == "conversion_loss"]
-    if conv_findings:
-        story.append(Spacer(1, 10))
-        def pct_range(ev: dict) -> str:
-            try:
-                lo = float(ev.get("impact_pct_low", 0) or 0)
-                hi = float(ev.get("impact_pct_high", 0) or 0)
-                return f"{round(lo*100)}%–{round(hi*100)}%"
-            except Exception:
-                return ""
-
-        impact_note = (
-            "Estimările sunt orientative și reflectă intervale de impact observate frecvent atunci când elemente similare "
-            "lipsesc sau sunt optimizate în site-uri comerciale comparabile. Nu reprezintă o predicție bazată pe datele "
-            "interne ale business-ului."
-        )
-
-        rows = [[labels["severity"], labels["finding_col"], labels["estimate_col"], labels["confidence_col"]]]
-        for f in conv_findings:
-            sev = (f.get("severity") or "").capitalize()
-            title = f.get("title_ro") if lang == "ro" else f.get("title_en")
-            ev = f.get("evidence", {}) or {}
-            est = pct_range(ev)
-            conf = ev.get("confidence") or ""
-            if lang == "ro" and conf == "High" and est == "0%–0%" and isinstance(title, str) and "Nu am detectat probleme majore" in title:
-                conf = "Scăzută"
-            rows.append([
-                Paragraph(sev, styles["Meta"]),
-                Paragraph(title or "", styles["Body"]),
-                Paragraph(est, styles["Body"]),
-                Paragraph(str(conf), styles["Body"]),
-            ])
-
-        tbl = Table(rows, colWidths=[24 * mm, 76 * mm, 32 * mm, 42 * mm], hAlign="LEFT")
-        _style_table(tbl, rows, header=True, zebra=True)
-        conv_block = _section_heading(labels["conversion_loss_findings"])
-        if lang == "ro":
-            conv_block.append(Paragraph(impact_note, styles["Small"]))
-        conv_block.append(tbl)
-        story.append(KeepTogether(conv_block))
-
-    if mode == "broken":
-        reason = signals.get("reason", "")
-        if reason:
-            story.append(Spacer(1, 10))
-            for flow in _section_heading(labels["error_details"]):
-                story.append(flow)
-            safe_reason = (
-                "Website-ul nu a putut fi accesat în timpul auditului. Detaliile tehnice sunt disponibile la cerere."
-                if lang == "ro"
-                else "The website could not be accessed during the audit. Technical details are available on request."
-            )
-            story.append(Paragraph(safe_reason, styles["Body"]))
-
-    story.append(Spacer(1, 12))
-    story.append(HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=1, width="100%"))
-
-    story.append(Spacer(1, 10))
-    next_steps_block: list[Flowable] = [
-        Paragraph("Next steps" if lang == "en" else "Pașii următori", styles["CardTitle"]),
-        HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=0.6, width="100%"),
-        Spacer(1, 4),
-    ]
-    primary_action = p_title if isinstance(p_title, str) and p_title.strip() else ""
-    if not primary_action:
-        primary_action = (
-            "address the primary issue highlighted in this report"
-            if lang == "en"
-            else "rezolvați problema principală evidențiată în acest raport"
-        )
-    action_prefix = "If you do one thing now:" if lang == "en" else "Dacă faceți un singur lucru acum:"
-    action_line = f"{action_prefix} {primary_action}"
-    if lang == "ro" and no_major_issues:
-        action_line = "Dacă faceți un singur lucru acum: Mențineți structura actuală și validați performanța prin introducerea controlată de trafic."
-    if lang == "en" and no_major_issues:
-        action_line = "If you do one thing now: Keep the current structure and validate performance by introducing paid traffic in a controlled way."
-    if not action_line.endswith("."):
-        action_line += "."
-    next_steps_block.append(Paragraph(action_line, styles["Body"]))
-
-    if lang == "en":
-        cta_text = (
-            "If you want support implementing these improvements, this audit can be used as a clear roadmap.<br/>"
-            "We would address the primary issue first, then the remaining items that directly affect inquiries and bookings."
-        )
-    else:
-        cta_text = (
-            "Dacă doriți sprijin pentru implementarea acestor îmbunătățiri, acest audit poate fi folosit ca un plan clar de lucru.<br/>"
-            "Am aborda mai întâi problema principală, apoi punctele rămase care influențează direct cererile și programările."
-        )
-
-    next_steps_block.append(Paragraph(cta_text, styles["Body"]))
-    if low_coverage:
-        next_steps_block.append(Spacer(1, 6))
-        next_steps_block.append(Paragraph(coverage_recommendation, styles["Body"]))
-    scope_note = (
-        "This evaluation is based on pages accessible at run time (homepage + a deterministic set of internal pages)."
-        if lang == "en"
-        else "Această evaluare se bazează pe paginile accesibile la momentul rulării (homepage + un set determinist de pagini interne)."
-    )
-    if crawl_v1:
-        scope_note += (
-            f" Pages discovered: {discovered}. Pages analyzed: {analyzed}."
-            if lang == "en"
-            else f" Pagini descoperite: {discovered}. Pagini analizate: {analyzed}."
-        )
-    if scope_note:
-        next_steps_block.append(Spacer(1, 8))
-        next_steps_block.append(Paragraph(scope_note, styles["Small"]))
-    next_steps_card = Table([[next_steps_block]], colWidths=[160 * mm])
-    next_steps_card.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f9fafb")),
-        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#e5e7eb")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-        ("TOPPADDING", (0, 0), (-1, -1), 10),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    story.append(Paragraph(_decision_marker(decision), styles["H2"]))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph(_decision_sentence(decision), styles["Body"]))
+    story.append(Spacer(1, 8))
+    story.append(_card("Ce înseamnă asta pentru agenție", [
+        Paragraph("<br/>".join([f"• {s}" for s in _agency_box_lines(decision)]), styles["Body"])
     ]))
-    story.append(KeepTogether([next_steps_card]))
+    story.append(Spacer(1, 12))
+
+    story.append(Paragraph("SCOP & LIMITĂRI", styles["H1"]))
+    story.append(Spacer(1, 6))
+    yes_list, no_list = _scope_lists()
+    story.append(Paragraph("Ce este acest document", styles["H2"]))
+    story.append(Paragraph("<br/>".join([f"• {s}" for s in yes_list]), styles["Body"]))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph("Ce NU este acest document", styles["H2"]))
+    story.append(Paragraph("<br/>".join([f"• {s}" for s in no_list]), styles["Body"]))
+    story.append(Spacer(1, 12))
+
+    story.append(Paragraph("MOTIVAREA DECIZIEI", styles["H1"]))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph("Ce este suficient pentru ads", styles["H2"]))
+    story.append(Paragraph("<br/>".join([f"• {s}" for s in _sufficient_bullets()]), styles["Body"]))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph("Ce limitează conversia (fără să o invalideze)", styles["H2"]))
+    story.append(Paragraph("Nu au fost identificate limitări structurale evidente.", styles["Body"]))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph("Ce NU blochează decizia", styles["H2"]))
+    story.append(Paragraph("<br/>".join([
+        "• Branding",
+        "• SEO",
+        "• Fine-tuning de copy",
+        "• Lipsa experimentelor CRO",
+    ]), styles["Body"]))
+    story.append(Spacer(1, 12))
+
+    story.append(Paragraph("IMPLICAȚII DIRECTE PENTRU ADS", styles["H1"]))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph("Ce poți face ACUM", styles["H2"]))
+    story.append(Paragraph("<br/>".join([
+        "• Rula campanii de validare",
+        "• Testa ofertă, mesaje și audiențe",
+        "• Măsura conversii primare (lead / contact)",
+    ]), styles["Body"]))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph("Ce NU poți concluziona corect", styles["H2"]))
+    story.append(Paragraph("<br/>".join([
+        "• Rata maximă posibilă de conversie",
+        "• Impactul optimizărilor fine de UX",
+        "• Performanță long-term fără iterații",
+    ]), styles["Body"]))
+    story.append(Spacer(1, 12))
+
+    story.append(Paragraph("NEXT STEPS", styles["H1"]))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph("1. Rulați ads cu buget controlat pentru validare", styles["Body"]))
+    story.append(Paragraph("2. Observați comportamentul de conversie", styles["Body"]))
+    story.append(Paragraph("3. Dacă performanța este sub așteptări, optimizați CTA și elementele de încredere", styles["Body"]))
+    story.append(Spacer(1, 10))
+
+    story.append(Paragraph("COVERAGE & VALIDITATEA DECIZIEI", styles["H1"]))
+    story.append(Spacer(1, 6))
+    story.extend(_coverage_section())
+    story.append(Spacer(1, 12))
 
     evidence_pack = audit_result.get("evidence_pack") or {}
-    if isinstance(evidence_pack, dict):
-        crawl_meta = evidence_pack.get("crawl_meta") or {}
-        crawl_pages = evidence_pack.get("crawl_pages") or []
-        if isinstance(crawl_pages, list) and (crawl_pages or crawl_meta):
-            evidence_title = "Evidence Pack" if lang == "en" else "Pachet de dovezi"
-            summary_title = "Evidence Pack Summary" if lang == "en" else "Sumar pachet dovezi"
-            story.append(CondPageBreak(80 * mm))
-            for flow in _section_heading(evidence_title):
-                story.append(flow)
-
-            meta_parts = []
-            if isinstance(crawl_meta, dict):
-                discovered_count = crawl_meta.get("discovered_count") or 0
-                analyzed_count = crawl_meta.get("analyzed_count") or 0
-                attempted = crawl_meta.get("playwright_attempted")
-                if not isinstance(attempted, bool):
-                    attempted = None
-                used = crawl_meta.get("used_playwright")
-                if not isinstance(used, bool):
-                    used = None
-                attempted_b = attempted is True
-                used_b = used is True
-
-                def _coverage_label(count: int) -> str:
-                    if count <= 2:
-                        return "foarte limitată" if lang == "ro" else "very limited"
-                    if count <= 9:
-                        return "limitata" if lang == "ro" else "limited"
-                    return "bună" if lang == "ro" else "good"
-
-                def _playwright_text(attempted_value: bool, used_value: bool) -> str:
-                    if not attempted_value:
-                        return (
-                            "Randare avansată: nu a fost rulată"
-                            if lang == "ro"
-                            else "Advanced rendering: not run"
-                        )
-                    if used_value:
-                        return (
-                            "Randare avansată: rulată, a adăugat pagini noi relevante"
-                            if lang == "ro"
-                            else "Advanced rendering: ran, added relevant new pages"
-                        )
-                    return (
-                        "Randare avansată: rulată, nu a identificat pagini suplimentare relevante"
-                        if lang == "ro"
-                        else "Advanced rendering: ran, found no additional relevant pages"
-                    )
-
-                def _implication_text(count: int) -> str:
-                    if count < 10:
-                        return (
-                            "Implicație: vizibilitatea limitată pentru sisteme automate poate crește riscul înainte de Ads/tracking."
-                            if lang == "ro"
-                            else "Implication: limited visibility for automated systems may raise risk before Ads/tracking."
-                        )
-                    return (
-                        "Implicație: acoperire suficientă pentru evaluare multi-page."
-                        if lang == "ro"
-                        else "Implication: sufficient coverage for multi-page evaluation."
-                    )
-
-                coverage_label = _coverage_label(int(analyzed_count))
-                playwright_text = _playwright_text(attempted_b, used_b)
-                implication_text = _implication_text(int(analyzed_count))
-
-                summary_body: list[Flowable] = [
-                    Paragraph(f"{'Acoperire evaluare' if lang == 'ro' else 'Coverage'}: {coverage_label}", styles["Small"]),
-                ]
-                if discovered_count is not None and analyzed_count is not None:
-                    summary_body.append(Paragraph(
-                        f"{'Pagini' if lang == 'ro' else 'Pages'}: "
-                        f"{'analizate' if lang == 'ro' else 'analyzed'} {analyzed_count} / "
-                        f"{'descoperite' if lang == 'ro' else 'discovered'} {discovered_count}",
-                        styles["Small"],
-                    ))
-                summary_body.append(Paragraph(playwright_text, styles["Small"]))
-                summary_body.append(Paragraph(implication_text, styles["Small"]))
-
-                yes_no = ("da" if lang == "ro" else "yes")
-                no_val = ("nu" if lang == "ro" else "no")
-                details_label = "Detalii tehnice" if lang == "ro" else "Technical details"
-                details_parts = [
-                    f"discovered={discovered_count}",
-                    f"analyzed={analyzed_count}",
-                ]
-                if attempted is not None:
-                    label = "playwright_rulat" if lang == "ro" else "playwright_ran"
-                    details_parts.append(f"{label}={(yes_no if attempted_b else no_val)}")
-                if used is not None:
-                    label = "pagini_noi" if lang == "ro" else "new_pages"
-                    details_parts.append(f"{label}={(yes_no if used_b else no_val)}")
-                details_line = f"{details_label}: " + " • ".join(details_parts)
-                summary_body.append(Paragraph(details_line, styles["Meta"]))
-
-                story.append(_card(summary_title, summary_body))
-                story.append(Spacer(1, 6))
-
-            def _truncate_text(text: str, max_chars: int = 90) -> str:
-                text = str(text or "")
-                if len(text) <= max_chars:
-                    return text
-                return text[: max_chars - 1] + "…"
-
-            for page in crawl_pages:
-                if not isinstance(page, dict):
-                    continue
-                url = _truncate_text(page.get("url", ""), 90)
-                status = str(page.get("status") or "")
-                title = _truncate_text(page.get("title", ""), 90)
-                row = [[
-                    Paragraph(url or "-", styles["Small"]),
-                    Paragraph(status or "-", styles["Small"]),
-                    Paragraph(title or "-", styles["Small"]),
-                ]]
-                tbl = Table(row, colWidths=[90 * mm, 18 * mm, 62 * mm], hAlign="LEFT")
-                tbl.setStyle(TableStyle([
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                    ("TOPPADDING", (0, 0), (-1, -1), 0),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                ]))
-                story.append(tbl)
-
-                snippets = page.get("snippets") or []
-                if isinstance(snippets, list) and snippets:
-                    snippet_lines = []
-                    for s in snippets:
-                        s_clean = str(s).strip()
-                        if not s_clean or s_clean in ("•", "-", "—"):
-                            continue
-                        s_stripped = s_clean.lstrip("•-—").strip()
-                        if not s_stripped:
-                            continue
-                        snippet_lines.append(s_clean)
-                    if snippet_lines:
-                        for line in snippet_lines:
-                            story.append(Paragraph(f"• {line}", styles["Small"]))
-                        story.append(Spacer(1, 2))
-                story.append(Spacer(1, 6))
+    crawl_pages = evidence_pack.get("crawl_pages") if isinstance(evidence_pack, dict) else []
+    if isinstance(crawl_pages, list) and crawl_pages:
+        story.append(PageBreak())
+        story.extend(_appendix_pages(crawl_pages))
 
     story.append(Spacer(1, 6))
-    story.append(Paragraph(f"Tool version: {display_tool_version}", styles["Small"]))
-    story.append(Paragraph(labels["note"], styles["Small"]))
-
-    if mode == "broken":
-        story.append(PageBreak())
-        if lang == "ro":
-            story.append(Paragraph("Clarificare: rezultat BROKEN", styles["H1"]))
-            story.append(Spacer(1, 10))
-            options = [
-                "BROKEN nu înseamnă că site-ul e stricat; înseamnă că verificarea automată nu a fost completă sau reproductibilă.",
-                "Poate apărea dacă site-ul blochează accesul automat (WAF/anti-bot/rate limit).",
-                "Ce poți face: (1) păstrezi raportul ca semnal valid, (2) permiți temporar acces pentru verificare și rerulăm.",
-            ]
-            story.append(ListFlowable(
-                [Paragraph(item, styles["Body"]) for item in options],
-                bulletType="bullet",
-                leftIndent=12,
-            ))
-            story.append(Spacer(1, 6))
-            story.append(Paragraph("Rezultat BROKEN este o constatare validă, nu o eroare de livrare.", styles["Small"]))
-        else:
-            story.append(Paragraph("Clarification: BROKEN result", styles["H1"]))
-            story.append(Spacer(1, 10))
-            options = [
-                "BROKEN does not mean the site is broken; it means the automated check was not complete or reproducible.",
-                "It can happen if the site blocks automated access (WAF/anti-bot/rate limit).",
-                "What you can do: (1) keep the report as a valid signal, (2) allow temporary access and rerun.",
-            ]
-            story.append(ListFlowable(
-                [Paragraph(item, styles["Body"]) for item in options],
-                bulletType="bullet",
-                leftIndent=12,
-            ))
-            story.append(Spacer(1, 6))
-            story.append(Paragraph("A BROKEN result is a valid finding, not a delivery error.", styles["Small"]))
-
-    # Removed recommended next steps block to prevent duplicate sections.
-
     def _audited_domain(raw_url: str) -> str:
         try:
             parsed = urlparse(raw_url)
@@ -1524,7 +1118,6 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         canvas.setStrokeColor(colors.HexColor("#e5e7eb"))
         canvas.setLineWidth(0.5)
         canvas.line(left, footer_y + 4 * mm, right, footer_y + 4 * mm)
-        canvas.drawString(left, footer_y, f"Deterministic Website Audit • {display_tool_version}")
         canvas.drawRightString(right, footer_y, f"Pagina {canvas.getPageNumber()}")
         canvas.restoreState()
 
