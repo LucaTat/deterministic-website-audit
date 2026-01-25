@@ -81,6 +81,11 @@ ZIP_PATH="deliverables/out/${CAMPAIGN}.zip"
 mkdir -p "${OUT_DIR}"
 echo "== Running audit (RO) =="
 RUN_LOG="${OUT_DIR}/run.log"
+SKIP_DECISION_BRIEF=0
+if [[ "${SCOPE_SKIP_DECISION_BRIEF:-0}" == "1" ]]; then
+  SKIP_DECISION_BRIEF=1
+  echo "Decision Brief: skipped (SCOPE_SKIP_DECISION_BRIEF=1)"
+fi
 
 # Output live + log, fără să omoare scriptul din cauza pipefail
 set +e
@@ -138,21 +143,22 @@ while IFS= read -r pdf_out; do
 done < <(find "${OUT_DIR}" -maxdepth 1 -type f -name "Website Audit - * - RO.pdf" -print0 2>/dev/null | LC_ALL=C sort -z | tr '\0' '\n')
 
 # Generate Decision Brief TXT/PDF per domain (optional)
-for DOMAIN_LABEL in "${SORTED_DOMAINS[@]}"; do
-  DECISION_BRIEF_TXT="${OUT_DIR}/Decision Brief - ${DOMAIN_LABEL} - RO.txt"
-  JSON_PATH=""
-  while read -r PDF_PATH; do
-    if [[ ! -f "${PDF_PATH}" ]]; then
-      continue
-    fi
-    CLIENT_DIR="$(basename "$(dirname "$(dirname "${PDF_PATH}")")")"
-    DOMAIN_FROM_PATH="$(echo "${CLIENT_DIR}" | tr '_' '.' )"
-    if [[ "${DOMAIN_FROM_PATH}" == "${DOMAIN_LABEL}" ]]; then
-      JSON_PATH="$(dirname "${PDF_PATH}")/audit_ro.json"
-      break
-    fi
-  done < "${LIST_FILE}"
-  if "${PYTHON_BIN}" - <<'PY' "${JSON_PATH}" "${DECISION_BRIEF_TXT}" "${CAMPAIGN}" >/dev/null 2>&1; then
+if [[ "${SKIP_DECISION_BRIEF}" -ne 1 ]]; then
+  for DOMAIN_LABEL in "${SORTED_DOMAINS[@]}"; do
+    DECISION_BRIEF_TXT="${OUT_DIR}/Decision Brief - ${DOMAIN_LABEL} - RO.txt"
+    JSON_PATH=""
+    while read -r PDF_PATH; do
+      if [[ ! -f "${PDF_PATH}" ]]; then
+        continue
+      fi
+      CLIENT_DIR="$(basename "$(dirname "$(dirname "${PDF_PATH}")")")"
+      DOMAIN_FROM_PATH="$(echo "${CLIENT_DIR}" | tr '_' '.' )"
+      if [[ "${DOMAIN_FROM_PATH}" == "${DOMAIN_LABEL}" ]]; then
+        JSON_PATH="$(dirname "${PDF_PATH}")/audit_ro.json"
+        break
+      fi
+    done < "${LIST_FILE}"
+    if "${PYTHON_BIN}" - <<'PY' "${JSON_PATH}" "${DECISION_BRIEF_TXT}" "${CAMPAIGN}" >/dev/null 2>&1; then
 import json
 import os
 import sys
@@ -173,13 +179,13 @@ audit_result["lang"] = "ro"
 
 generate_decision_brief_txt(audit_result, "ro", out_path)
 PY
-    echo "Added TXT: ${DECISION_BRIEF_TXT}"
-  else
-    echo "WARN: Failed to generate ${DECISION_BRIEF_TXT}"
-  fi
+      echo "Added TXT: ${DECISION_BRIEF_TXT}"
+    else
+      echo "WARN: Failed to generate ${DECISION_BRIEF_TXT}"
+    fi
 
-  DECISION_PDF="${OUT_DIR}/Decision Brief - ${DOMAIN_LABEL} - RO.pdf"
-  if "${PYTHON_BIN}" - <<'PY' "${JSON_PATH}" "${DECISION_PDF}" "${CAMPAIGN}" >/dev/null 2>&1; then
+    DECISION_PDF="${OUT_DIR}/Decision Brief - ${DOMAIN_LABEL} - RO.pdf"
+    if "${PYTHON_BIN}" - <<'PY' "${JSON_PATH}" "${DECISION_PDF}" "${CAMPAIGN}" >/dev/null 2>&1; then
 import json
 import os
 import sys
@@ -200,11 +206,12 @@ audit_result["lang"] = "ro"
 
 generate_decision_brief_pdf(audit_result, "ro", out_path)
 PY
-    echo "Added PDF: ${DECISION_PDF}"
-  else
-    echo "WARN: Failed to generate ${DECISION_PDF}"
-  fi
-done
+      echo "Added PDF: ${DECISION_PDF}"
+    else
+      echo "WARN: Failed to generate ${DECISION_PDF}"
+    fi
+  done
+fi
 
 # Add client README
 README_CLIENT="${OUT_DIR}/README - RO.txt"
@@ -229,11 +236,16 @@ for DOMAIN_LABEL in "${SORTED_DOMAINS[@]}"; do
   DECISION_PDF="${OUT_DIR}/Decision Brief - ${DOMAIN_LABEL} - RO.pdf"
   WEBSITE_PDF="${OUT_DIR}/Website Audit - ${DOMAIN_LABEL} - RO.pdf"
   DECISION_BRIEF_TXT="${OUT_DIR}/Decision Brief - ${DOMAIN_LABEL} - RO.txt"
-  for file_path in "${DECISION_PDF}" "${WEBSITE_PDF}" "${DECISION_BRIEF_TXT}"; do
-    if [[ -f "${file_path}" ]]; then
-      echo "${file_path}" >> "${ZIP_LIST}"
-    fi
-  done
+  if [[ -f "${WEBSITE_PDF}" ]]; then
+    echo "${WEBSITE_PDF}" >> "${ZIP_LIST}"
+  fi
+  if [[ "${SKIP_DECISION_BRIEF}" -ne 1 ]]; then
+    for file_path in "${DECISION_PDF}" "${DECISION_BRIEF_TXT}"; do
+      if [[ -f "${file_path}" ]]; then
+        echo "${file_path}" >> "${ZIP_LIST}"
+      fi
+    done
+  fi
 done
 if [[ -f "${README_CLIENT}" ]]; then
   echo "${README_CLIENT}" >> "${ZIP_LIST}"
@@ -281,8 +293,13 @@ if [[ "${CLEANUP}" -eq 1 ]]; then
   mkdir -p "${ARCHIVE_DIR}"
   ARCHIVE_ZIP_NAME="${BASE_CAMPAIGN}_ro.zip"
   cp -f "${ZIP_PATH}" "${ARCHIVE_DIR}/${ARCHIVE_ZIP_NAME}"
-  find "${OUT_DIR}" -maxdepth 1 -type f \( -name "*.pdf" -o -name "Decision Brief - * - RO.txt" -o -name "README - RO.txt" \) -print0 | \
-    xargs -0 -I{} cp -f "{}" "${ARCHIVE_DIR}/"
+  if [[ "${SKIP_DECISION_BRIEF}" -ne 1 ]]; then
+    find "${OUT_DIR}" -maxdepth 1 -type f \( -name "*.pdf" -o -name "Decision Brief - * - RO.txt" -o -name "README - RO.txt" \) -print0 | \
+      xargs -0 -I{} cp -f "{}" "${ARCHIVE_DIR}/"
+  else
+    find "${OUT_DIR}" -maxdepth 1 -type f \( -name "Website Audit - * - RO.pdf" -o -name "README - RO.txt" \) -print0 | \
+      xargs -0 -I{} cp -f "{}" "${ARCHIVE_DIR}/"
+  fi
   TARGETS_ABS="$(cd "$(dirname "${TARGETS_FILE}")" && pwd)/$(basename "${TARGETS_FILE}")"
   DELIVERABLES_ABS="$(cd "${REPO_ROOT}/deliverables" && pwd)"
   if [[ -f "${TARGETS_FILE}" && "${TARGETS_FILE}" == *.txt && "${TARGETS_ABS}" != "${DELIVERABLES_ABS}"/* ]]; then
