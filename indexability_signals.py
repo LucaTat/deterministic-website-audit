@@ -9,6 +9,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from audit import HEADERS, BOOKING_KEYWORDS, CONTACT_KEYWORDS, normalize_text
+from net_guardrails import DEFAULT_TIMEOUT, MAX_HTML_BYTES, MAX_REDIRECTS, read_limited_text, redact_headers, robots_disallows, ignore_robots
 
 INDEXABILITY_PACK_VERSION = "v1"
 
@@ -32,17 +33,61 @@ def extract_indexability_signals(url: str, html: str, signals: dict[str, Any]) -
     Deterministic indexability & technical access signals.
     - No crawling: only homepage + important_urls + robots + sitemap URLs + sitemap sample N=20
     """
-    homepage_fetch = _fetch_with_redirects(url, method="GET")
+    site_root = _site_root(url)
+    robots = _fetch_robots(site_root)
+    robots_cache: dict[str, dict[str, Any]] = {site_root: robots}
+
+    allowed = True
+    if not ignore_robots() and robots.get("policy") != "ignore":
+        rules = robots.get("ua_rules") or {}
+        disallowed, _ = robots_disallows(url, rules)
+        allowed = not disallowed
+
+    if not allowed:
+        homepage_fetch = {
+            "requested_url": url,
+            "final_url": url,
+            "final_status": None,
+            "redirect_chain": [],
+            "error": "robots_disallowed",
+            "loop": False,
+            "too_many": False,
+            "text": "",
+            "headers": {},
+        }
+    else:
+        homepage_fetch = _fetch_with_redirects(url, method="GET")
     homepage_final_url = homepage_fetch.get("final_url") or url
     homepage_html = homepage_fetch.get("text") or html or ""
-    site_root = _site_root(homepage_final_url)
+    site_root = _site_root(homepage_final_url or url)
+    robots = _robots_for_url(site_root, robots_cache)
 
     important_urls, important_groups = _build_important_urls(homepage_final_url, homepage_html)
 
     # Per-page signals for important URLs only
     pages: dict[str, Any] = {}
     for page_url in important_urls:
-        page_fetch = _fetch_with_redirects(page_url, method="GET")
+        allowed = True
+        if not ignore_robots():
+            robots_for_url = _robots_for_url(page_url, robots_cache)
+            if robots_for_url.get("policy") != "ignore":
+                rules = robots_for_url.get("ua_rules") or {}
+                disallowed, _ = robots_disallows(page_url, rules)
+                allowed = not disallowed
+        if not allowed:
+            page_fetch = {
+                "requested_url": page_url,
+                "final_url": page_url,
+                "final_status": None,
+                "redirect_chain": [],
+                "error": "robots_disallowed",
+                "loop": False,
+                "too_many": False,
+                "text": "",
+                "headers": {},
+            }
+        else:
+            page_fetch = _fetch_with_redirects(page_url, method="GET")
         page_html = page_fetch.get("text") or ""
         meta = _extract_meta_directives(page_html)
         canonical = _extract_canonical(page_html, base_url=page_fetch.get("final_url") or page_url)
@@ -56,8 +101,26 @@ def extract_indexability_signals(url: str, html: str, signals: dict[str, Any]) -
         if canonical.get("resolved"):
             canon_url = canonical.get("resolved")
             if canon_url and not _urls_equivalent(canon_url, page_fetch.get("final_url")):
-                canonical_fetch = _fetch_with_redirects(canon_url, method="GET")
-                canonical["target_fetch"] = _fetch_summary(canonical_fetch)
+                canon_allowed = True
+                if not ignore_robots():
+                    robots_for_url = _robots_for_url(canon_url, robots_cache)
+                    if robots_for_url.get("policy") != "ignore":
+                        rules = robots_for_url.get("ua_rules") or {}
+                        disallowed, _ = robots_disallows(canon_url, rules)
+                        canon_allowed = not disallowed
+                if canon_allowed:
+                    canonical_fetch = _fetch_with_redirects(canon_url, method="GET")
+                    canonical["target_fetch"] = _fetch_summary(canonical_fetch)
+                else:
+                    canonical["target_fetch"] = {
+                        "requested_url": canon_url,
+                        "final_url": canon_url,
+                        "final_status": None,
+                        "redirect_chain": [],
+                        "error": "robots_disallowed",
+                        "loop": False,
+                        "too_many": False,
+                    }
             else:
                 canonical["target_fetch"] = None
 
@@ -68,7 +131,6 @@ def extract_indexability_signals(url: str, html: str, signals: dict[str, Any]) -
             "canonical": canonical,
         }
 
-    robots = _fetch_robots(site_root)
     sitemaps = _discover_sitemaps(site_root, robots)
 
     return {
@@ -83,7 +145,7 @@ def extract_indexability_signals(url: str, html: str, signals: dict[str, Any]) -
     }
 
 
-def _fetch_with_redirects(url: str, method: str = "GET", max_hops: int = 8) -> dict[str, Any]:
+def _fetch_with_redirects(url: str, method: str = "GET", max_hops: int = MAX_REDIRECTS) -> dict[str, Any]:
     session = requests.Session()
     visited: list[str] = []
     redirect_chain: list[dict[str, Any]] = []
@@ -103,8 +165,9 @@ def _fetch_with_redirects(url: str, method: str = "GET", max_hops: int = 8) -> d
                 method,
                 current_url,
                 headers=HEADERS,
-                timeout=10,
+                timeout=DEFAULT_TIMEOUT,
                 allow_redirects=False,
+                stream=True,
             )
         except Exception as exc:
             error = str(exc)
@@ -132,10 +195,13 @@ def _fetch_with_redirects(url: str, method: str = "GET", max_hops: int = 8) -> d
 
         final_status = status
         final_url = current_url
-        headers = {k.lower(): v for k, v in resp.headers.items()}
+        headers = {k.lower(): v for k, v in redact_headers(resp.headers).items()}
         if method.upper() == "GET":
             try:
-                text = resp.text
+                text, too_large = read_limited_text(resp, MAX_HTML_BYTES)
+                if too_large:
+                    error = "too_large"
+                    text = ""
             except Exception:
                 text = ""
         break
@@ -296,15 +362,32 @@ def _fetch_robots(site_root: str) -> dict[str, Any]:
     IMPORTANT: do not invent status codes. status is only set from the HTTP response.
     """
     robots_url = urljoin(site_root + "/", "robots.txt")
+    if ignore_robots():
+        return {
+            "url": robots_url,
+            "http_status": None,
+            "error": None,
+            "body_snippet": None,
+            "ua_rules": {},
+            "rules_summary": {},
+            "sitemaps": [],
+            "policy": "ignore",
+            "reason": "robots_ignored",
+        }
     text = ""
     status: int | None = None
     error: str | None = None
 
     try:
-        resp = requests.get(robots_url, headers=HEADERS, timeout=15)
+        session = requests.Session()
+        session.max_redirects = MAX_REDIRECTS
+        resp = session.get(robots_url, headers=HEADERS, timeout=DEFAULT_TIMEOUT, stream=True)
         status = resp.status_code
         try:
-            text = resp.text or ""
+            text, too_large = read_limited_text(resp, MAX_HTML_BYTES)
+            if too_large:
+                text = ""
+                error = "too_large"
         except Exception:
             text = ""
     except Exception as exc:
@@ -318,6 +401,11 @@ def _fetch_robots(site_root: str) -> dict[str, Any]:
     if status is None and error is None:
         error = "robots_fetch_failed_unknown"
 
+    policy = "respect"
+    reason = ""
+    if status is None or error or status >= 400:
+        policy = "allow"
+        reason = "robots_unreachable_allow"
     return {
         "url": robots_url,
         "http_status": status,
@@ -326,7 +414,17 @@ def _fetch_robots(site_root: str) -> dict[str, Any]:
         "ua_rules": ua_rules,
         "rules_summary": ua_rules,
         "sitemaps": sitemaps,
+        "policy": policy,
+        "reason": reason,
     }
+
+
+def _robots_for_url(url: str, cache: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    root = _site_root(url)
+    if root in cache:
+        return cache[root]
+    cache[root] = _fetch_robots(root)
+    return cache[root]
 
 
 def _parse_robots(text: str) -> tuple[dict[str, list[str]], list[str]]:
@@ -406,8 +504,15 @@ def _discover_sitemaps(site_root: str, robots: dict[str, Any]) -> dict[str, Any]
 
 def _fetch_url(url: str) -> tuple[int | None, str | None, str]:
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
-        return resp.status_code, None, resp.text or ""
+        session = requests.Session()
+        session.max_redirects = MAX_REDIRECTS
+        resp = session.get(url, headers=HEADERS, timeout=DEFAULT_TIMEOUT, stream=True)
+        text, too_large = read_limited_text(resp, MAX_HTML_BYTES)
+        if too_large:
+            return resp.status_code, "too_large", ""
+        return resp.status_code, None, text or ""
+    except requests.TooManyRedirects:
+        return None, "too_many_redirects", ""
     except Exception as exc:
         return None, str(exc), ""
 

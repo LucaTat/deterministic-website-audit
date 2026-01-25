@@ -2,12 +2,23 @@ import requests
 from bs4 import BeautifulSoup
 import os
 import re
+from urllib.parse import urlparse
 from pdf_export import export_audit_pdf
 from client_narrative import build_client_narrative
 from social_signals import extract_social_signals
 from share_meta import extract_share_meta
+from net_guardrails import (
+    DEFAULT_HEADERS,
+    DEFAULT_TIMEOUT,
+    MAX_HTML_BYTES,
+    MAX_REDIRECTS,
+    ignore_robots,
+    parse_robots,
+    read_limited_text,
+    robots_disallows,
+)
 
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+HEADERS = DEFAULT_HEADERS
 
 BOOKING_KEYWORDS = [
     "book", "booking", "appointment", "schedule", "reserve",
@@ -33,10 +44,55 @@ def save_html_evidence(html: str, out_dir: str, filename: str = "home.html") -> 
     return out_path
 
 
+class FetchGuardrailError(Exception):
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _site_root(url: str) -> str:
+    parsed = urlparse(url)
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+
+
+def _robots_allows_url(url: str) -> bool:
+    if ignore_robots():
+        return True
+    base = _site_root(url)
+    if not base:
+        return True
+    robots_url = f"{base}/robots.txt"
+    session = requests.Session()
+    session.max_redirects = MAX_REDIRECTS
+    try:
+        resp = session.get(robots_url, headers=HEADERS, timeout=DEFAULT_TIMEOUT, stream=True)
+        status = resp.status_code
+        text, too_large = read_limited_text(resp, MAX_HTML_BYTES)
+        if too_large or status != 200:
+            return True
+        rules = parse_robots(text)
+        disallowed, _ = robots_disallows(url, rules)
+        return not disallowed
+    except Exception:
+        return True
+
+
 def fetch_html(url: str) -> str:
-    r = requests.get(url, headers=HEADERS, timeout=15)
-    r.raise_for_status()
-    return r.text
+    session = requests.Session()
+    session.max_redirects = MAX_REDIRECTS
+    try:
+        if not _robots_allows_url(url):
+            raise FetchGuardrailError("robots_disallowed")
+        resp = session.get(url, headers=HEADERS, timeout=DEFAULT_TIMEOUT, stream=True)
+        text, too_large = read_limited_text(resp, MAX_HTML_BYTES)
+        if too_large:
+            raise FetchGuardrailError("too_large")
+        resp.raise_for_status()
+        return text
+    except requests.TooManyRedirects:
+        raise FetchGuardrailError("too_many_redirects")
 
 
 def normalize_text(s: str) -> str:

@@ -8,6 +8,8 @@ DATE="$(date +%Y-%m-%d)"
 
 SMOKE_FILE="$ROOT/scripts/smoke_targets.txt"
 
+python3 "$ROOT/scripts/guardrails_test.py"
+
 run_and_check () {
   LANG="$1"
   CAMPAIGN="$2"

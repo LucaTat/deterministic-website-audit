@@ -838,7 +838,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
             ("Validitatea verdictului: Verdictul este valabil pentru structura actuală a website-ului și "
              "paginile analizate la momentul rulării. Modificări majore pot invalida concluziile."),
         ]
-        body = [Paragraph(line, styles["Body"]) for line in lines]
+        body: list[Flowable] = [Paragraph(line, styles["Body"]) for line in lines]
         return body
 
     def _appendix_pages(crawl_pages: list[dict]) -> list[Flowable]:
@@ -983,7 +983,7 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
 
         label5_cap = 4
         count = 0
-        for label in sorted(priority, key=priority.get):
+        for label in sorted(priority, key=lambda k: priority[k]):
             for entry in buckets[label]:
                 if count >= max_pages:
                     break
@@ -1041,6 +1041,17 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     story.append(Spacer(1, 6))
     story.append(Paragraph("Ce NU este acest document", styles["H2"]))
     story.append(Paragraph("<br/>".join([f"• {s}" for s in no_list]), styles["Body"]))
+    story.append(Spacer(1, 12))
+
+    method_lines = [
+        "Observational automated checks on publicly accessible resources.",
+        "Decision support only; no guarantees of performance, revenue, rankings, or conversions.",
+        "Not a legal, security, privacy, or compliance audit.",
+        "Limited to what is deterministically observable at run time.",
+    ]
+    story.append(Paragraph("METHOD & LIMITATIONS", styles["H1"]))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph("<br/>".join([f"• {s}" for s in method_lines]), styles["Body"]))
     story.append(Spacer(1, 12))
 
     story.append(Paragraph("MOTIVAREA DECIZIEI", styles["H1"]))

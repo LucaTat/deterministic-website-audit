@@ -7,7 +7,9 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+from net_guardrails import DEFAULT_HEADERS, DEFAULT_TIMEOUT, MAX_REDIRECTS
+
+HEADERS = DEFAULT_HEADERS
 
 
 def _collect_meta_values(soup: BeautifulSoup, key_attr: str, key_value: str) -> list[str]:
@@ -34,18 +36,25 @@ def _is_absolute_url(u: str) -> bool:
     return u.startswith("http://") or u.startswith("https://")
 
 
-def _head_status(url: str, timeout: int = 10) -> dict[str, Any]:
+def _head_status(url: str, timeout: int = DEFAULT_TIMEOUT) -> dict[str, Any]:
     """Best-effort HEAD request to validate a URL.
 
     Deterministic logic, but network availability can vary.
     We return structured evidence instead of asserting certainty.
     """
     try:
-        r = requests.head(url, headers=HEADERS, timeout=timeout, allow_redirects=True)
+        session = requests.Session()
+        session.max_redirects = MAX_REDIRECTS
+        r = session.head(url, headers=HEADERS, timeout=timeout, allow_redirects=True)
         return {
             "ok": True,
             "status_code": int(r.status_code),
             "final_url": str(r.url),
+        }
+    except requests.TooManyRedirects:
+        return {
+            "ok": False,
+            "error": "too_many_redirects",
         }
     except Exception as e:
         return {

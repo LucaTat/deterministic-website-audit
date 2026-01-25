@@ -9,7 +9,19 @@ import xml.etree.ElementTree as ET
 import requests
 from bs4 import BeautifulSoup
 
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+from net_guardrails import (
+    DEFAULT_HEADERS,
+    DEFAULT_TIMEOUT,
+    MAX_HTML_BYTES,
+    MAX_REDIRECTS,
+    ignore_robots,
+    parse_robots,
+    read_limited_text,
+    redact_headers,
+    robots_disallows,
+)
+
+HEADERS = DEFAULT_HEADERS
 
 HARD_CAP_DISCOVERED = 2000
 HARD_CAP_ANALYZED = 500
@@ -99,12 +111,25 @@ def _extract_title_snippets(html: str, max_snippets: int = 3, max_len: int = 200
     return title, snippets
 
 
-def _fetch(url: str) -> tuple[int | None, str, str, dict]:
+def _attr_to_str(value: object) -> str | None:
+    if isinstance(value, str):
+        return value
+    return None
+
+
+def _fetch(url: str, max_bytes: int | None = MAX_HTML_BYTES) -> tuple[int | None, str, str, dict, str | None]:
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
-        return resp.status_code, resp.text or "", resp.url or url, dict(resp.headers or {})
+        session = requests.Session()
+        session.max_redirects = MAX_REDIRECTS
+        resp = session.get(url, headers=HEADERS, timeout=DEFAULT_TIMEOUT, stream=True)
+        text, too_large = read_limited_text(resp, max_bytes)
+        if too_large:
+            return resp.status_code, "", resp.url or url, redact_headers(resp.headers or {}), "too_large"
+        return resp.status_code, text or "", resp.url or url, redact_headers(resp.headers or {}), None
+    except requests.TooManyRedirects:
+        return None, "", url, {}, "too_many_redirects"
     except Exception:
-        return None, "", url, {}
+        return None, "", url, {}, "fetch_error"
 
 
 def _parse_robots_sitemaps(text: str) -> list[str]:
@@ -124,6 +149,54 @@ def _parse_robots_sitemaps(text: str) -> list[str]:
     return sitemaps
 
 
+def _build_robots_policy(site_root: str) -> dict:
+    robots_url = urljoin(site_root + "/", "robots.txt") if site_root else ""
+    policy = {
+        "url": robots_url,
+        "http_status": None,
+        "error": None,
+        "rules": {},
+        "body": "",
+        "policy": "respect",
+        "reason": "",
+        "ignored": False,
+    }
+    if not robots_url:
+        policy["policy"] = "allow"
+        policy["reason"] = "robots_missing_base"
+        return policy
+    if ignore_robots():
+        policy["policy"] = "ignore"
+        policy["reason"] = "robots_ignored"
+        policy["ignored"] = True
+    status, body, _, _, error = _fetch(robots_url, max_bytes=MAX_HTML_BYTES)
+    policy["http_status"] = status
+    policy["error"] = error
+    if policy.get("ignored"):
+        policy["body"] = body or ""
+        if status == 200 and body:
+            policy["rules"] = parse_robots(body)
+        return policy
+    if status == 200 and body:
+        policy["body"] = body
+        policy["rules"] = parse_robots(body)
+    policy["policy"] = "allow"
+    policy["reason"] = "robots_unreachable_allow"
+    return policy
+
+
+def _robots_allows(url: str, policy: dict) -> tuple[bool, str | None]:
+    if policy.get("ignored"):
+        return True, None
+    if policy.get("policy") == "allow" and policy.get("reason") == "robots_unreachable_allow":
+        return True, None
+    rules = policy.get("rules") or {}
+    disallowed, rule = robots_disallows(url, rules)
+    if disallowed:
+        return False, rule
+    return True, None
+
+
 def _parse_sitemap_xml(body: str) -> tuple[list[str], str]:
     root = ET.fromstring(body)
     tag = root.tag.lower()
@@ -137,7 +210,7 @@ def _parse_sitemap_xml(body: str) -> tuple[list[str], str]:
     return urls, kind
 
 
-def _discover_urls_with_sources(site_root: str) -> tuple[list[str], dict]:
+def _discover_urls_with_sources(site_root: str) -> tuple[list[str], dict, dict]:
     discovered: list[str] = []
     seen: set[str] = set()
     sources: dict = {
@@ -153,14 +226,17 @@ def _discover_urls_with_sources(site_root: str) -> tuple[list[str], dict]:
         discovered.append(homepage)
         seen.add(homepage)
 
-    robots_url = urljoin(base + "/", "robots.txt") if base else ""
+    robots_policy = _build_robots_policy(base)
+    robots_url = robots_policy.get("url") or ""
     sources["robots"]["url"] = robots_url
+    sources["robots"]["status"] = robots_policy.get("http_status")
+    sources["robots"]["error"] = robots_policy.get("error")
+    sources["robots"]["policy"] = robots_policy.get("policy")
+    if robots_policy.get("reason"):
+        sources["robots"]["reason"] = robots_policy.get("reason")
     declared_sitemaps: list[str] = []
-    if robots_url:
-        status, body, _, _ = _fetch(robots_url)
-        sources["robots"]["status"] = status
-        if status == 200 and body:
-            declared_sitemaps = _parse_robots_sitemaps(body)
+    if robots_policy.get("http_status") == 200 and robots_policy.get("body"):
+        declared_sitemaps = _parse_robots_sitemaps(robots_policy.get("body") or "")
 
     if not declared_sitemaps and base:
         declared_sitemaps = [
@@ -178,9 +254,9 @@ def _discover_urls_with_sources(site_root: str) -> tuple[list[str], dict]:
         if not sm_url or sm_url in fetched_sitemaps:
             continue
         fetched_sitemaps.add(sm_url)
-        status, body, _, _ = _fetch(sm_url)
+        status, body, _, _, error = _fetch(sm_url)
         sources["sitemaps"]["fetched"].append({"url": sm_url, "status": status})
-        if status != 200 or not body:
+        if error or status != 200 or not body:
             continue
         try:
             urls, kind = _parse_sitemap_xml(body)
@@ -213,9 +289,12 @@ def _discover_urls_with_sources(site_root: str) -> tuple[list[str], dict]:
     queue = deque([homepage]) if homepage else deque()
     while queue and len(discovered) < HARD_CAP_DISCOVERED:
         current = queue.popleft()
-        status, html, final_url, headers = _fetch(current)
+        allowed, _ = _robots_allows(current, robots_policy)
+        if not allowed:
+            continue
+        status, html, final_url, headers, error = _fetch(current, max_bytes=MAX_HTML_BYTES)
         sources["bfs"]["fetched_pages"] += 1
-        if not html or status is None:
+        if error or not html or status is None:
             continue
         content_type = (headers.get("Content-Type") or headers.get("content-type") or "").lower()
         if content_type and "text/html" not in content_type:
@@ -224,8 +303,8 @@ def _discover_urls_with_sources(site_root: str) -> tuple[list[str], dict]:
         for a in soup.find_all("a"):
             if len(discovered) >= HARD_CAP_DISCOVERED:
                 break
-            href = a.get("href")
-            normalized = _normalize_url(href, final_url or current)
+            href = _attr_to_str(a.get("href"))
+            normalized = _normalize_url(href or "", final_url or current)
             if not normalized:
                 continue
             if not _same_host(normalized, base):
@@ -241,11 +320,11 @@ def _discover_urls_with_sources(site_root: str) -> tuple[list[str], dict]:
             queue.append(normalized)
             sources["bfs"]["urls_added"] += 1
 
-    return discovered, sources
+    return discovered, sources, robots_policy
 
 
 def discover_urls(site_root: str) -> list[str]:
-    urls, _ = _discover_urls_with_sources(site_root)
+    urls, _, _ = _discover_urls_with_sources(site_root)
     return urls
 
 
@@ -267,15 +346,28 @@ def select_urls(discovered_urls: list[str], max_pages: int, caps: dict | None = 
     return selected
 
 
-def fetch_pages(urls: list[str]) -> list[dict]:
+def fetch_pages(urls: list[str], robots_policy: dict | None = None) -> list[dict]:
     pages: list[dict] = []
+    robots_policy = robots_policy or {}
     for url in urls:
         if "/cdn-cgi/" in url:
+            continue
+        allowed, _ = _robots_allows(url, robots_policy)
+        if not allowed:
+            pages.append({
+                "url": url,
+                "status": None,
+                "title": None,
+                "snippets": [],
+                "error": "robots_disallowed",
+            })
             continue
         status = None
         html = ""
         try:
-            resp = requests.get(url, headers=HEADERS, timeout=15)
+            session = requests.Session()
+            session.max_redirects = MAX_REDIRECTS
+            resp = session.get(url, headers=HEADERS, timeout=DEFAULT_TIMEOUT, stream=True)
             status = resp.status_code
             content_type = resp.headers.get("Content-Type", "") or ""
             if "text/html" not in content_type:
@@ -288,7 +380,26 @@ def fetch_pages(urls: list[str]) -> list[dict]:
                     "content_type": content_type,
                 })
                 continue
-            html = resp.text or ""
+            html, too_large = read_limited_text(resp, MAX_HTML_BYTES)
+            if too_large:
+                pages.append({
+                    "url": url,
+                    "status": status,
+                    "title": None,
+                    "snippets": [],
+                    "error": "too_large",
+                    "content_type": content_type,
+                })
+                continue
+        except requests.TooManyRedirects:
+            pages.append({
+                "url": url,
+                "status": None,
+                "title": None,
+                "snippets": [],
+                "error": "too_many_redirects",
+            })
+            continue
         except Exception:
             html = ""
         title, snippets = _extract_title_snippets(html)
@@ -304,7 +415,7 @@ def fetch_pages(urls: list[str]) -> list[dict]:
 def _is_html_page(page: dict) -> bool:
     if not isinstance(page, dict):
         return False
-    if page.get("error") == "non_html":
+    if page.get("error"):
         return False
     content_type = str(page.get("content_type") or "").lower()
     if content_type and "text/html" not in content_type:
@@ -416,14 +527,14 @@ def _playwright_discover(homepage_url: str) -> tuple[list[str], dict, str]:
         soup = BeautifulSoup(html or "", "html.parser")
         for el in soup.find_all(True):
             if el.name == "a":
-                href = el.get("href")
+                href = _attr_to_str(el.get("href"))
                 if href:
                     href_candidates.append(href)
             for attr in ("data-href", "data-url", "data-link"):
-                val = el.get(attr)
+                val = _attr_to_str(el.get(attr))
                 if val:
                     data_candidates.append(val)
-            onclick = el.get("onclick")
+            onclick = _attr_to_str(el.get("onclick"))
             if onclick:
                 onclick_candidates.extend(_extract_onclick_urls(onclick))
         urls = href_candidates + data_candidates + onclick_candidates
@@ -490,7 +601,7 @@ def crawl_site(site_root: str, max_pages: int = TARGET_ANALYZED, analysis_mode: 
     if mode not in ("standard", "extended"):
         mode = "standard"
 
-    discovered_urls, sources = _discover_urls_with_sources(site_root)
+    discovered_urls, sources, robots_policy = _discover_urls_with_sources(site_root)
     used_playwright = False
     playwright_attempted = False
     playwright_reason = ""
@@ -502,7 +613,7 @@ def crawl_site(site_root: str, max_pages: int = TARGET_ANALYZED, analysis_mode: 
         max_pages=max_pages,
         caps={"hard_cap_analyzed": HARD_CAP_ANALYZED},
     )
-    pages = fetch_pages(analyzed_urls)
+    pages = fetch_pages(analyzed_urls, robots_policy=robots_policy)
     analyzed_html_count = _count_analyzed_html(pages)
 
     if mode == "extended" and analyzed_html_count < fallback_threshold and site_root:
@@ -531,16 +642,16 @@ def crawl_site(site_root: str, max_pages: int = TARGET_ANALYZED, analysis_mode: 
                 added += 1
             if added == 0:
                 html = ""
-                try:
-                    resp = requests.get(site_root, headers=HEADERS, timeout=15)
-                    html = resp.text or ""
-                except Exception:
-                    html = ""
+                allowed, _ = _robots_allows(site_root, robots_policy)
+                if allowed:
+                    status, fetched_html, _, _, error = _fetch(site_root, max_bytes=MAX_HTML_BYTES)
+                    if not error and status is not None:
+                        html = fetched_html or ""
                 if html:
                     soup = BeautifulSoup(html, "html.parser")
                     html_hrefs: list[str] = []
                     for a in soup.find_all("a"):
-                        href = a.get("href")
+                        href = _attr_to_str(a.get("href"))
                         if href:
                             html_hrefs.append(href)
                     html_candidates: list[str] = []
@@ -589,6 +700,13 @@ def crawl_site(site_root: str, max_pages: int = TARGET_ANALYZED, analysis_mode: 
         "analyzed_count": analyzed_html_count,
         "pages": pages,
         "sources": sources,
+        "robots": {
+            "url": robots_policy.get("url"),
+            "http_status": robots_policy.get("http_status"),
+            "error": robots_policy.get("error"),
+            "policy": robots_policy.get("policy"),
+            "reason": robots_policy.get("reason"),
+        },
         "playwright_attempted": playwright_attempted,
         "used_playwright": used_playwright,
         "playwright_reason": playwright_reason or None,

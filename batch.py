@@ -15,6 +15,7 @@ from finding_policy import enforce_policy_on_findings
 from findings_enricher import enrich_findings
 from audit import (    
     fetch_html,
+    FetchGuardrailError,
     page_signals,
     build_all_signals,
     human_summary,
@@ -164,7 +165,11 @@ def _truncate_crawl_pages(pages: list, max_pages: int = 25, max_snippets: int = 
         page_copy = dict(page)
         snippets = page_copy.get("snippets")
         if isinstance(snippets, list):
-            page_copy["snippets"] = snippets[:max_snippets]
+            safe_snippets = []
+            for snippet in snippets[:max_snippets]:
+                if isinstance(snippet, str):
+                    safe_snippets.append(snippet[:200])
+            page_copy["snippets"] = safe_snippets
         out.append(page_copy)
     return out
 
@@ -184,6 +189,14 @@ def _build_evidence_pack(crawl_v1: dict, existing: dict | None = None) -> dict:
             "fallback_triggered": crawl_v1.get("fallback_triggered", False),
             "fallback_threshold": crawl_v1.get("fallback_threshold", 5),
         }
+        robots = crawl_v1.get("robots") or {}
+        if isinstance(robots, dict) and robots:
+            crawl_meta["robots"] = {
+                "url": robots.get("url"),
+                "http_status": robots.get("http_status"),
+                "policy": robots.get("policy"),
+                "reason": robots.get("reason"),
+            }
         if crawl_v1.get("playwright_reason"):
             crawl_meta["playwright_reason"] = crawl_v1.get("playwright_reason")
         pack["crawl_meta"] = crawl_meta
@@ -202,6 +215,7 @@ def parse_args():
     p.add_argument("--sessions", type=float, default=None, help="Optional: monthly sessions (e.g. 3000)")
     p.add_argument("--conversion-rate", type=float, default=None, help="Optional: conversion rate as fraction (e.g. 0.02 for 2%%)")
     p.add_argument("--value", type=float, default=None, help="Optional: value per conversion (lead/order value)")
+    p.add_argument("--ignore-robots", action="store_true", help="Ignore robots.txt (default: respect)")
     return p.parse_args()
 
 
@@ -626,12 +640,13 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
 
     # 🔴 WEBSITE UNREACHABLE (SSL / DNS / timeout / 4xx / 5xx)
     except (
+        FetchGuardrailError,
         requests.exceptions.ConnectionError,
         requests.exceptions.SSLError,
         requests.exceptions.Timeout,
         requests.exceptions.HTTPError,
     ) as e:
-        reason = str(e)
+        reason = e.reason if isinstance(e, FetchGuardrailError) else str(e)
         summary_text = human_summary(u, {"reason": reason}, mode="broken")
         if os.environ.get("AUDIT_DEBUG") == "1":
             print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
@@ -814,6 +829,8 @@ def main():
     campaign = args.campaign
     targets_path = args.targets
     proof_spec = args.proof_spec
+    if args.ignore_robots:
+        os.environ["SCOPE_IGNORE_ROBOTS"] = "1"
 
     business_inputs = {
         "sessions_per_month": args.sessions,
