@@ -61,6 +61,101 @@ def classify_audit(mode: str, findings: list[dict]) -> tuple[str, str]:
     return ("opportunity", "no_critical_failures")
 
 
+BUSINESS_MODELS = {
+    "LEAD_GEN",
+    "ECOMMERCE",
+    "ENTERPRISE_SALES",
+    "SAAS_SELF_SERVE",
+    "PLATFORM",
+    "MARKETPLACE",
+    "ROUTER",
+    "CONTENT_ONLY",
+    "SOCIAL",
+    "DUMMY",
+    "INACCESSIBLE",
+}
+
+AUDITABLE_MODELS = {"LEAD_GEN", "ECOMMERCE", "ENTERPRISE_SALES"}
+
+
+def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
+    return any(k in text for k in keywords)
+
+
+def _classify_business_model(url: str, crawl_v1: dict, signals: dict) -> str:
+    if not url or not isinstance(crawl_v1, dict):
+        return "INACCESSIBLE"
+    analyzed = crawl_v1.get("analyzed_count") or 0
+    if analyzed <= 0:
+        return "INACCESSIBLE"
+
+    netloc = urlparse(url).netloc.lower()
+    known_map = {
+        "airbnb.com": "MARKETPLACE",
+        "instagram.com": "SOCIAL",
+        "linktr.ee": "ROUTER",
+        "notion.so": "SAAS_SELF_SERVE",
+        "shopify.com": "PLATFORM",
+        "stripe.com": "PLATFORM",
+        "wise.com": "PLATFORM",
+    }
+    for domain, model in known_map.items():
+        if domain in netloc:
+            return model
+
+    pages = crawl_v1.get("pages") or []
+    text_parts = []
+    path_parts = []
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        page_url = str(page.get("url") or "")
+        page_title = str(page.get("title") or "")
+        snippets = page.get("snippets") or []
+        snippet_text = " ".join(str(s) for s in snippets if s)
+        text_parts.append(" ".join([page_url, page_title, snippet_text]))
+        try:
+            path_parts.append(urlparse(page_url).path.lower())
+        except Exception:
+            pass
+
+    combined = (" ".join(text_parts)).lower()
+    paths = " ".join(path_parts)
+
+    has_checkout = _contains_any(combined, ("checkout", "cart", "add to cart")) or _contains_any(paths, ("/cart", "/checkout"))
+    has_product = _contains_any(paths, ("/product", "/produse", "/shop", "/store", "/products", "/producte"))
+    has_demo = _contains_any(combined, ("request demo", "book a demo", "talk to sales", "schedule demo", "demo"))
+    has_booking = _contains_any(combined, ("programare", "rezervare", "booking", "book", "appointment"))
+    has_contact = bool(signals.get("contact_detected")) or _contains_any(combined, ("contact", "call", "phone", "email"))
+    has_quote = _contains_any(combined, ("request quote", "get a quote", "cere oferta", "cerere ofert"))
+    has_signup = _contains_any(combined, ("signup", "sign up", "create account", "get started", "free trial", "trial"))
+    has_marketplace = _contains_any(combined, ("marketplace", "listings", "host", "rentals"))
+    has_platform = _contains_any(combined, ("platform", "api", "developers"))
+    has_blog = _contains_any(paths, ("/blog", "/article", "/news", "/noutati"))
+
+    if has_checkout or has_product:
+        return "ECOMMERCE"
+    if has_demo:
+        return "ENTERPRISE_SALES"
+    if has_booking or has_contact or has_quote:
+        return "LEAD_GEN"
+    if has_signup and not (has_booking or has_contact or has_demo or has_quote):
+        return "SAAS_SELF_SERVE"
+    if has_marketplace:
+        return "MARKETPLACE"
+    if has_platform:
+        return "PLATFORM"
+    if has_blog:
+        return "CONTENT_ONLY"
+    return "DUMMY"
+
+
+def _ads_audit_message(lang: str) -> str:
+    if lang == "ro":
+        return "Modelul de business identificat nu permite o evaluare sigură a readiness-ului pentru Ads."
+    return "The identified business model does not allow a safe Ads readiness evaluation."
+
+
 def _truncate_crawl_pages(pages: list, max_pages: int = 25, max_snippets: int = 5) -> list:
     out = []
     for page in pages[:max_pages]:
@@ -411,6 +506,9 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
             "summary": summary_text,
             "summary_en": summary_text if lang == "en" else "",
             "summary_ro": summary_text if lang == "ro" else summary_text,
+            "business_model": "INACCESSIBLE",
+            "ads_audit_eligible": False,
+            "ads_audit_message": _ads_audit_message(lang),
             "client_narrative": client_narrative_for_mode("no_website", lang, {}),
             "user_insights_en": {
                 "primary_issue": "No website is available to audit.",
@@ -497,6 +595,10 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
         if os.environ.get("AUDIT_DEBUG") == "1":
             print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
 
+        business_model = _classify_business_model(u, crawl_payload, signals)
+        ads_audit_eligible = business_model in AUDITABLE_MODELS
+        ads_audit_message = _ads_audit_message(lang) if not ads_audit_eligible else ""
+
         return {
             "url": u,
             "mode": "ok",
@@ -511,6 +613,9 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
             "summary": summary_text,
             "summary_en": summary_text if lang == "en" else "",
             "summary_ro": summary_text if lang == "ro" else summary_text,
+            "business_model": business_model,
+            "ads_audit_eligible": ads_audit_eligible,
+            "ads_audit_message": ads_audit_message,
             "client_narrative": client_narrative,
             "user_insights_en": insights,
             "audit_type": audit_type,
@@ -562,6 +667,9 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
             "summary": summary_text,
             "summary_en": summary_text if lang == "en" else "",
             "summary_ro": summary_text if lang == "ro" else summary_text,
+            "business_model": "INACCESSIBLE",
+            "ads_audit_eligible": False,
+            "ads_audit_message": _ads_audit_message(lang),
             "client_narrative": client_narrative_for_mode("broken", lang, {"reason": reason}),
             "user_insights_en": {
                 "primary_issue": "Website unreachable.",
@@ -631,6 +739,9 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
             "summary": summary_text,
             "summary_en": summary_text if lang == "en" else "",
             "summary_ro": summary_text if lang == "ro" else summary_text,
+            "business_model": "INACCESSIBLE",
+            "ads_audit_eligible": False,
+            "ads_audit_message": _ads_audit_message(lang),
             "client_narrative": client_narrative_for_mode("broken", lang, {"reason": reason}),
             "user_insights_en": {
                 "primary_issue": "Audit crashed internally.",

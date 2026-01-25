@@ -732,10 +732,9 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     cover_date = labels["date_fmt"]()
 
     def _decision_label() -> str:
-        eligibility = audit_result.get("eligibility") if isinstance(audit_result.get("eligibility"), dict) else {}
-        eligible = bool(eligibility.get("eligible", True))
-        if not eligible or mode in ("broken", "no_website") or analyzed == 0:
-            return "STOP"
+        ads_audit_eligible = bool(audit_result.get("ads_audit_eligible", True))
+        if not ads_audit_eligible or mode in ("broken", "no_website") or analyzed == 0:
+            return "NOT AUDITABLE"
         base_verdict = decision_verdict(audit_result, lang)
         if base_verdict in ("ATENȚIE", "CAUTION", "LIMITED", "LIMITAT"):
             return "GO WITH LIMITATIONS"
@@ -748,6 +747,9 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         if label == "GO WITH LIMITATIONS":
             return ("Website-ul poate fi utilizat pentru ads, dar există limitări structurale care pot afecta interpretarea rezultatelor. "
                     "Recomandăm rulare controlată și interpretare atentă.")
+        message = (audit_result.get("ads_audit_message") or "").strip()
+        if message:
+            return message
         return ("Website-ul nu permite evaluarea corectă a performanței ads orientate pe conversie în forma actuală. "
                 "Orice buget cheltuit acum are risc ridicat de irosire.")
 
@@ -774,12 +776,12 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         color_map = {
             "GO": "#16a34a",
             "GO WITH LIMITATIONS": "#ca8a04",
-            "STOP": "#dc2626",
+            "NOT AUDITABLE": "#dc2626",
         }
         text_map = {
             "GO": "GO",
             "GO WITH LIMITATIONS": "GO WITH LIMITATIONS",
-            "STOP": "STOP",
+            "NOT AUDITABLE": "NOT AUDITABLE",
         }
         color = color_map.get(label, "#111827")
         text = text_map.get(label, label)
@@ -1022,7 +1024,10 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     story.append(Paragraph(_decision_marker(decision), styles["H2"]))
     story.append(Spacer(1, 6))
     story.append(Paragraph(_decision_sentence(decision), styles["Body"]))
-    story.append(Spacer(1, 8))
+    business_model = audit_result.get("business_model") or "UNKNOWN"
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(f"Business model identificat: {business_model}", styles["Small"]))
+    story.append(Spacer(1, 6))
     story.append(_card("Ce înseamnă asta pentru agenție", [
         Paragraph("<br/>".join([f"• {s}" for s in _agency_box_lines(decision)]), styles["Body"])
     ]))
