@@ -1421,29 +1421,22 @@ struct ContentView: View {
         demoDeliverablePath = nil
         cancelRequested = false
 
-        let tmp = FileManager.default.temporaryDirectory.path
-        let targetsFile = (tmp as NSString).appendingPathComponent("scope_demo_targets.txt")
-        let content = "https://example.com\n"
-        try? content.write(toFile: targetsFile, atomically: true, encoding: .utf8)
-
-        let (scriptName, demoCampaign) = demoScriptAndCampaign(for: lang)
-        let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/\(scriptName)")
+        let (_, demoCampaign) = demoScriptAndCampaign(for: lang)
         let outputDir = (repoRoot as NSString).appendingPathComponent("deliverables/out/\(demoCampaign)")
         let logFilePath = makeRunLogFilePath(outputDir: outputDir, prefix: "scope_demo")
         FileManager.default.createFile(atPath: logFilePath, contents: nil)
         let task = Process()
         currentTask = task
-        task.executableURL = URL(fileURLWithPath: scriptPath)
-        task.arguments = [
-            targetsFile,
-            "--campaign",
-            demoCampaign,
-            "--cleanup"
-        ]
-        task.currentDirectoryURL = URL(fileURLWithPath: repoRoot)
+        let demoURL = "https://example.com"
+        let command = "cd \"$HOME/Desktop/astra\" && python3 -m astra run \"\(demoURL)\""
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        task.arguments = ["bash", "-lc", command]
         var environment = task.environment ?? ProcessInfo.processInfo.environment
         environment["SCOPE_USE_AI"] = useAI ? "1" : "0"
         environment["SCOPE_ANALYSIS_MODE"] = analysisMode
+        if lang == "en" {
+            environment["ASTRA_LANG"] = "en"
+        }
         task.environment = environment
 
         let pipe = Pipe()
@@ -1511,27 +1504,28 @@ struct ContentView: View {
         }
         let repoRoot = engineURL.path
 
-        let targetsFile = writeTargetsTempFile(validLines: validLines)
-        let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/scope_run.sh")
         let outputSuffix = (selectedLang == "both") ? "ro" : selectedLang
         let outputDir = (repoRoot as NSString).appendingPathComponent("deliverables/out/\(baseCampaign)_\(outputSuffix)")
         let logFilePath = makeRunLogFilePath(outputDir: outputDir, prefix: "scope_run")
         FileManager.default.createFile(atPath: logFilePath, contents: nil)
 
-        // Build arguments: scope_run.sh <targets> <lang> <campaign> <cleanup>
         let task = Process()
         currentTask = task
-        task.executableURL = URL(fileURLWithPath: scriptPath)
-        task.arguments = [
-            targetsFile,
-            selectedLang,
-            baseCampaign,
-            cleanup ? "1" : "0"
-        ]
-        task.currentDirectoryURL = URL(fileURLWithPath: repoRoot)
+        func shellEscape(_ value: String) -> String {
+            value
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+        }
+        let commands = validLines.map { "python3 -m astra run \"\(shellEscape($0))\"" }
+        let command = "cd \"$HOME/Desktop/astra\" && " + commands.joined(separator: " && ")
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        task.arguments = ["bash", "-lc", command]
         var environment = task.environment ?? ProcessInfo.processInfo.environment
         environment["SCOPE_USE_AI"] = useAI ? "1" : "0"
         environment["SCOPE_ANALYSIS_MODE"] = analysisMode
+        if selectedLang == "en" {
+            environment["ASTRA_LANG"] = "en"
+        }
         task.environment = environment
 
         let pipe = Pipe()
@@ -1678,9 +1672,9 @@ struct ContentView: View {
 
     private func demoScriptAndCampaign(for lang: String) -> (script: String, campaign: String) {
         if lang == "en" {
-            return ("ship_en.sh", "DEMO_EN")
+            return ("", "DEMO_EN")
         }
-        return ("ship_ro.sh", "DEMO_RO")
+        return ("", "DEMO_RO")
     }
 
     private func parseScopeHints(from output: String) -> (logFile: String?, zipByLang: [String: String], outDirByLang: [String: String], shipDirByLang: [String: String], shipZipByLang: [String: String], shipRoot: String?, archivedLogFile: String?) {
