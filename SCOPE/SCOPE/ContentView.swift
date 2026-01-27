@@ -122,6 +122,7 @@ struct ContentView: View {
     @State private var lastRunCampaign: String? = nil
     @State private var lastRunLang: String? = nil
     @State private var lastRunStatus: String? = nil
+    @State private var lastRunDir: String? = nil
     @State private var showAdvanced: Bool = false
     @State private var recentCampaigns: [RecentCampaign] = []
     @State private var repoRoot: String? = nil
@@ -146,6 +147,7 @@ struct ContentView: View {
     @AppStorage("scopeTheme") private var themeRaw: String = Theme.light.rawValue
     @AppStorage("scope_use_ai") private var useAI: Bool = true
     @AppStorage("scope_analysis_mode") private var analysisModeRaw: String = "standard"
+    @AppStorage("astraRootPath") private var astraRootPath: String = ""
 
     private var analysisMode: String {
         analysisModeRaw == "extended" ? "extended" : "standard"
@@ -306,6 +308,24 @@ struct ContentView: View {
                             .opacity(buttonOpacity(disabled: showDisabled))
                             .help("Reveal the selected engine folder in Finder")
 
+                            let astraDisabled = isRunning
+                            Button { selectAstraFolder() } label: {
+                                Label("Select ASTRA Folder", systemImage: "folder.badge.plus")
+                            }
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                            .disabled(astraDisabled)
+                            .opacity(buttonOpacity(disabled: astraDisabled))
+                            .help("Select the ASTRA repo folder")
+
+                            let showAstraDisabled = isRunning || astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            Button { showAstraFolder() } label: {
+                                Label("Show ASTRA Folder", systemImage: "folder")
+                            }
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                            .disabled(showAstraDisabled)
+                            .opacity(buttonOpacity(disabled: showAstraDisabled))
+                            .help("Reveal the selected ASTRA folder in Finder")
+
                             Spacer()
                         }
 
@@ -318,6 +338,16 @@ struct ContentView: View {
                                 .font(.footnote)
                                 .foregroundColor(.secondary)
                         }
+
+                        if !astraRootPath.isEmpty {
+                            Text("ASTRA folder: \(astraRootPath)")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("Select ASTRA Folder to continue.")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
@@ -327,7 +357,7 @@ struct ContentView: View {
                 GroupBox(label: Text("Run").font(.headline)) {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 12) {
-                            let runDisabled = isRunning || !hasAtLeastOneValidURL() || !campaignIsValid() || !engineFolderAvailable()
+                            let runDisabled = isRunning || !hasAtLeastOneValidURL() || !campaignIsValid() || !engineFolderAvailable() || astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             Button { runAudit() } label: {
                                 Label("Run", systemImage: "play.fill")
                             }
@@ -1096,6 +1126,7 @@ struct ContentView: View {
     private func runDisabledReason() -> String? {
         if isRunning { return "Run disabled: Running…" }
         if !engineFolderAvailable() { return "Select Engine Folder to continue." }
+        if astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Select ASTRA Folder to continue." }
         if !hasAtLeastOneValidURL() { return "Run disabled: Add at least 1 valid URL" }
         if !campaignIsValid() { return "Run disabled: Enter Campaign" }
         return nil
@@ -1141,7 +1172,7 @@ struct ContentView: View {
         if let reason = runDisabledReason() {
             return "Run the audit pipeline. \(reason)"
         }
-        return "Run the audit pipeline"
+        return "Run the audit pipeline (requires Engine + ASTRA folders)"
     }
 
     private func shipHelpText(forLang lang: String) -> String {
@@ -1225,6 +1256,46 @@ struct ContentView: View {
         let parts = (path as NSString).pathComponents
         let tail = parts.suffix(tailComponents)
         return tail.joined(separator: "/")
+    }
+
+    private func latestRunFolder() -> String? {
+        let trimmed = astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let runsRoot = (trimmed as NSString).appendingPathComponent("runs")
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: runsRoot, isDirectory: &isDir), isDir.boolValue else { return nil }
+        guard let entries = try? fm.contentsOfDirectory(atPath: runsRoot) else { return nil }
+
+        var latestPath: String? = nil
+        var latestDate: Date? = nil
+        for entry in entries {
+            let fullPath = (runsRoot as NSString).appendingPathComponent(entry)
+            var isEntryDir: ObjCBool = false
+            guard fm.fileExists(atPath: fullPath, isDirectory: &isEntryDir), isEntryDir.boolValue else { continue }
+            let attrs = try? fm.attributesOfItem(atPath: fullPath)
+            let modDate = attrs?[.modificationDate] as? Date
+            if latestDate == nil || (modDate ?? .distantPast) > (latestDate ?? .distantPast) {
+                latestDate = modDate
+                latestPath = fullPath
+            }
+        }
+        return latestPath
+    }
+
+    private func revealLatestDeliverables() {
+        guard let runDir = latestRunFolder() else { return }
+        let deliverablesDir = (runDir as NSString).appendingPathComponent("deliverables")
+        let reportPath = (deliverablesDir as NSString).appendingPathComponent("report.pdf")
+        if FileManager.default.fileExists(atPath: reportPath) {
+            revealFiles([reportPath])
+            return
+        }
+        if FileManager.default.fileExists(atPath: deliverablesDir) {
+            openFolder(deliverablesDir)
+            return
+        }
+        openFolder(runDir)
     }
 
     private func openFolder(_ path: String) {
@@ -1365,6 +1436,21 @@ struct ContentView: View {
         }
     }
 
+    private func selectAstraFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Selectează folderul repo: astra"
+
+        panel.begin { resp in
+            if resp == .OK, let url = panel.url {
+                self.astraRootPath = url.path
+                self.alert(title: "ASTRA folder set", message: "ASTRA folder selected.")
+            }
+        }
+    }
+
     private func showEngineFolder() {
         guard let engineURL = beginEngineAccess() else {
             alert(title: "Engine folder missing", message: "Select Engine Folder to continue.")
@@ -1374,10 +1460,31 @@ struct ContentView: View {
         endEngineAccess(engineURL)
     }
 
+    private func showAstraFolder() {
+        let trimmed = astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            alert(title: "Select ASTRA Folder to continue.", message: "Select ASTRA Folder to continue.")
+            return
+        }
+        guard FileManager.default.fileExists(atPath: trimmed) else {
+            alert(title: "ASTRA folder missing", message: "Select ASTRA Folder to continue.")
+            return
+        }
+        openFolder(trimmed)
+    }
+
     // MARK: - Run audit (sequential)
 
     private func runAudit() {
         guard !isRunning else { return }
+        guard engineFolderAvailable() else {
+            alert(title: "Select Engine Folder to continue.", message: "Select Engine Folder to continue.")
+            return
+        }
+        guard !astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            alert(title: "Select ASTRA Folder to continue.", message: "Select ASTRA Folder to continue.")
+            return
+        }
         guard let validLines = validateTargetsInput() else {
             return
         }
@@ -1395,6 +1502,7 @@ struct ContentView: View {
         selectedZIPLang = "ro"
         readyToSend = false
         cancelRequested = false
+        lastRunDir = nil
 
         let baseCampaign = campaign.trimmingCharacters(in: .whitespacesAndNewlines)
         let camp = baseCampaign.isEmpty ? "Default" : baseCampaign
@@ -1404,6 +1512,10 @@ struct ContentView: View {
 
     private func runDemo() {
         guard !isRunning else { return }
+        guard !astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            alert(title: "Select ASTRA Folder to continue.", message: "Select ASTRA Folder to continue.")
+            return
+        }
         guard let engineURL = beginEngineAccess() else {
             alert(title: "Engine folder missing", message: "Select Engine Folder to continue.")
             return
@@ -1419,6 +1531,7 @@ struct ContentView: View {
         selectedPDF = nil
         selectedZIPLang = "en"
         demoDeliverablePath = nil
+        lastRunDir = nil
         cancelRequested = false
 
         let (_, demoCampaign) = demoScriptAndCampaign(for: lang)
@@ -1427,16 +1540,32 @@ struct ContentView: View {
         FileManager.default.createFile(atPath: logFilePath, contents: nil)
         let task = Process()
         currentTask = task
+        func shellEscape(_ value: String) -> String {
+            value
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+        }
         let demoURL = "https://example.com"
-        let command = "cd \"$HOME/Desktop/astra\" && python3 -m astra run \"\(demoURL)\""
+        let escapedRepo = shellEscape(repoRoot)
+        let escapedAstraRoot = shellEscape(astraRootPath)
+        let command = """
+set -e
+ASTRA_ROOT="\(escapedAstraRoot)"
+if [[ -x "$ASTRA_ROOT/.venv/bin/python" ]]; then
+  PYTHON="$ASTRA_ROOT/.venv/bin/python"
+else
+  PYTHON="python3"
+fi
+export SCOPE_REPO="\(escapedRepo)"
+export ASTRA_LANG="\(lang == "en" ? "EN" : "RO")"
+cd "$ASTRA_ROOT"
+"$PYTHON" -m astra run "\(demoURL)" --lang \(lang == "en" ? "en" : "ro")
+"""
         task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         task.arguments = ["bash", "-lc", command]
         var environment = task.environment ?? ProcessInfo.processInfo.environment
         environment["SCOPE_USE_AI"] = useAI ? "1" : "0"
         environment["SCOPE_ANALYSIS_MODE"] = analysisMode
-        if lang == "en" {
-            environment["ASTRA_LANG"] = "en"
-        }
         task.environment = environment
 
         let pipe = Pipe()
@@ -1472,12 +1601,17 @@ struct ContentView: View {
                     self.lastRunStatus = self.statusLabel(for: code)
                     self.runState = (code == 0 || code == 1) ? .done : .error
                 }
-                self.readyToSend = (code == 0 || code == 1)
-
-                if code == 0 || code == 1 {
-                    let demoPath = (repoRoot as NSString).appendingPathComponent("deliverables/out/\(demoCampaign)")
-                    self.demoDeliverablePath = demoPath
+                let output = self.logOutput
+                let runDir = self.parseLastRunDir(from: output)
+                self.demoDeliverablePath = runDir
+                self.lastRunDir = runDir
+                let reportPath = runDir.map { ($0 as NSString).appendingPathComponent("deliverables/report.pdf") }
+                let reportExists = reportPath.map { FileManager.default.fileExists(atPath: $0) } ?? false
+                if reportExists, let reportPath {
+                    self.selectedPDF = reportPath
                 }
+                let canceled = self.lastRunStatus == "Canceled"
+                self.readyToSend = (!canceled && reportExists)
 
                 self.isRunning = false
             }
@@ -1497,6 +1631,12 @@ struct ContentView: View {
     }
 
     private func runRunner(selectedLang: String, baseCampaign: String, validLines: [String]) {
+        if astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            alert(title: "Select ASTRA Folder to continue.", message: "Select ASTRA Folder to continue.")
+            isRunning = false
+            runState = .error
+            return
+        }
         guard let engineURL = beginEngineAccess() else {
             alert(title: "Engine folder missing", message: "Select Engine Folder to continue.")
             isRunning = false
@@ -1504,6 +1644,7 @@ struct ContentView: View {
         }
         let repoRoot = engineURL.path
 
+        let targetsFile = writeTargetsTempFile(validLines: validLines)
         let outputSuffix = (selectedLang == "both") ? "ro" : selectedLang
         let outputDir = (repoRoot as NSString).appendingPathComponent("deliverables/out/\(baseCampaign)_\(outputSuffix)")
         let logFilePath = makeRunLogFilePath(outputDir: outputDir, prefix: "scope_run")
@@ -1516,16 +1657,33 @@ struct ContentView: View {
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "\"", with: "\\\"")
         }
-        let commands = validLines.map { "python3 -m astra run \"\(shellEscape($0))\"" }
-        let command = "cd \"$HOME/Desktop/astra\" && " + commands.joined(separator: " && ")
+        let escapedRepo = shellEscape(repoRoot)
+        let escapedTargets = shellEscape(targetsFile)
+        let escapedAstraRoot = shellEscape(astraRootPath)
+        let command = """
+set -e
+ASTRA_ROOT="\(escapedAstraRoot)"
+if [[ -x "$ASTRA_ROOT/.venv/bin/python" ]]; then
+  PYTHON="$ASTRA_ROOT/.venv/bin/python"
+else
+  PYTHON="python3"
+fi
+export SCOPE_REPO="\(escapedRepo)"
+export ASTRA_LANG="\(selectedLang == "en" ? "EN" : "RO")"
+cd "$ASTRA_ROOT"
+while IFS= read -r url; do
+  url="$(echo "$url" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  if [[ -z "$url" ]]; then
+    continue
+  fi
+  "$PYTHON" -m astra run "$url" --lang \(selectedLang == "en" ? "en" : "ro")
+done < "\(escapedTargets)"
+"""
         task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         task.arguments = ["bash", "-lc", command]
         var environment = task.environment ?? ProcessInfo.processInfo.environment
         environment["SCOPE_USE_AI"] = useAI ? "1" : "0"
         environment["SCOPE_ANALYSIS_MODE"] = analysisMode
-        if selectedLang == "en" {
-            environment["ASTRA_LANG"] = "en"
-        }
         task.environment = environment
 
         let pipe = Pipe()
@@ -1556,6 +1714,12 @@ struct ContentView: View {
                 let output = self.logOutput
                 let hints = self.parseScopeHints(from: output)
 
+                let runDir = self.latestRunFolder()
+                self.lastRunDir = runDir
+                let deliverablesDir = runDir.map { ($0 as NSString).appendingPathComponent("deliverables") }
+                let reportPath = deliverablesDir.map { ($0 as NSString).appendingPathComponent("report.pdf") }
+                let reportExists = reportPath.map { FileManager.default.fileExists(atPath: $0) } ?? false
+
                 var r = ScopeResult()
                 r.logFile = hints.logFile
                 r.zipByLang = hints.zipByLang
@@ -1564,16 +1728,20 @@ struct ContentView: View {
                 r.shipZipByLang = hints.shipZipByLang
                 r.shipRoot = hints.shipRoot
                 r.archivedLogFile = hints.archivedLogFile
-
-                // PDFs: find under reports + deliverables/out
-                let pdfs = self.discoverPDFs(repoRoot: repoRoot)
-                let filtered = self.filterPDFsByLanguage(pdfs, lang: selectedLang)
-                r.pdfPaths = (filtered.isEmpty ? pdfs : filtered).sorted()
+                if let runDir {
+                    r.outDirByLang[selectedLang] = runDir
+                }
+                if reportExists, let reportPath {
+                    r.pdfPaths = [reportPath]
+                }
 
                 self.result = r
 
-                // auto-select first pdf/zip
-                if self.selectedPDF == nil { self.selectedPDF = r.pdfPaths.first }
+                if reportExists, let reportPath {
+                    self.selectedPDF = reportPath
+                } else if self.selectedPDF == nil {
+                    self.selectedPDF = r.pdfPaths.first
+                }
                 self.syncSelectedZIPLang(with: r, selectedLang: selectedLang)
 
                 if self.cancelRequested {
@@ -1583,12 +1751,12 @@ struct ContentView: View {
                     self.readyToSend = false
                 } else {
                     if code == 0 || code == 1 {
-                        self.readyToSend = true
                         self.runState = .done
+                        self.revealLatestDeliverables()
                     } else {
-                        self.readyToSend = false
                         self.runState = .error
                     }
+                    self.readyToSend = reportExists
                 }
                 self.lastRunCampaign = baseCampaign
                 self.lastRunLang = selectedLang
@@ -1736,6 +1904,19 @@ struct ContentView: View {
         return (logFile, zipByLang, outDirByLang, shipDirByLang, shipZipByLang, shipRoot, archivedLogFile)
     }
 
+    private func parseLastRunDir(from output: String) -> String? {
+        let fm = FileManager.default
+        for line in output.split(separator: "\n").reversed() {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { continue }
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: trimmed, isDirectory: &isDir), isDir.boolValue {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
     private func availableZipLangs() -> [String]? {
         guard let zips = result?.zipByLang, !zips.isEmpty else { return nil }
         let ordered = ["ro", "en"]
@@ -1796,7 +1977,7 @@ struct ContentView: View {
     }
 
     private func outputFolderPath() -> String? {
-        return shipRootPath()
+        return lastRunDir ?? shipRootPath()
     }
 
     private func openOutputFolder() {
