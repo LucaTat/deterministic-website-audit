@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+import json
 import os
 import re
 from urllib.parse import urljoin, urlparse, urlunparse
@@ -115,6 +116,70 @@ def _attr_to_str(value: object) -> str | None:
     if isinstance(value, str):
         return value
     return None
+
+
+def _select_evidence_urls(homepage: str, discovered_urls: list[str], max_extra: int = 4) -> list[str]:
+    keywords = ("contact", "contacteaza", "programare", "oferta", "solicita", "booking", "appointment", "rezerv")
+    base = _site_root(homepage)
+    seen: set[str] = set()
+    chosen: list[str] = []
+
+    def eligible(url: str) -> bool:
+        if not url or url == homepage:
+            return False
+        if url in seen:
+            return False
+        if not _same_host(url, base):
+            return False
+        if not _is_html_candidate(url):
+            return False
+        return True
+
+    for url in discovered_urls:
+        if len(chosen) >= max_extra:
+            break
+        if not eligible(url):
+            continue
+        path = (urlparse(url).path or "").lower()
+        if any(k in path for k in keywords):
+            chosen.append(url)
+            seen.add(url)
+
+    if len(chosen) < max_extra:
+        for url in discovered_urls:
+            if len(chosen) >= max_extra:
+                break
+            if not eligible(url):
+                continue
+            chosen.append(url)
+            seen.add(url)
+
+    return chosen
+
+
+def _save_evidence_pages(evidence_dir: str, homepage: str, extra_urls: list[str]) -> None:
+    os.makedirs(evidence_dir, exist_ok=True)
+    pages_meta: list[dict] = []
+
+    def write_page(url: str, filename: str) -> None:
+        html = ""
+        if url:
+            status, body, _, headers, error = _fetch(url, max_bytes=MAX_HTML_BYTES)
+            content_type = (headers.get("Content-Type") or headers.get("content-type") or "").lower()
+            if not error and status is not None and "text/html" in content_type:
+                html = body or ""
+        out_path = os.path.join(evidence_dir, filename)
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(html or "")
+        pages_meta.append({"url": url, "file": filename})
+
+    write_page(homepage, "home.html")
+    for idx, url in enumerate(extra_urls[:4], start=1):
+        write_page(url, f"page_{idx:02d}.html")
+
+    pages_path = os.path.join(evidence_dir, "pages.json")
+    with open(pages_path, "w", encoding="utf-8") as f:
+        json.dump(pages_meta, f, ensure_ascii=False, indent=2)
 
 
 def _fetch(url: str, max_bytes: int | None = MAX_HTML_BYTES) -> tuple[int | None, str, str, dict, str | None]:
@@ -692,6 +757,12 @@ def crawl_site(site_root: str, max_pages: int = TARGET_ANALYZED, analysis_mode: 
                 additional_pages = fetch_pages(additional_urls)
                 pages = _merge_pages(pages, additional_pages)
             analyzed_html_count = _count_analyzed_html(pages)
+
+    evidence_dir = os.environ.get("SCOPE_EVIDENCE_DIR") or ""
+    if evidence_dir:
+        homepage = discovered_urls[0] if discovered_urls else _normalize_url(site_root, site_root)
+        extra_urls = _select_evidence_urls(homepage, discovered_urls, max_extra=4)
+        _save_evidence_pages(evidence_dir, homepage, extra_urls)
 
     return {
         "analysis_mode": mode,
