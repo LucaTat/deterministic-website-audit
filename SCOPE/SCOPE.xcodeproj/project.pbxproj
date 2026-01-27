@@ -6,17 +6,32 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		74A0A1012F17A00100000001 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A0A0012F17A00100000001 /* AboutView.swift */; };
+		74A0A1012F17A00100000002 /* ChimePlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A0A0012F17A00100000002 /* ChimePlayer.swift */; };
+		74A0A1012F17A00100000003 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A0A0012F17A00100000003 /* ContentView.swift */; };
+		74A0A1012F17A00100000004 /* NeonStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A0A0012F17A00100000004 /* NeonStyles.swift */; };
+		74A0A1012F17A00100000005 /* SCOPEApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A0A0012F17A00100000005 /* SCOPEApp.swift */; };
+		74A0A1012F17A00100000006 /* SplashView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A0A0012F17A00100000006 /* SplashView.swift */; };
+		74A0A1012F17A00100000007 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A0A0012F17A00100000007 /* Theme.swift */; };
+		74A0A1012F17A00100000008 /* WindowEventObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A0A0012F17A00100000008 /* WindowEventObserver.swift */; };
+		74A0A1012F17A00100000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 74A0A0012F17A00100000009 /* Assets.xcassets */; };
+		74A0A1012F17A0010000000A /* launch_chime.wav in Resources */ = {isa = PBXBuildFile; fileRef = 74A0A0012F17A0010000000A /* launch_chime.wav */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		746FB8BB2F16CDAA003A87ED /* SCOPE.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SCOPE.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		74A0A0012F17A00100000001 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
+		74A0A0012F17A00100000002 /* ChimePlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChimePlayer.swift; sourceTree = "<group>"; };
+		74A0A0012F17A00100000003 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		74A0A0012F17A00100000004 /* NeonStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NeonStyles.swift; sourceTree = "<group>"; };
+		74A0A0012F17A00100000005 /* SCOPEApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SCOPEApp.swift; sourceTree = "<group>"; };
+		74A0A0012F17A00100000006 /* SplashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashView.swift; sourceTree = "<group>"; };
+		74A0A0012F17A00100000007 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		74A0A0012F17A00100000008 /* WindowEventObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowEventObserver.swift; sourceTree = "<group>"; };
+		74A0A0012F17A00100000009 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		74A0A0012F17A0010000000A /* launch_chime.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = launch_chime.wav; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
-/* Begin PBXFileSystemSynchronizedRootGroup section */
-		746FB8BD2F16CDAA003A87ED /* SCOPE */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = SCOPE;
-			sourceTree = "<group>";
-		};
-/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		746FB8B82F16CDAA003A87ED /* Frameworks */ = {
@@ -32,9 +47,26 @@
 		746FB8B22F16CDAA003A87ED = {
 			isa = PBXGroup;
 			children = (
-				746FB8BD2F16CDAA003A87ED /* SCOPE */,
+				74A0A2012F17A00100000001 /* SCOPE */,
 				746FB8BC2F16CDAA003A87ED /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		74A0A2012F17A00100000001 /* SCOPE */ = {
+			isa = PBXGroup;
+			children = (
+				74A0A0012F17A00100000005 /* SCOPEApp.swift */,
+				74A0A0012F17A00100000003 /* ContentView.swift */,
+				74A0A0012F17A00100000001 /* AboutView.swift */,
+				74A0A0012F17A00100000006 /* SplashView.swift */,
+				74A0A0012F17A00100000002 /* ChimePlayer.swift */,
+				74A0A0012F17A00100000008 /* WindowEventObserver.swift */,
+				74A0A0012F17A00100000004 /* NeonStyles.swift */,
+				74A0A0012F17A00100000007 /* Theme.swift */,
+				74A0A0012F17A00100000009 /* Assets.xcassets */,
+				74A0A0012F17A0010000000A /* launch_chime.wav */,
+			);
+			path = SCOPE;
 			sourceTree = "<group>";
 		};
 		746FB8BC2F16CDAA003A87ED /* Products */ = {
@@ -59,9 +91,6 @@
 			buildRules = (
 			);
 			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				746FB8BD2F16CDAA003A87ED /* SCOPE */,
 			);
 			name = SCOPE;
 			packageProductDependencies = (
@@ -109,6 +138,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				74A0A1012F17A00100000009 /* Assets.xcassets in Resources */,
+				74A0A1012F17A0010000000A /* launch_chime.wav in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -119,6 +150,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				74A0A1012F17A00100000001 /* AboutView.swift in Sources */,
+				74A0A1012F17A00100000002 /* ChimePlayer.swift in Sources */,
+				74A0A1012F17A00100000003 /* ContentView.swift in Sources */,
+				74A0A1012F17A00100000004 /* NeonStyles.swift in Sources */,
+				74A0A1012F17A00100000005 /* SCOPEApp.swift in Sources */,
+				74A0A1012F17A00100000006 /* SplashView.swift in Sources */,
+				74A0A1012F17A00100000007 /* Theme.swift in Sources */,
+				74A0A1012F17A00100000008 /* WindowEventObserver.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

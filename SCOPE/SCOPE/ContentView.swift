@@ -90,6 +90,19 @@ struct ScopeResult {
     var archivedLogFile: String? = nil
 }
 
+struct RunEntry: Identifiable, Codable {
+    let id: String
+    let timestamp: Date
+    let url: String
+    let lang: String
+    let status: String
+    let runDir: String
+    let deliverablesDir: String
+    let reportPdfPath: String?
+    let decisionBriefPdfPath: String?
+    let logPath: String?
+}
+
 // MARK: - ContentView
 
 struct ContentView: View {
@@ -123,8 +136,10 @@ struct ContentView: View {
     @State private var lastRunLang: String? = nil
     @State private var lastRunStatus: String? = nil
     @State private var lastRunDir: String? = nil
+    @State private var lastRunLogPath: String? = nil
     @State private var showAdvanced: Bool = false
     @State private var recentCampaigns: [RecentCampaign] = []
+    @State private var runHistory: [RunEntry] = []
     @State private var repoRoot: String? = nil
     @State private var exportStatus: String? = nil
     @State private var historyExportStatus: [String: String] = [:]
@@ -148,6 +163,8 @@ struct ContentView: View {
     @AppStorage("scope_use_ai") private var useAI: Bool = true
     @AppStorage("scope_analysis_mode") private var analysisModeRaw: String = "standard"
     @AppStorage("astraRootPath") private var astraRootPath: String = ""
+    private let runHistoryKey = "astraRunHistory"
+    private let logQueue = DispatchQueue(label: "scope.log.queue")
 
     private var analysisMode: String {
         analysisModeRaw == "extended" ? "extended" : "standard"
@@ -204,12 +221,8 @@ struct ContentView: View {
                                     .frame(width: labelWidth, alignment: .leading)
                                 TextField("e.g. Client A / Outreach Jan", text: $campaign)
                                     .textFieldStyle(.roundedBorder)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .stroke(campaignIsValid() ? Color.clear : Color.orange.opacity(0.35), lineWidth: 1)
-                                    )
                                     .frame(maxWidth: 320)
-                                    .help("Required. Use a clear client name, e.g. Client ABC")
+                                    .help("Optional. Use a clear client name, e.g. Client ABC")
 
                                 Text("Language")
                                     .frame(width: labelWidth, alignment: .leading)
@@ -223,13 +236,6 @@ struct ContentView: View {
                                 .frame(maxWidth: 300)
                                 .help("Select delivery language")
                             }
-                            if !campaignIsValid() {
-                                Text("Campaign is required (ex: Client ABC)")
-                                    .font(.footnote)
-                                    .foregroundColor(.secondary)
-                                    .padding(.leading, labelWidth)
-                            }
-
                             HStack(spacing: 12) {
                                 Text("Theme")
                                     .frame(width: labelWidth, alignment: .leading)
@@ -239,22 +245,6 @@ struct ContentView: View {
                                 }
                                 .pickerStyle(.segmented)
                                 .frame(maxWidth: 220)
-
-                                Toggle("Use AI", isOn: $useAI)
-                                    .toggleStyle(.checkbox)
-                                    .help("Enable AI summaries and priorities when available")
-
-                                Picker("", selection: $analysisModeRaw) {
-                                    Text("Standard").tag("standard")
-                                    Text("Extended").tag("extended")
-                                }
-                                .pickerStyle(.segmented)
-                                .frame(maxWidth: 200)
-                                .help("Extended increases page discovery to raise evaluation certainty. Conclusions remain deterministic.")
-
-                                Toggle("Cleanup temporary files", isOn: $cleanup)
-                                    .toggleStyle(.checkbox)
-                                    .help("Remove temporary run files after packaging")
                             }
                             Text("RO + EN generates two ZIPs")
                                 .font(.footnote)
@@ -272,7 +262,7 @@ struct ContentView: View {
                                 Text("• Include https://")
                                     .font(.footnote)
                                     .foregroundColor(.secondary)
-                                Text("• Campaign is required")
+                                Text("• Campaign is optional")
                                     .font(.footnote)
                                     .foregroundColor(.secondary)
                             }
@@ -287,77 +277,10 @@ struct ContentView: View {
                 .modifier(CardStyle(theme: theme))
                 .disabled(isRunning)
 
-                GroupBox(label: Text("Engine Folder").font(.headline)) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 12) {
-                            let selectDisabled = isRunning
-                            Button { selectEngineFolder() } label: {
-                                Label("Select Engine Folder", systemImage: "folder.badge.plus")
-                            }
-                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                            .disabled(selectDisabled)
-                            .opacity(buttonOpacity(disabled: selectDisabled))
-                            .help("Select the deterministic-website-audit repo folder")
-
-                            let showDisabled = isRunning || !engineFolderAvailable()
-                            Button { showEngineFolder() } label: {
-                                Label("Show Engine Folder", systemImage: "folder")
-                            }
-                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                            .disabled(showDisabled)
-                            .opacity(buttonOpacity(disabled: showDisabled))
-                            .help("Reveal the selected engine folder in Finder")
-
-                            let astraDisabled = isRunning
-                            Button { selectAstraFolder() } label: {
-                                Label("Select ASTRA Folder", systemImage: "folder.badge.plus")
-                            }
-                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                            .disabled(astraDisabled)
-                            .opacity(buttonOpacity(disabled: astraDisabled))
-                            .help("Select the ASTRA repo folder")
-
-                            let showAstraDisabled = isRunning || astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            Button { showAstraFolder() } label: {
-                                Label("Show ASTRA Folder", systemImage: "folder")
-                            }
-                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                            .disabled(showAstraDisabled)
-                            .opacity(buttonOpacity(disabled: showAstraDisabled))
-                            .help("Reveal the selected ASTRA folder in Finder")
-
-                            Spacer()
-                        }
-
-                        if repoRoot != nil {
-                            Text("Engine folder selected.")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        } else {
-                            Text("Select Engine Folder to continue.")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        }
-
-                        if !astraRootPath.isEmpty {
-                            Text("ASTRA folder: \(astraRootPath)")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        } else {
-                            Text("Select ASTRA Folder to continue.")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-                }
-                .modifier(CardStyle(theme: theme))
-
                 GroupBox(label: Text("Run").font(.headline)) {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 12) {
-                            let runDisabled = isRunning || !hasAtLeastOneValidURL() || !campaignIsValid() || !engineFolderAvailable() || astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            let runDisabled = isRunning || !hasAtLeastOneValidURL() || !engineFolderAvailable() || astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             Button { runAudit() } label: {
                                 Label("Run", systemImage: "play.fill")
                             }
@@ -366,7 +289,7 @@ struct ContentView: View {
                             .disabled(runDisabled)
                             .opacity(buttonOpacity(disabled: runDisabled))
                             .help(runHelpText())
-                            InfoButton(text: "Runs the audit engine and prepares deliverables. When finished, use Ship Root to send the ZIP.")
+                                InfoButton(text: "Runs the audit engine and prepares deliverables. When finished, use Export/Delivery to send ZIPs.")
 
                             if isRunning {
                                 Button("Cancel") {
@@ -385,7 +308,7 @@ struct ContentView: View {
                             .opacity(buttonOpacity(disabled: resetDisabled))
                             .help("Clear inputs and UI state for next client")
 
-                            let demoDisabled = isRunning || !engineFolderAvailable()
+                            let demoDisabled = isRunning || !engineFolderAvailable() || astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             Button { runDemo() } label: {
                                 Label("Run Demo", systemImage: "sparkles")
                             }
@@ -428,7 +351,8 @@ struct ContentView: View {
                             .opacity(buttonOpacity(disabled: outputDisabled))
                             .help("Reveal the output folder for the last run")
 
-                            let logsDisabled = isRunning || ((result?.logFile == nil) && (result?.archivedLogFile == nil))
+                            let hasLog = (lastRunLogPath != nil && FileManager.default.fileExists(atPath: lastRunLogPath ?? ""))
+                            let logsDisabled = isRunning || !hasLog
                             Button { openLogs() } label: {
                                 Label("Open Logs", systemImage: "doc.text.magnifyingglass")
                             }
@@ -447,7 +371,7 @@ struct ContentView: View {
                                 .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                                 .disabled(revealDisabled)
                                 .opacity(buttonOpacity(disabled: revealDisabled))
-                                .help("Reveal deliverables/out/DEMO_EN or DEMO_RO")
+                                .help("Reveal demo output folder")
                             }
                         }
                     }
@@ -461,7 +385,7 @@ struct ContentView: View {
                         HStack(spacing: 8) {
                             let shipRootDisabled = isRunning || shipRootPath() == nil
                             Button { openShipRoot() } label: {
-                                Label("Open Ship Root", systemImage: "shippingbox.fill")
+                                Label("Open Export/Delivery Root", systemImage: "shippingbox.fill")
                             }
                             .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                             .controlSize(.large)
@@ -469,7 +393,7 @@ struct ContentView: View {
                             .disabled(shipRootDisabled)
                             .opacity(buttonOpacity(disabled: shipRootDisabled))
                             .help(shipRootHelpText())
-                            InfoButton(text: "Opens the final delivery root folder for this campaign.")
+                            InfoButton(text: "Opens the export/delivery root folder for this campaign.")
                         }
 
                         HStack(spacing: 8) {
@@ -618,6 +542,63 @@ struct ContentView: View {
 
                 GroupBox(label: Text("History").font(.headline)) {
                     VStack(alignment: .leading, spacing: 12) {
+                        Text("Recent runs (ASTRA)")
+                            .font(.headline)
+
+                        if runHistory.isEmpty {
+                            Text("No runs yet.")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        } else {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(runHistory.prefix(12)) { entry in
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        HStack {
+                                            Text("\(formatRunTimestamp(entry.timestamp)) • \(entry.lang.uppercased()) • \(entry.url)")
+                                                .font(.subheadline)
+                                                .foregroundColor(.primary)
+                                            Spacer()
+                                            Text(entry.status)
+                                                .font(.caption)
+                                                .foregroundColor(entry.status == "OK" ? .green : .orange)
+                                        }
+                                        HStack(spacing: 8) {
+                                            let outDisabled = isRunning || entry.deliverablesDir.isEmpty || !FileManager.default.fileExists(atPath: entry.deliverablesDir)
+                                            Button { openFolder(entry.deliverablesDir) } label: {
+                                                Text("Open Output")
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .disabled(outDisabled)
+                                            .opacity(buttonOpacity(disabled: outDisabled))
+
+                                            let reportDisabled = isRunning || (entry.reportPdfPath == nil)
+                                            Button {
+                                                if let path = entry.reportPdfPath { revealAndOpenFile(path) }
+                                            } label: {
+                                                Text("Open Report")
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .disabled(reportDisabled)
+                                            .opacity(buttonOpacity(disabled: reportDisabled))
+
+                                            let logDisabled = isRunning || (entry.logPath == nil)
+                                            Button {
+                                                if let path = entry.logPath { revealAndOpenFile(path) }
+                                            } label: {
+                                                Text("Open Log")
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .disabled(logDisabled)
+                                            .opacity(buttonOpacity(disabled: logDisabled))
+                                        }
+                                    }
+                                    Divider()
+                                }
+                            }
+                        }
+
+                        Divider()
+
                         HStack(spacing: 10) {
                             let repoAvailable = (resolvedRepoRoot() != nil)
                             Button { openArchiveRoot() } label: {
@@ -737,6 +718,94 @@ struct ContentView: View {
                 GroupBox {
                     DisclosureGroup("Advanced (debug & logs)", isExpanded: $showAdvanced) {
                         VStack(alignment: .leading, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Engine & ASTRA")
+                                    .font(.headline)
+
+                                HStack(spacing: 12) {
+                                    let selectDisabled = isRunning
+                                    Button { selectEngineFolder() } label: {
+                                        Label("Select Engine Folder", systemImage: "folder.badge.plus")
+                                    }
+                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                                    .disabled(selectDisabled)
+                                    .opacity(buttonOpacity(disabled: selectDisabled))
+                                    .help("Select the deterministic-website-audit repo folder")
+
+                                    let showDisabled = isRunning || !engineFolderAvailable()
+                                    Button { showEngineFolder() } label: {
+                                        Label("Show Engine Folder", systemImage: "folder")
+                                    }
+                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                                    .disabled(showDisabled)
+                                    .opacity(buttonOpacity(disabled: showDisabled))
+                                    .help("Reveal the selected engine folder in Finder")
+
+                                    let astraDisabled = isRunning
+                                    Button { selectAstraFolder() } label: {
+                                        Label("Select ASTRA Folder", systemImage: "folder.badge.plus")
+                                    }
+                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                                    .disabled(astraDisabled)
+                                    .opacity(buttonOpacity(disabled: astraDisabled))
+                                    .help("Select the ASTRA repo folder")
+
+                                    let showAstraDisabled = isRunning || astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    Button { showAstraFolder() } label: {
+                                        Label("Show ASTRA Folder", systemImage: "folder")
+                                    }
+                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                                    .disabled(showAstraDisabled)
+                                    .opacity(buttonOpacity(disabled: showAstraDisabled))
+                                    .help("Reveal the selected ASTRA folder in Finder")
+
+                                    Spacer()
+                                }
+
+                                if repoRoot != nil {
+                                    Text("Engine folder selected.")
+                                        .font(.footnote)
+                                        .foregroundColor(.secondary)
+                                } else {
+                                    Text("Select Engine Folder to continue.")
+                                        .font(.footnote)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                if !astraRootPath.isEmpty {
+                                    Text("ASTRA folder: \(astraRootPath)")
+                                        .font(.footnote)
+                                        .foregroundColor(.secondary)
+                                } else {
+                                    Text("Select ASTRA Folder to continue.")
+                                        .font(.footnote)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Run options")
+                                    .font(.headline)
+
+                                HStack(spacing: 12) {
+                                    Toggle("Use AI", isOn: $useAI)
+                                        .toggleStyle(.checkbox)
+                                        .help("Enable AI summaries and priorities when available")
+
+                                    Picker("", selection: $analysisModeRaw) {
+                                        Text("Standard").tag("standard")
+                                        Text("Extended").tag("extended")
+                                    }
+                                    .pickerStyle(.segmented)
+                                    .frame(maxWidth: 200)
+                                    .help("Extended increases page discovery to raise evaluation certainty. Conclusions remain deterministic.")
+
+                                    Toggle("Cleanup temporary files", isOn: $cleanup)
+                                        .toggleStyle(.checkbox)
+                                        .help("Remove temporary run files after packaging")
+                                }
+                            }
+
                             HStack(spacing: 10) {
                                 let outDisabled = isRunning || outputFolderPath() == nil
                                 Button { openOutputFolder() } label: {
@@ -966,6 +1035,7 @@ struct ContentView: View {
         .onAppear {
             repoRoot = resolvedRepoRoot()
             refreshRecentCampaigns()
+            runHistory = loadRunHistory()
         }
         .onChange(of: repoRoot) { _, _ in
             refreshRecentCampaigns()
@@ -1043,6 +1113,8 @@ struct ContentView: View {
         lastRunCampaign = nil
         lastRunLang = nil
         lastRunStatus = nil
+        lastRunDir = nil
+        lastRunLogPath = nil
         runState = .idle
     }
 
@@ -1126,9 +1198,10 @@ struct ContentView: View {
     private func runDisabledReason() -> String? {
         if isRunning { return "Run disabled: Running…" }
         if !engineFolderAvailable() { return "Select Engine Folder to continue." }
-        if astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Select ASTRA Folder to continue." }
+        let astraTrimmed = astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if astraTrimmed.isEmpty { return "Select ASTRA Folder to continue." }
+        if !FileManager.default.fileExists(atPath: astraTrimmed) { return "ASTRA folder not found. Select ASTRA Folder." }
         if !hasAtLeastOneValidURL() { return "Run disabled: Add at least 1 valid URL" }
-        if !campaignIsValid() { return "Run disabled: Enter Campaign" }
         return nil
     }
 
@@ -1137,8 +1210,8 @@ struct ContentView: View {
     }
 
     private func shipDisabledReason() -> String? {
-        if isRunning { return "Ship disabled: Running…" }
-        if !hasShipForCurrentLang() { return "Ship disabled: No ship folder yet" }
+        if isRunning { return "Delivery disabled: Running…" }
+        if !hasShipForCurrentLang() { return "Delivery disabled: No export folder yet" }
         return nil
     }
 
@@ -1150,7 +1223,7 @@ struct ContentView: View {
 
     private func pdfDisabledReason() -> String? {
         if isRunning { return "PDF disabled: Running…" }
-        if result?.pdfPaths.isEmpty ?? true { return "PDF disabled: No PDFs yet" }
+        if selectedPDF == nil { return "PDF disabled: No PDFs yet" }
         return nil
     }
 
@@ -1177,18 +1250,18 @@ struct ContentView: View {
 
     private func shipHelpText(forLang lang: String) -> String {
         if let reason = shipDisabledReason() {
-            return "Open ship/archive folder. \(reason)"
+            return "Open export/delivery folder. \(reason)"
         }
-        if lang == "ro" { return "Open the RO ship/archive folder" }
-        if lang == "en" { return "Open the EN ship/archive folder" }
-        return "Open the ship/archive folder"
+        if lang == "ro" { return "Open the RO export/delivery folder" }
+        if lang == "en" { return "Open the EN export/delivery folder" }
+        return "Open the export/delivery folder"
     }
 
     private func shipRootHelpText() -> String {
         if shipRootPath() == nil {
-            return "Open delivery root. Available after run."
+            return "Open export/delivery root. Available after run."
         }
-        return "Open the final delivery root folder for this campaign"
+        return "Open the export/delivery root folder for this campaign"
     }
 
     private func zipHelpText(forLang lang: String) -> String {
@@ -1258,33 +1331,14 @@ struct ContentView: View {
         return tail.joined(separator: "/")
     }
 
-    private func latestRunFolder() -> String? {
-        let trimmed = astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let runsRoot = (trimmed as NSString).appendingPathComponent("runs")
-        let fm = FileManager.default
-        var isDir: ObjCBool = false
-        guard fm.fileExists(atPath: runsRoot, isDirectory: &isDir), isDir.boolValue else { return nil }
-        guard let entries = try? fm.contentsOfDirectory(atPath: runsRoot) else { return nil }
-
-        var latestPath: String? = nil
-        var latestDate: Date? = nil
-        for entry in entries {
-            let fullPath = (runsRoot as NSString).appendingPathComponent(entry)
-            var isEntryDir: ObjCBool = false
-            guard fm.fileExists(atPath: fullPath, isDirectory: &isEntryDir), isEntryDir.boolValue else { continue }
-            let attrs = try? fm.attributesOfItem(atPath: fullPath)
-            let modDate = attrs?[.modificationDate] as? Date
-            if latestDate == nil || (modDate ?? .distantPast) > (latestDate ?? .distantPast) {
-                latestDate = modDate
-                latestPath = fullPath
-            }
-        }
-        return latestPath
+    private func formatRunTimestamp(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter.string(from: date)
     }
 
     private func revealLatestDeliverables() {
-        guard let runDir = latestRunFolder() else { return }
+        guard let runDir = lastRunDir else { return }
         let deliverablesDir = (runDir as NSString).appendingPathComponent("deliverables")
         let reportPath = (deliverablesDir as NSString).appendingPathComponent("report.pdf")
         if FileManager.default.fileExists(atPath: reportPath) {
@@ -1365,6 +1419,10 @@ struct ContentView: View {
     // MARK: - Finder actions
 
     private func openLogs() {
+        if let log = lastRunLogPath, FileManager.default.fileExists(atPath: log) {
+            revealAndOpenFile(log)
+            return
+        }
         if let archived = result?.archivedLogFile, FileManager.default.fileExists(atPath: archived) {
             revealAndOpenFile(archived)
             return
@@ -1373,17 +1431,7 @@ struct ContentView: View {
             revealAndOpenFile(log)
             return
         }
-
-        // fallback: repo deliverables/logs
-        if let repo = try? ScopeRepoLocator.locateRepo() {
-            let logsDir = (repo as NSString).appendingPathComponent("deliverables/logs")
-            if FileManager.default.fileExists(atPath: logsDir) {
-                openFolder(logsDir)
-                return
-            }
-        }
-
-        openFolder(ScopeRepoLocator.appSupportDir)
+        openFolder((ScopeRepoLocator.appSupportDir as NSString).appendingPathComponent("logs"))
     }
 
     private func openEvidence() {
@@ -1481,15 +1529,16 @@ struct ContentView: View {
             alert(title: "Select Engine Folder to continue.", message: "Select Engine Folder to continue.")
             return
         }
-        guard !astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let astraTrimmed = astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !astraTrimmed.isEmpty else {
             alert(title: "Select ASTRA Folder to continue.", message: "Select ASTRA Folder to continue.")
             return
         }
-        guard let validLines = validateTargetsInput() else {
+        guard FileManager.default.fileExists(atPath: astraTrimmed) else {
+            alert(title: "ASTRA folder missing", message: "Select ASTRA Folder to continue.")
             return
         }
-        guard campaignIsValid() else {
-            alert(title: "Campaign required", message: "Te rog completează un nume de campanie.")
+        guard let validLines = validateTargetsInput() else {
             return
         }
 
@@ -1503,6 +1552,7 @@ struct ContentView: View {
         readyToSend = false
         cancelRequested = false
         lastRunDir = nil
+        lastRunLogPath = nil
 
         let baseCampaign = campaign.trimmingCharacters(in: .whitespacesAndNewlines)
         let camp = baseCampaign.isEmpty ? "Default" : baseCampaign
@@ -1512,15 +1562,23 @@ struct ContentView: View {
 
     private func runDemo() {
         guard !isRunning else { return }
-        guard !astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard engineFolderAvailable() else {
+            alert(title: "Select Engine Folder to continue.", message: "Select Engine Folder to continue.")
+            return
+        }
+        let astraRoot = astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !astraRoot.isEmpty else {
             alert(title: "Select ASTRA Folder to continue.", message: "Select ASTRA Folder to continue.")
+            return
+        }
+        guard FileManager.default.fileExists(atPath: astraRoot) else {
+            alert(title: "ASTRA folder missing", message: "Select ASTRA Folder to continue.")
             return
         }
         guard let engineURL = beginEngineAccess() else {
             alert(title: "Engine folder missing", message: "Select Engine Folder to continue.")
             return
         }
-        let repoRoot = engineURL.path
 
         isRunning = true
         runState = .running
@@ -1529,110 +1587,30 @@ struct ContentView: View {
         result = nil
         readyToSend = false
         selectedPDF = nil
-        selectedZIPLang = "en"
+        selectedZIPLang = (lang == "en") ? "en" : "ro"
         demoDeliverablePath = nil
         lastRunDir = nil
+        lastRunLogPath = nil
         cancelRequested = false
 
-        let (_, demoCampaign) = demoScriptAndCampaign(for: lang)
-        let outputDir = (repoRoot as NSString).appendingPathComponent("deliverables/out/\(demoCampaign)")
-        let logFilePath = makeRunLogFilePath(outputDir: outputDir, prefix: "scope_demo")
-        FileManager.default.createFile(atPath: logFilePath, contents: nil)
-        let task = Process()
-        currentTask = task
-        func shellEscape(_ value: String) -> String {
-            value
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\"", with: "\\\"")
-        }
         let demoURL = "https://example.com"
-        let escapedRepo = shellEscape(repoRoot)
-        let escapedAstraRoot = shellEscape(astraRootPath)
-        let command = """
-set -e
-ASTRA_ROOT="\(escapedAstraRoot)"
-if [[ -x "$ASTRA_ROOT/.venv/bin/python" ]]; then
-  PYTHON="$ASTRA_ROOT/.venv/bin/python"
-else
-  PYTHON="python3"
-fi
-export SCOPE_REPO="\(escapedRepo)"
-export ASTRA_LANG="\(lang == "en" ? "EN" : "RO")"
-cd "$ASTRA_ROOT"
-"$PYTHON" -m astra run "\(demoURL)" --lang \(lang == "en" ? "en" : "ro")
-"""
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        task.arguments = ["bash", "-lc", command]
-        var environment = task.environment ?? ProcessInfo.processInfo.environment
-        environment["SCOPE_USE_AI"] = useAI ? "1" : "0"
-        environment["SCOPE_ANALYSIS_MODE"] = analysisMode
-        task.environment = environment
-
-        let pipe = Pipe()
-        let logHandle = FileHandle(forWritingAtPath: logFilePath)
-        task.standardOutput = pipe
-        task.standardError = pipe
-
-        pipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            if let str = String(data: data, encoding: .utf8), !str.isEmpty {
-                DispatchQueue.main.async {
-                    self.logOutput += str
-                }
-            }
-            logHandle?.write(data)
-        }
-
-        task.terminationHandler = { p in
-            DispatchQueue.main.async {
-                pipe.fileHandleForReading.readabilityHandler = nil
-                logHandle?.closeFile()
-                self.endEngineAccess(engineURL)
-                self.currentTask = nil
-                let code = p.terminationStatus
-                self.lastExitCode = code
-                self.lastRunCampaign = demoCampaign
-                self.lastRunLang = (self.lang == "en") ? "en" : "ro"
-                if self.cancelRequested {
-                    self.lastRunStatus = "Canceled"
-                    self.runState = .error
-                    self.cancelRequested = false
-                } else {
-                    self.lastRunStatus = self.statusLabel(for: code)
-                    self.runState = (code == 0 || code == 1) ? .done : .error
-                }
-                let output = self.logOutput
-                let runDir = self.parseLastRunDir(from: output)
-                self.demoDeliverablePath = runDir
-                self.lastRunDir = runDir
-                let reportPath = runDir.map { ($0 as NSString).appendingPathComponent("deliverables/report.pdf") }
-                let reportExists = reportPath.map { FileManager.default.fileExists(atPath: $0) } ?? false
-                if reportExists, let reportPath {
-                    self.selectedPDF = reportPath
-                }
-                let canceled = self.lastRunStatus == "Canceled"
-                self.readyToSend = (!canceled && reportExists)
-
-                self.isRunning = false
-            }
-        }
-
-        do {
-            try task.run()
-        } catch {
-            DispatchQueue.main.async {
-                self.endEngineAccess(engineURL)
-                self.currentTask = nil
-                self.isRunning = false
-                self.runState = .error
-                self.alert(title: "Demo failed", message: "Nu am putut porni demo-ul.")
-            }
+        let specs = buildRunSpecs(validLines: [demoURL], selectedLang: lang)
+        lastRunCampaign = "DEMO"
+        runAstraSequence(specs: specs, engineURL: engineURL, astraRoot: astraRoot) { entry in
+            self.demoDeliverablePath = entry.deliverablesDir
         }
     }
 
     private func runRunner(selectedLang: String, baseCampaign: String, validLines: [String]) {
-        if astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let astraRoot = astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !astraRoot.isEmpty else {
             alert(title: "Select ASTRA Folder to continue.", message: "Select ASTRA Folder to continue.")
+            isRunning = false
+            runState = .error
+            return
+        }
+        guard FileManager.default.fileExists(atPath: astraRoot) else {
+            alert(title: "ASTRA folder missing", message: "Select ASTRA Folder to continue.")
             isRunning = false
             runState = .error
             return
@@ -1642,25 +1620,66 @@ cd "$ASTRA_ROOT"
             isRunning = false
             return
         }
-        let repoRoot = engineURL.path
+        let specs = buildRunSpecs(validLines: validLines, selectedLang: selectedLang)
+        if specs.isEmpty {
+            endEngineAccess(engineURL)
+            alert(title: "No valid URLs", message: "Paste at least one valid URL.")
+            isRunning = false
+            runState = .error
+            return
+        }
+        lastRunCampaign = baseCampaign
+        runAstraSequence(specs: specs, engineURL: engineURL, astraRoot: astraRoot, onRunRecorded: nil)
+    }
 
-        let targetsFile = writeTargetsTempFile(validLines: validLines)
-        let outputSuffix = (selectedLang == "both") ? "ro" : selectedLang
-        let outputDir = (repoRoot as NSString).appendingPathComponent("deliverables/out/\(baseCampaign)_\(outputSuffix)")
-        let logFilePath = makeRunLogFilePath(outputDir: outputDir, prefix: "scope_run")
-        FileManager.default.createFile(atPath: logFilePath, contents: nil)
+    private func runAstraSequence(
+        specs: [RunSpec],
+        engineURL: URL,
+        astraRoot: String,
+        onRunRecorded: ((RunEntry) -> Void)?
+    ) {
+        let engineRoot = engineURL.path
+        let normalizedAstraRoot = astraRoot
+        let fm = FileManager.default
+        var index = 0
+        var sawError = false
 
-        let task = Process()
-        currentTask = task
         func shellEscape(_ value: String) -> String {
             value
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "\"", with: "\\\"")
         }
-        let escapedRepo = shellEscape(repoRoot)
-        let escapedTargets = shellEscape(targetsFile)
-        let escapedAstraRoot = shellEscape(astraRootPath)
-        let command = """
+
+        func runNext() {
+            if cancelRequested {
+                lastRunStatus = "Canceled"
+                runState = .error
+                cancelRequested = false
+                currentTask = nil
+                isRunning = false
+                endEngineAccess(engineURL)
+                return
+            }
+            if index >= specs.count {
+                runState = sawError ? .error : .done
+                isRunning = false
+                endEngineAccess(engineURL)
+                refreshRecentCampaigns()
+                return
+            }
+
+            let spec = specs[index]
+            index += 1
+            let logPath = makeAstraLogFilePath(url: spec.url, lang: spec.lang)
+            fm.createFile(atPath: logPath, contents: nil)
+            lastRunLogPath = logPath
+
+            logOutput += "\n== ASTRA run \(index)/\(specs.count) • \(spec.lang.uppercased()) • \(spec.url) ==\n"
+
+            let escapedRepo = shellEscape(engineRoot)
+            let escapedAstraRoot = shellEscape(normalizedAstraRoot)
+            let escapedUrl = shellEscape(spec.url)
+            let command = """
 set -e
 ASTRA_ROOT="\(escapedAstraRoot)"
 if [[ -x "$ASTRA_ROOT/.venv/bin/python" ]]; then
@@ -1669,117 +1688,114 @@ else
   PYTHON="python3"
 fi
 export SCOPE_REPO="\(escapedRepo)"
-export ASTRA_LANG="\(selectedLang == "en" ? "EN" : "RO")"
+export ASTRA_LANG="\(spec.lang == "en" ? "EN" : "RO")"
 cd "$ASTRA_ROOT"
-while IFS= read -r url; do
-  url="$(echo "$url" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-  if [[ -z "$url" ]]; then
-    continue
-  fi
-  "$PYTHON" -m astra run "$url" --lang \(selectedLang == "en" ? "en" : "ro")
-done < "\(escapedTargets)"
+"$PYTHON" -m astra run "\(escapedUrl)" --lang \(spec.lang)
 """
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        task.arguments = ["bash", "-lc", command]
-        var environment = task.environment ?? ProcessInfo.processInfo.environment
-        environment["SCOPE_USE_AI"] = useAI ? "1" : "0"
-        environment["SCOPE_ANALYSIS_MODE"] = analysisMode
-        task.environment = environment
+            let task = Process()
+            currentTask = task
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            task.arguments = ["bash", "-lc", command]
+            var environment = task.environment ?? ProcessInfo.processInfo.environment
+            environment["SCOPE_USE_AI"] = useAI ? "1" : "0"
+            environment["SCOPE_ANALYSIS_MODE"] = analysisMode
+            task.environment = environment
 
-        let pipe = Pipe()
-        let logHandle = FileHandle(forWritingAtPath: logFilePath)
-        task.standardOutput = pipe
-        task.standardError = pipe
+            let pipe = Pipe()
+            let logHandle = FileHandle(forWritingAtPath: logPath)
+            task.standardOutput = pipe
+            task.standardError = pipe
 
-        pipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            if let str = String(data: data, encoding: .utf8), !str.isEmpty {
-                DispatchQueue.main.async {
-                    self.logOutput += str
-                }
-            }
-            logHandle?.write(data)
-        }
-
-        task.terminationHandler = { p in
-            DispatchQueue.main.async {
-                pipe.fileHandleForReading.readabilityHandler = nil
-                logHandle?.closeFile()
-                self.endEngineAccess(engineURL)
-                self.currentTask = nil
-
-                let code = p.terminationStatus
-                self.lastExitCode = code
-
-                let output = self.logOutput
-                let hints = self.parseScopeHints(from: output)
-
-                let runDir = self.latestRunFolder()
-                self.lastRunDir = runDir
-                let deliverablesDir = runDir.map { ($0 as NSString).appendingPathComponent("deliverables") }
-                let reportPath = deliverablesDir.map { ($0 as NSString).appendingPathComponent("report.pdf") }
-                let reportExists = reportPath.map { FileManager.default.fileExists(atPath: $0) } ?? false
-
-                var r = ScopeResult()
-                r.logFile = hints.logFile
-                r.zipByLang = hints.zipByLang
-                r.outDirByLang = hints.outDirByLang
-                r.shipDirByLang = hints.shipDirByLang
-                r.shipZipByLang = hints.shipZipByLang
-                r.shipRoot = hints.shipRoot
-                r.archivedLogFile = hints.archivedLogFile
-                if let runDir {
-                    r.outDirByLang[selectedLang] = runDir
-                }
-                if reportExists, let reportPath {
-                    r.pdfPaths = [reportPath]
-                }
-
-                self.result = r
-
-                if reportExists, let reportPath {
-                    self.selectedPDF = reportPath
-                } else if self.selectedPDF == nil {
-                    self.selectedPDF = r.pdfPaths.first
-                }
-                self.syncSelectedZIPLang(with: r, selectedLang: selectedLang)
-
-                if self.cancelRequested {
-                    self.lastRunStatus = "Canceled"
-                    self.runState = .error
-                    self.cancelRequested = false
-                    self.readyToSend = false
-                } else {
-                    if code == 0 || code == 1 {
-                        self.runState = .done
-                        self.revealLatestDeliverables()
-                    } else {
-                        self.runState = .error
+            pipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if let str = String(data: data, encoding: .utf8), !str.isEmpty {
+                    DispatchQueue.main.async {
+                        self.logOutput += str
                     }
-                    self.readyToSend = reportExists
                 }
-                self.lastRunCampaign = baseCampaign
-                self.lastRunLang = selectedLang
-                if self.lastRunStatus == nil || self.lastRunStatus == self.statusLabel(for: code) {
-                    self.lastRunStatus = self.statusLabel(for: code)
+                if !data.isEmpty {
+                    self.logQueue.async {
+                        logHandle?.write(data)
+                    }
                 }
+            }
 
-                self.isRunning = false
-                self.refreshRecentCampaigns()
+            task.terminationHandler = { p in
+                DispatchQueue.main.async {
+                    pipe.fileHandleForReading.readabilityHandler = nil
+                    self.logQueue.async {
+                        logHandle?.closeFile()
+                    }
+                    self.currentTask = nil
+
+                    let code = p.terminationStatus
+                    self.lastExitCode = code
+                    if code != 0 { sawError = true }
+
+                    let runDir = self.parseAstraRunDirMarker(from: self.logOutput)
+                    if runDir == nil { sawError = true }
+                    let deliverablesDir = runDir.map { ($0 as NSString).appendingPathComponent("deliverables") } ?? ""
+                    let reportPath = deliverablesDir.isEmpty ? nil : (deliverablesDir as NSString).appendingPathComponent("report.pdf")
+                    let reportExists = reportPath.map { fm.fileExists(atPath: $0) } ?? false
+
+                    var decisionBrief: String? = nil
+                    if !deliverablesDir.isEmpty {
+                        let candidate = (deliverablesDir as NSString).appendingPathComponent("decision_brief.pdf")
+                        if fm.fileExists(atPath: candidate) {
+                            decisionBrief = candidate
+                        }
+                    }
+
+                    let status = cancelRequested ? "Canceled" : ((code == 0 && runDir != nil) ? "OK" : "FAILED")
+                    let entry = RunEntry(
+                        id: UUID().uuidString,
+                        timestamp: Date(),
+                        url: spec.url,
+                        lang: spec.lang,
+                        status: status,
+                        runDir: runDir ?? "",
+                        deliverablesDir: deliverablesDir,
+                        reportPdfPath: reportExists ? reportPath : nil,
+                        decisionBriefPdfPath: decisionBrief,
+                        logPath: logPath
+                    )
+                    self.runHistory.insert(entry, at: 0)
+                    self.saveRunHistory(self.runHistory)
+                    onRunRecorded?(entry)
+
+                    self.lastRunDir = runDir
+                    self.lastRunLang = spec.lang
+                    self.lastRunStatus = status
+                    if let runDir {
+                        if self.result == nil { self.result = ScopeResult() }
+                        self.result?.outDirByLang[spec.lang] = runDir
+                    }
+                    if reportExists, let reportPath {
+                        self.selectedPDF = reportPath
+                        if self.result == nil { self.result = ScopeResult() }
+                        self.result?.pdfPaths = [reportPath]
+                    }
+                    self.readyToSend = (status != "Canceled") && reportExists
+
+                    runNext()
+                }
+            }
+
+            do {
+                try task.run()
+            } catch {
+                DispatchQueue.main.async {
+                    self.currentTask = nil
+                    self.lastRunStatus = "FAILED"
+                    self.runState = .error
+                    self.isRunning = false
+                    self.endEngineAccess(engineURL)
+                    self.alert(title: "Run failed", message: "Nu am putut porni ASTRA.")
+                }
             }
         }
 
-        do {
-            try task.run()
-        } catch {
-            DispatchQueue.main.async {
-                self.endEngineAccess(engineURL)
-                self.currentTask = nil
-                self.isRunning = false
-                self.runState = .error
-                self.alert(title: "Run failed", message: "Nu am putut porni runner-ul.")
-            }
-        }
+        runNext()
     }
 
     private func cancelRun() {
@@ -1825,17 +1841,11 @@ done < "\(escapedTargets)"
     }
 
     private func revealDemoDeliverable() {
-        guard let repoRoot = try? ScopeRepoLocator.locateRepo() else {
-            alert(title: "Repo not found", message: "Apasă Set Repo… și selectează repo-ul corect.")
+        guard let path = demoDeliverablePath, FileManager.default.fileExists(atPath: path) else {
+            alert(title: "Demo not found", message: "Nu am găsit output pentru demo.")
             return
         }
-        let (_, demoCampaign) = demoScriptAndCampaign(for: lang)
-        let path = demoDeliverablePath ?? (repoRoot as NSString).appendingPathComponent("deliverables/out/\(demoCampaign)")
-        if FileManager.default.fileExists(atPath: path) {
-            openFolder(path)
-        } else {
-            alert(title: "Demo not found", message: "Nu am găsit deliverables/out/DEMO.")
-        }
+        openFolder(path)
     }
 
     private func demoScriptAndCampaign(for lang: String) -> (script: String, campaign: String) {
@@ -1904,17 +1914,63 @@ done < "\(escapedTargets)"
         return (logFile, zipByLang, outDirByLang, shipDirByLang, shipZipByLang, shipRoot, archivedLogFile)
     }
 
-    private func parseLastRunDir(from output: String) -> String? {
+    private struct RunSpec {
+        let url: String
+        let lang: String
+    }
+
+    private func buildRunSpecs(validLines: [String], selectedLang: String) -> [RunSpec] {
+        var specs: [RunSpec] = []
+        if selectedLang == "both" {
+            for url in validLines {
+                specs.append(RunSpec(url: url, lang: "ro"))
+                specs.append(RunSpec(url: url, lang: "en"))
+            }
+            return specs
+        }
+        return validLines.map { RunSpec(url: $0, lang: selectedLang) }
+    }
+
+    private func parseAstraRunDirMarker(from output: String) -> String? {
         let fm = FileManager.default
-        for line in output.split(separator: "\n").reversed() {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty { continue }
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: trimmed, isDirectory: &isDir), isDir.boolValue {
-                return trimmed
+        for lineSub in output.split(separator: "\n").reversed() {
+            let line = lineSub.trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.hasPrefix("ASTRA_RUN_DIR=") {
+                let path = String(line.dropFirst("ASTRA_RUN_DIR=".count))
+                var isDir: ObjCBool = false
+                if fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
+                    return path
+                }
             }
         }
         return nil
+    }
+
+    private func makeAstraLogFilePath(url: String, lang: String) -> String {
+        let logsDir = (ScopeRepoLocator.appSupportDir as NSString).appendingPathComponent("logs")
+        if !FileManager.default.fileExists(atPath: logsDir) {
+            try? FileManager.default.createDirectory(atPath: logsDir, withIntermediateDirectories: true)
+        }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd_HHmmss"
+        let stamp = formatter.string(from: Date())
+        let slug = sanitizeFilename(url)
+        let file = "astra_\(lang)_\(slug)_\(stamp).log"
+        return (logsDir as NSString).appendingPathComponent(file)
+    }
+
+    private func sanitizeFilename(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
+        var cleaned = ""
+        for scalar in value.unicodeScalars {
+            if allowed.contains(scalar) {
+                cleaned.append(String(scalar))
+            } else {
+                cleaned.append("_")
+            }
+        }
+        let result = cleaned.replacingOccurrences(of: "__", with: "_")
+        return result.isEmpty ? "run" : result
     }
 
     private func availableZipLangs() -> [String]? {
@@ -1977,7 +2033,12 @@ done < "\(escapedTargets)"
     }
 
     private func outputFolderPath() -> String? {
-        return lastRunDir ?? shipRootPath()
+        guard let runDir = lastRunDir else { return nil }
+        let deliverablesDir = (runDir as NSString).appendingPathComponent("deliverables")
+        if FileManager.default.fileExists(atPath: deliverablesDir) {
+            return deliverablesDir
+        }
+        return nil
     }
 
     private func openOutputFolder() {
@@ -2177,6 +2238,25 @@ done < "\(escapedTargets)"
             if historyExportStatus[id] == text {
                 historyExportStatus[id] = nil
             }
+        }
+    }
+
+    private func loadRunHistory() -> [RunEntry] {
+        guard let data = UserDefaults.standard.data(forKey: runHistoryKey) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        if let decoded = try? decoder.decode([RunEntry].self, from: data) {
+            return decoded.sorted { $0.timestamp > $1.timestamp }
+        }
+        return []
+    }
+
+    private func saveRunHistory(_ entries: [RunEntry]) {
+        let trimmed = Array(entries.prefix(200))
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        if let data = try? encoder.encode(trimmed) {
+            UserDefaults.standard.set(data, forKey: runHistoryKey)
         }
     }
 
@@ -2495,10 +2575,10 @@ done < "\(escapedTargets)"
     private func readyToSendHint() -> String? {
         guard !isRunning, let code = lastExitCode else { return nil }
         if code == 0 {
-            return "Send the ZIP files to the client. Start with Open Ship Root."
+            return "Send the ZIP files to the client. Start with Open Export/Delivery Root."
         }
         if code == 1 {
-            return "Issues found. Send the ZIP files after reviewing. Start with Open Ship Root."
+            return "Issues found. Send the ZIP files after reviewing. Start with Open Export/Delivery Root."
         }
         if code == 2 {
             return "Run failed. Check Advanced logs."
