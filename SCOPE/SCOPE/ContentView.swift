@@ -164,7 +164,7 @@ struct ContentView: View {
     @AppStorage("scope_analysis_mode") private var analysisModeRaw: String = "standard"
     @AppStorage("astraRootPath") private var astraRootPath: String = ""
     private let runHistoryKey = "astraRunHistory"
-    private let logQueue = DispatchQueue(label: "scope.log.queue")
+    private let logQueue = DispatchQueue(label: "scope.log.write.queue")
 
     private var analysisMode: String {
         analysisModeRaw == "extended" ? "extended" : "standard"
@@ -492,10 +492,11 @@ struct ContentView: View {
                             }
 
                             HStack(spacing: 6) {
-                                let logsDisabled = isRunning || ((result?.logFile == nil) && (result?.archivedLogFile == nil))
-                                Button { openLogs() } label: {
-                                    Label("Open Logs", systemImage: "doc.text.magnifyingglass")
-                                }
+                            let logCandidates = [result?.logFile, result?.archivedLogFile].compactMap { $0 }
+                            let logsDisabled = isRunning || !logCandidates.contains { FileManager.default.fileExists(atPath: $0) }
+                            Button { openLogs() } label: {
+                                Label("Open Logs", systemImage: "doc.text.magnifyingglass")
+                            }
                                 .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                                 .tint(.secondary)
                                 .disabled(logsDisabled)
@@ -1702,7 +1703,7 @@ cd "$ASTRA_ROOT"
             task.environment = environment
 
             let pipe = Pipe()
-            let logHandle = FileHandle(forWritingAtPath: logPath)
+            var logHandle = FileHandle(forWritingAtPath: logPath)
             task.standardOutput = pipe
             task.standardError = pipe
 
@@ -1721,11 +1722,12 @@ cd "$ASTRA_ROOT"
             }
 
             task.terminationHandler = { p in
+                pipe.fileHandleForReading.readabilityHandler = nil
+                self.logQueue.async {
+                    logHandle?.closeFile()
+                    logHandle = nil
+                }
                 DispatchQueue.main.async {
-                    pipe.fileHandleForReading.readabilityHandler = nil
-                    self.logQueue.async {
-                        logHandle?.closeFile()
-                    }
                     self.currentTask = nil
 
                     let code = p.terminationStatus
@@ -1733,7 +1735,12 @@ cd "$ASTRA_ROOT"
                     if code != 0 { sawError = true }
 
                     let runDir = self.parseAstraRunDirMarker(from: self.logOutput)
-                    if runDir == nil { sawError = true }
+                    self.lastRunDir = runDir
+                    if runDir == nil {
+                        sawError = true
+                        self.runState = .error
+                        self.readyToSend = false
+                    }
                     let deliverablesDir = runDir.map { ($0 as NSString).appendingPathComponent("deliverables") } ?? ""
                     let reportPath = deliverablesDir.isEmpty ? nil : (deliverablesDir as NSString).appendingPathComponent("report.pdf")
                     let reportExists = reportPath.map { fm.fileExists(atPath: $0) } ?? false
@@ -1763,7 +1770,6 @@ cd "$ASTRA_ROOT"
                     self.saveRunHistory(self.runHistory)
                     onRunRecorded?(entry)
 
-                    self.lastRunDir = runDir
                     self.lastRunLang = spec.lang
                     self.lastRunStatus = status
                     if let runDir {
@@ -1775,7 +1781,7 @@ cd "$ASTRA_ROOT"
                         if self.result == nil { self.result = ScopeResult() }
                         self.result?.pdfPaths = [reportPath]
                     }
-                    self.readyToSend = (status != "Canceled") && reportExists
+                    self.readyToSend = (status != "Canceled") && reportExists && runDir != nil
 
                     runNext()
                 }
@@ -1801,7 +1807,9 @@ cd "$ASTRA_ROOT"
     private func cancelRun() {
         guard isRunning else { return }
         cancelRequested = true
-        currentTask?.terminate()
+        if let task = currentTask, task.isRunning {
+            task.interrupt()
+        }
     }
 
     private func runStatusLine() -> String {
