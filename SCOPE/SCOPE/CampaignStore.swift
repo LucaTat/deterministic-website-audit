@@ -1,11 +1,26 @@
 import Foundation
+import Combine
 
-final class CampaignStore {
-    let repoRoot: String
+struct Campaign: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let campaignURL: URL
+}
+
+final class CampaignStore: ObservableObject {
+    var repoRoot: String
     private let fm = FileManager.default
+    private let selectedCampaignKey = "scope.selectedCampaignID"
+
+    @Published var selectedCampaignID: String? {
+        didSet {
+            UserDefaults.standard.set(selectedCampaignID, forKey: selectedCampaignKey)
+        }
+    }
 
     init(repoRoot: String) {
         self.repoRoot = repoRoot
+        self.selectedCampaignID = UserDefaults.standard.string(forKey: selectedCampaignKey)
     }
 
     func ensureDirectory(_ path: String) {
@@ -25,6 +40,72 @@ final class CampaignStore {
 
     func campaignsRoot(exportRoot: String) -> URL {
         URL(fileURLWithPath: exportRoot).appendingPathComponent("campaigns")
+    }
+
+    private func exportRootPath() -> String? {
+        let trimmed = repoRoot.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return (trimmed as NSString).appendingPathComponent("deliverables")
+    }
+
+    func listCampaignsForPicker(exportRoot: String) -> [Campaign] {
+        let root = campaignsRoot(exportRoot: exportRoot)
+        guard let items = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
+            return []
+        }
+        return items
+            .filter { $0.hasDirectoryPath }
+            .sorted { $0.lastPathComponent.lowercased() < $1.lastPathComponent.lowercased() }
+            .map { url in
+                Campaign(id: url.path, name: url.lastPathComponent, campaignURL: url)
+            }
+    }
+
+    func ensureDefaultCampaign() -> Campaign {
+        let name = "Default"
+        let safe = campaignFolderName(for: name)
+        if let exportRoot = exportRootPath() {
+            let url = campaignsRoot(exportRoot: exportRoot).appendingPathComponent(safe)
+            ensureDirectory(url.path)
+            let campaign = Campaign(id: url.path, name: name, campaignURL: url)
+            if selectedCampaignID == nil {
+                selectedCampaignID = campaign.id
+            }
+            return campaign
+        }
+        let fallbackURL = URL(fileURLWithPath: repoRoot).appendingPathComponent("deliverables").appendingPathComponent("campaigns").appendingPathComponent(safe)
+        let campaign = Campaign(id: fallbackURL.path, name: name, campaignURL: fallbackURL)
+        if selectedCampaignID == nil {
+            selectedCampaignID = campaign.id
+        }
+        return campaign
+    }
+
+    var selectedCampaign: Campaign {
+        guard let exportRoot = exportRootPath() else {
+            return ensureDefaultCampaign()
+        }
+        let campaigns = listCampaignsForPicker(exportRoot: exportRoot)
+        if let id = selectedCampaignID, let match = campaigns.first(where: { $0.id == id }) {
+            return match
+        }
+        if let first = campaigns.first {
+            selectedCampaignID = first.id
+            return first
+        }
+        return ensureDefaultCampaign()
+    }
+
+    func createCampaign(name: String) -> Campaign? {
+        guard let exportRoot = exportRootPath() else { return nil }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let safe = campaignFolderName(for: trimmed)
+        let url = campaignsRoot(exportRoot: exportRoot).appendingPathComponent(safe)
+        ensureDirectory(url.path)
+        let campaign = Campaign(id: url.path, name: trimmed, campaignURL: url)
+        selectedCampaignID = campaign.id
+        return campaign
     }
 
     func campaignLangURL(campaign: String, lang: String, exportRoot: String) -> URL {
