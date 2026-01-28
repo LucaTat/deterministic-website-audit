@@ -103,25 +103,6 @@ struct RunEntry: Identifiable, Codable {
     let logPath: String?
 }
 
-struct CampaignManifestURL: Codable {
-    var url: String
-    var domain: String
-    var run_dir: String
-    var delivered_dir: String
-    var verdict: String
-    var timestamp_utc: String
-}
-
-struct CampaignManifest: Codable {
-    var campaign: String
-    var campaign_fs: String
-    var lang: String
-    var created_at: String
-    var updated_at: String
-    var astra_root: String
-    var urls: [CampaignManifestURL]
-}
-
 struct CampaignManagerItem: Identifiable {
     let id: String
     let campaign: String
@@ -153,6 +134,7 @@ struct ContentView: View {
     @State private var isRunning: Bool = false
     @State private var runState: RunState = .idle
     @State private var logOutput: String = ""
+    @State private var isShowingLogOutput: Bool = false
     @State private var lastExitCode: Int32? = nil
     @State private var currentTask: Process? = nil
     @State private var cancelRequested: Bool = false
@@ -173,7 +155,6 @@ struct ContentView: View {
     @State private var runHistory: [RunEntry] = []
     @State private var repoRoot: String? = nil
     @State private var exportStatus: String? = nil
-    @State private var historyExportStatus: [String: String] = [:]
     @State private var showHiddenCampaigns: Bool = false
     @State private var campaignSearch: String = ""
     @State private var campaignFilter: CampaignFilter = .all
@@ -188,6 +169,11 @@ struct ContentView: View {
     @State private var deleteIncompleteCount: Int = 0
     @State private var deleteOlderCount: Int = 0
     @State private var historyCleanupStatus: String? = nil
+    @State private var campaignsPanel: [CampaignSummary] = []
+    @State private var expandedCampaigns: Set<String> = []
+    @State private var alsoDeleteAstraRuns: Bool = false
+    @State private var pendingDeleteCampaign: CampaignSummary? = nil
+    @State private var showDeleteCampaignConfirm: Bool = false
     @State private var showAbout: Bool = false
     @State private var demoDeliverablePath: String? = nil
     @State private var showCampaignManager: Bool = false
@@ -211,833 +197,10 @@ struct ContentView: View {
     var body: some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Audit decizional – operator mode")
-                            .font(.title3)
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Button("About") {
-                            showAbout = true
-                        }
-                        .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                        .help("Open About and Method details")
-                    }
-                    Divider()
-                }
-
-                GroupBox(label: Text("Inputs").font(.headline)) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("URL-uri (un URL pe linie)")
-                                .font(.headline)
-
-                            TextEditor(text: $urlsText)
-                                .font(.system(.body, design: .monospaced))
-                                .foregroundColor(theme.textPrimary)
-                                .padding(8)
-                                .frame(minHeight: 200, idealHeight: 240, maxHeight: 320)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .fill(theme.textEditorBackground)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .stroke(theme.border, lineWidth: 1)
-                                )
-                                .help("Paste one URL per line, include https://")
-                        }
-
-                        Divider()
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            let labelWidth: CGFloat = 90
-                            HStack(spacing: 12) {
-                                Text("Campaign")
-                                    .frame(width: labelWidth, alignment: .leading)
-                                TextField("e.g. Client A / Outreach Jan", text: $campaign)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: 320)
-                                    .help("Optional. Use a clear client name, e.g. Client ABC")
-
-                                Text("Language")
-                                    .frame(width: labelWidth, alignment: .leading)
-
-                                Picker("", selection: $lang) {
-                                    Text("RO").tag("ro")
-                                    Text("EN").tag("en")
-                                    Text("RO + EN (2 deliverables)").tag("both")
-                                }
-                                .pickerStyle(.segmented)
-                                .frame(maxWidth: 300)
-                                .help("Select delivery language")
-                            }
-                            Text("RO + EN generates two ZIPs")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                                .padding(.leading, labelWidth)
-                        }
-
-                        if !hasAtLeastOneValidURL() {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Add URLs")
-                                    .font(.headline)
-                                Text("• One URL per line")
-                                    .font(.footnote)
-                                    .foregroundColor(.secondary)
-                                Text("• Include https://")
-                                    .font(.footnote)
-                                    .foregroundColor(.secondary)
-                                Text("• Campaign is required")
-                                    .font(.footnote)
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(10)
-                            .background(theme.cardBackground)
-                            .cornerRadius(8)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-                }
-                .modifier(CardStyle(theme: theme))
-                .disabled(isRunning)
-
-                GroupBox(label: Text("Run").font(.headline)) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 12) {
-                            let astraTrimmed = astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
-                            let astraReady = !astraTrimmed.isEmpty && FileManager.default.fileExists(atPath: astraTrimmed)
-                            let runDisabled = isRunning || !hasAtLeastOneValidURL() || !campaignIsValid() || !engineFolderAvailable() || !astraReady
-                            Button { runAudit() } label: {
-                                Label("Run", systemImage: "play.fill")
-                            }
-                            .buttonStyle(NeonPrimaryButtonStyle(theme: theme, isRunning: isRunning))
-                            .controlSize(.large)
-                            .disabled(runDisabled)
-                            .opacity(buttonOpacity(disabled: runDisabled))
-                            .help(runHelpText())
-                                InfoButton(text: "Runs the audit engine and prepares deliverables. When finished, use Export/Delivery to send ZIPs.")
-
-                            if isRunning {
-                                Button("Cancel") {
-                                    cancelRun()
-                                }
-                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                .help("Cancel the running audit")
-                            }
-
-                            let resetDisabled = isRunning
-                            Button { resetForNextClient() } label: {
-                                Label("Reset", systemImage: "arrow.counterclockwise")
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(resetDisabled)
-                            .opacity(buttonOpacity(disabled: resetDisabled))
-                            .help("Clear inputs and UI state for next client")
-
-                            let demoDisabled = isRunning || !engineFolderAvailable() || !astraReady
-                            Button { runDemo() } label: {
-                                Label("Run Demo", systemImage: "sparkles")
-                            }
-                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                            .disabled(demoDisabled)
-                            .opacity(buttonOpacity(disabled: demoDisabled))
-                            .help("Run a deterministic demo using example.com")
-
-                            Spacer()
-
-                            statusBadge
-                                .help("Last run status (OK/BROKEN/FATAL)")
-                        }
-
-                        if isRunning {
-                            NeonStatusLine(theme: theme)
-                                .frame(maxWidth: 180)
-                                .padding(.leading, 2)
-                        }
-
-                        if let reason = runDisabledReason() {
-                            Text(reason)
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        }
-
-                        if runState != .idle {
-                            Text(runStatusLine())
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        }
-
-                        HStack(spacing: 12) {
-                            let outputDisabled = isRunning || outputFolderPath() == nil
-                            Button { openOutputFolder() } label: {
-                                Label("Reveal Output", systemImage: "folder")
-                            }
-                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                            .disabled(outputDisabled)
-                            .opacity(buttonOpacity(disabled: outputDisabled))
-                            .help("Reveal the output folder for the last run")
-
-                            let logsDisabled = isRunning || scopeRunLogPath() == nil
-                            Button { openLogs() } label: {
-                                Label("Open Logs", systemImage: "doc.text.magnifyingglass")
-                            }
-                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                            .disabled(logsDisabled)
-                            .opacity(buttonOpacity(disabled: logsDisabled))
-                            .help(logsHelpText())
-                        }
-
-                        if demoDeliverablePath != nil {
-                            HStack(spacing: 8) {
-                                let revealDisabled = isRunning || demoDeliverablePath == nil
-                                Button { revealDemoDeliverable() } label: {
-                                    Label("Reveal Demo Deliverable", systemImage: "folder.fill")
-                                }
-                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                .disabled(revealDisabled)
-                                .opacity(buttonOpacity(disabled: revealDisabled))
-                                .help("Reveal demo output folder")
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-                }
-                .modifier(CardStyle(theme: theme))
-
-                GroupBox(label: Text("Delivery").font(.headline)) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 8) {
-                            let shipRootDisabled = isRunning || shipRootPath() == nil
-                            Button { openShipRoot() } label: {
-                                Label("Open Export/Delivery Root", systemImage: "shippingbox.fill")
-                            }
-                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                            .controlSize(.large)
-                            .font(.headline)
-                            .disabled(shipRootDisabled)
-                            .opacity(buttonOpacity(disabled: shipRootDisabled))
-                            .help(shipRootHelpText())
-                            InfoButton(text: "Opens the export/delivery root folder for this campaign.")
-                        }
-
-                        HStack(spacing: 8) {
-                            let exportDisabled = isRunning || resolvedRepoRoot() == nil || !campaignIsValidForExport()
-                            Button {
-                                exportCurrentCampaign()
-                            } label: {
-                                Label("Export Campaign…", systemImage: "square.and.arrow.up")
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(exportDisabled)
-                            .opacity(buttonOpacity(disabled: exportDisabled))
-                            .help(exportDisabled ? "Available after run" : "Export client-safe ZIPs to a folder")
-
-                            if let status = exportStatus {
-                                Text(status)
-                                    .font(.footnote)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-
-                        let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
-                        LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
-                            if lang == "both" {
-                                HStack(spacing: 6) {
-                                    let shipRoDisabled = isRunning || shipDirPath(forLang: "ro") == nil
-                                    Button { openShipFolder(forLang: "ro") } label: {
-                                        Label("Open RO", systemImage: "shippingbox.fill")
-                                    }
-                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                    .disabled(shipRoDisabled)
-                                    .opacity(buttonOpacity(disabled: shipRoDisabled))
-                                    .help(shipHelpText(forLang: "ro"))
-                                    InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
-                                }
-
-                                HStack(spacing: 6) {
-                                    let shipEnDisabled = isRunning || shipDirPath(forLang: "en") == nil
-                                    Button { openShipFolder(forLang: "en") } label: {
-                                        Label("Open EN", systemImage: "shippingbox.fill")
-                                    }
-                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                    .disabled(shipEnDisabled)
-                                    .opacity(buttonOpacity(disabled: shipEnDisabled))
-                                    .help(shipHelpText(forLang: "en"))
-                                    InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
-                                }
-
-                                HStack(spacing: 6) {
-                                    let zipRoDisabled = isRunning || shipZipPath(forLang: "ro") == nil
-                                    Button { openZIP(forLang: "ro") } label: {
-                                        Label("Reveal ZIP RO", systemImage: "archivebox.fill")
-                                    }
-                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                    .disabled(zipRoDisabled)
-                                    .opacity(buttonOpacity(disabled: zipRoDisabled))
-                                    .help(zipHelpText(forLang: "ro"))
-                                    InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
-                                }
-
-                                HStack(spacing: 6) {
-                                    let zipEnDisabled = isRunning || shipZipPath(forLang: "en") == nil
-                                    Button { openZIP(forLang: "en") } label: {
-                                        Label("Reveal ZIP EN", systemImage: "archivebox.fill")
-                                    }
-                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                    .disabled(zipEnDisabled)
-                                    .opacity(buttonOpacity(disabled: zipEnDisabled))
-                                    .help(zipHelpText(forLang: "en"))
-                                    InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
-                                }
-                            } else {
-                                HStack(spacing: 6) {
-                                    let shipSingleDisabled = isRunning || shipDirPath(forLang: lang) == nil
-                                    Button { openShipFolder(forLang: lang) } label: {
-                                        Label(lang == "ro" ? "Open RO" : "Open EN", systemImage: "shippingbox.fill")
-                                    }
-                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                    .disabled(shipSingleDisabled)
-                                    .opacity(buttonOpacity(disabled: shipSingleDisabled))
-                                    .help(shipHelpText(forLang: lang))
-                                    InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
-                                }
-
-                                HStack(spacing: 6) {
-                                    let zipSingleDisabled = isRunning || shipZipPath(forLang: lang) == nil
-                                    Button { openZIPIfAny() } label: {
-                                        Label("Reveal ZIP", systemImage: "archivebox.fill")
-                                    }
-                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                    .disabled(zipSingleDisabled)
-                                    .opacity(buttonOpacity(disabled: zipSingleDisabled))
-                                    .help(zipHelpText(forLang: lang))
-                                    InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
-                                }
-                            }
-
-                            HStack(spacing: 6) {
-                            let logsDisabled = isRunning || scopeRunLogPath() == nil
-                            Button { openLogs() } label: {
-                                Label("Open Logs", systemImage: "doc.text.magnifyingglass")
-                            }
-                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                .tint(.secondary)
-                                .disabled(logsDisabled)
-                                .opacity(buttonOpacity(disabled: logsDisabled))
-                                .help(logsHelpText())
-                                InfoButton(text: "Opens the latest run log for troubleshooting.")
-                            }
-                        }
-
-                        if let reason = shipDisabledReason() {
-                            Text(reason)
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        }
-
-                        if let reason = zipDisabledReason() {
-                            Text(reason)
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        }
-
-                        if let readyLine = readyToSendHint() {
-                            Text(readyLine)
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        }
-
-                        if readyToSend && (lastExitCode == 0 || lastExitCode == 1) {
-                            Text("All deliverables are client-safe.")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        }
-
-                        if let summary = lastRunSummary() {
-                            Text(summary)
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-                }
-                .modifier(CardStyle(theme: theme))
-
-                GroupBox(label: Text("History").font(.headline)) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Recent runs (ASTRA)")
-                            .font(.headline)
-
-                        if runHistory.isEmpty {
-                            Text("No runs yet.")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        } else {
-                            VStack(alignment: .leading, spacing: 8) {
-                                ForEach(runHistory.prefix(12)) { entry in
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        HStack {
-                                            Text("\(formatRunTimestamp(entry.timestamp)) • \(entry.lang.uppercased()) • \(entry.url)")
-                                                .font(.subheadline)
-                                                .foregroundColor(.primary)
-                                            Spacer()
-                                            Text(entry.status)
-                                                .font(.caption)
-                                                .foregroundColor(entry.status == "OK" ? .green : .orange)
-                                        }
-                                        HStack(spacing: 8) {
-                                            let outDisabled = isRunning || entry.deliverablesDir.isEmpty || !FileManager.default.fileExists(atPath: entry.deliverablesDir)
-                                            Button { openFolder(entry.deliverablesDir) } label: {
-                                                Text("Open Output")
-                                            }
-                                            .buttonStyle(.bordered)
-                                            .disabled(outDisabled)
-                                            .opacity(buttonOpacity(disabled: outDisabled))
-
-                                            let reportDisabled = isRunning || (entry.reportPdfPath == nil)
-                                            Button {
-                                                if let path = entry.reportPdfPath { revealAndOpenFile(path) }
-                                            } label: {
-                                                Text("Open Report")
-                                            }
-                                            .buttonStyle(.bordered)
-                                            .disabled(reportDisabled)
-                                            .opacity(buttonOpacity(disabled: reportDisabled))
-
-                                            let logDisabled = isRunning || (entry.logPath == nil)
-                                            Button {
-                                                if let path = entry.logPath { revealAndOpenFile(path) }
-                                            } label: {
-                                                Text("Open Log")
-                                            }
-                                            .buttonStyle(.bordered)
-                                            .disabled(logDisabled)
-                                            .opacity(buttonOpacity(disabled: logDisabled))
-                                        }
-                                    }
-                                    Divider()
-                                }
-                            }
-                        }
-
-                        Divider()
-
-                        HStack(spacing: 10) {
-                            let repoAvailable = (resolvedRepoRoot() != nil)
-                            Button { openArchiveRoot() } label: {
-                                Label("Open Archive", systemImage: "tray.full.fill")
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(!repoAvailable)
-                            .opacity(buttonOpacity(disabled: !repoAvailable))
-                            .help(repoAvailable ? "Open deliverables/Campaigns" : "Select a repo to enable")
-
-                            Button { openTodaysArchive() } label: {
-                                Label("Open Today's Archive", systemImage: "calendar")
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(!repoAvailable)
-                            .opacity(buttonOpacity(disabled: !repoAvailable))
-                            .help(repoAvailable ? "Open deliverables/Campaigns" : "Select a repo to enable")
-
-                            Button {
-                                openCampaignManager()
-                            } label: {
-                                Text("Manage Campaigns…")
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(!repoAvailable)
-                            .opacity(buttonOpacity(disabled: !repoAvailable))
-                            .help(repoAvailable ? "Review and delete campaign artifacts" : "Select a repo to enable")
-                        }
-
-                        Text("Recent campaigns")
-                            .font(.headline)
-
-                        VStack(alignment: .leading, spacing: 8) {
-                            TextField("Search campaigns…", text: $campaignSearch)
-                                .textFieldStyle(.roundedBorder)
-
-                            Picker("", selection: $campaignFilter) {
-                                Text("All").tag(CampaignFilter.all)
-                                Text("Ready").tag(CampaignFilter.withRuns)
-                                Text("Hidden").tag(CampaignFilter.hidden)
-                            }
-                            .pickerStyle(.segmented)
-
-                            Toggle("Show hidden campaigns", isOn: $showHiddenCampaigns)
-                                .toggleStyle(.checkbox)
-                        }
-
-                        let repoAvailable = (resolvedRepoRoot() != nil)
-                        if !repoAvailable {
-                            Text("Select Engine Folder to view history.")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        } else if recentCampaigns.isEmpty {
-                            Text("No campaigns yet.")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        } else {
-                            let displayedCampaigns = filteredCampaigns()
-                            VStack(alignment: .leading, spacing: 8) {
-                                ForEach(displayedCampaigns) { item in
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        HStack {
-                                            Text("\(item.campaign) • \(item.lang) • Updated \(formatRunTimestamp(item.lastModified))")
-                                                .font(.subheadline)
-                                                .foregroundColor(item.isHidden ? .secondary : .primary)
-                                                .opacity(item.isHidden ? 0.6 : 1.0)
-                                            statusBadge(for: item)
-                                            Spacer()
-                                            Button { openFolder(item.path) } label: {
-                                                Text("Open")
-                                            }
-                                            .buttonStyle(.bordered)
-
-                                            Button { openCampaignSites(item) } label: {
-                                                Text("Reveal Sites")
-                                            }
-                                            .buttonStyle(.bordered)
-
-                                            Button { deleteCampaignEverywhere(item) } label: {
-                                                Text("Delete")
-                                            }
-                                            .buttonStyle(.bordered)
-                                        }
-
-                                    }
-                                }
-                            }
-                            if displayedCampaigns.isEmpty {
-                                Text("No campaigns match.")
-                                    .font(.footnote)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-                }
-                .modifier(CardStyle(theme: theme))
-
-                GroupBox {
-                    DisclosureGroup("Advanced (debug & logs)", isExpanded: $showAdvanced) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Engine & ASTRA")
-                                    .font(.headline)
-
-                                HStack(spacing: 12) {
-                                    let selectDisabled = isRunning
-                                    Button { selectEngineFolder() } label: {
-                                        Label("Select Engine Folder", systemImage: "folder.badge.plus")
-                                    }
-                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                    .disabled(selectDisabled)
-                                    .opacity(buttonOpacity(disabled: selectDisabled))
-                                    .help("Select the deterministic-website-audit repo folder")
-
-                                    let showDisabled = isRunning || !engineFolderAvailable()
-                                    Button { showEngineFolder() } label: {
-                                        Label("Show Engine Folder", systemImage: "folder")
-                                    }
-                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                    .disabled(showDisabled)
-                                    .opacity(buttonOpacity(disabled: showDisabled))
-                                    .help("Reveal the selected engine folder in Finder")
-
-                                    let astraDisabled = isRunning
-                                    Button { selectAstraFolder() } label: {
-                                        Label("Select ASTRA Folder", systemImage: "folder.badge.plus")
-                                    }
-                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                    .disabled(astraDisabled)
-                                    .opacity(buttonOpacity(disabled: astraDisabled))
-                                    .help("Select the ASTRA repo folder")
-
-                                    let showAstraDisabled = isRunning || astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                    Button { showAstraFolder() } label: {
-                                        Label("Show ASTRA Folder", systemImage: "folder")
-                                    }
-                                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                    .disabled(showAstraDisabled)
-                                    .opacity(buttonOpacity(disabled: showAstraDisabled))
-                                    .help("Reveal the selected ASTRA folder in Finder")
-
-                                    Spacer()
-                                }
-
-                                if repoRoot != nil {
-                                    Text("Engine folder selected.")
-                                        .font(.footnote)
-                                        .foregroundColor(.secondary)
-                                } else {
-                                    Text("Select Engine Folder to continue.")
-                                        .font(.footnote)
-                                        .foregroundColor(.secondary)
-                                }
-
-                                if !astraRootPath.isEmpty {
-                                    Text("ASTRA folder: \(astraRootPath)")
-                                        .font(.footnote)
-                                        .foregroundColor(.secondary)
-                                } else {
-                                    Text("Select ASTRA Folder to continue.")
-                                        .font(.footnote)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Run options")
-                                    .font(.headline)
-
-                                HStack(spacing: 12) {
-                                    Text("Theme")
-                                        .frame(width: 90, alignment: .leading)
-                                    Picker("", selection: $themeRaw) {
-                                        Text("Light").tag(Theme.light.rawValue)
-                                        Text("Dark").tag(Theme.dark.rawValue)
-                                    }
-                                    .pickerStyle(.segmented)
-                                    .frame(maxWidth: 220)
-                                }
-
-                                HStack(spacing: 12) {
-                                    Toggle("Use AI", isOn: $useAI)
-                                        .toggleStyle(.checkbox)
-                                        .help("Enable AI summaries and priorities when available")
-
-                                    Picker("", selection: $analysisModeRaw) {
-                                        Text("Standard").tag("standard")
-                                        Text("Extended").tag("extended")
-                                    }
-                                    .pickerStyle(.segmented)
-                                    .frame(maxWidth: 200)
-                                    .help("Extended increases page discovery to raise evaluation certainty. Conclusions remain deterministic.")
-
-                                    Toggle("Cleanup temporary files", isOn: $cleanup)
-                                        .toggleStyle(.checkbox)
-                                        .help("Remove temporary run files after packaging")
-                                }
-                            }
-
-                            HStack(spacing: 10) {
-                                let outDisabled = isRunning || outputFolderPath() == nil
-                                Button { openOutputFolder() } label: {
-                                    Label("Out", systemImage: "folder.fill")
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(outDisabled)
-                                .opacity(buttonOpacity(disabled: outDisabled))
-                                .help(outputHelpText())
-
-                                let evidenceDisabled = isRunning == false && !canOpenEvidence()
-                                Button { openEvidence() } label: {
-                                    Label("Evidence", systemImage: "tray.full.fill")
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(evidenceDisabled)
-                                .opacity(buttonOpacity(disabled: evidenceDisabled))
-                                .help(evidenceHelpText())
-                                InfoButton(text: "Opens the raw audit output (PDF/JSON/evidence) under reports.")
-
-                                if let pdfs = result?.pdfPaths, !pdfs.isEmpty {
-                                    if pdfs.count > 1 {
-                                        Picker("", selection: $selectedPDF) {
-                                            ForEach(pdfs, id: \.self) { path in
-                                                Text(displayName(forPath: path))
-                                                    .tag(Optional(path))
-                                            }
-                                        }
-                                        .frame(maxWidth: 360)
-                                        .help("Select a PDF to open")
-                                    } else {
-                                        Color.clear.onAppear {
-                                            selectedPDF = pdfs.first
-                                        }
-                                    }
-
-                                    let pdfDisabled = isRunning
-                                    Button {
-                                        if let p = selectedPDF ?? pdfs.first {
-                                            revealAndOpenFile(p)
-                                        }
-                                    } label: {
-                                        Label("PDF", systemImage: "doc.richtext")
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .disabled(pdfDisabled)
-                                    .opacity(buttonOpacity(disabled: pdfDisabled))
-                                    .help(pdfHelpText())
-                                    InfoButton(text: "Opens the generated audit PDF from the last run.")
-                                } else {
-                                    Button { } label: {
-                                        Label("PDF", systemImage: "doc.richtext")
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .disabled(true)
-                                    .opacity(buttonOpacity(disabled: true))
-                                    .help(pdfHelpText())
-                                    InfoButton(text: "Opens the generated audit PDF from the last run.")
-                                }
-                            }
-
-                            if let reason = pdfDisabledReason() {
-                                Text(reason)
-                                    .font(.footnote)
-                                    .foregroundColor(.secondary)
-                            }
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Log")
-                                    .font(.headline)
-
-                                Text(clientSafeLogSummary())
-                                    .font(.footnote)
-                                    .foregroundColor(.secondary)
-                                    .padding(8)
-                                    .frame(minHeight: 80, alignment: .topLeading)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .stroke(theme.border, lineWidth: 1)
-                                    )
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .fill(theme.textEditorBackground)
-                                    )
-                                    .help("Summary only. Use Open Logs for details.")
-                            }
-
-                            Divider()
-
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("History management")
-                                    .font(.headline)
-
-                                Button { prepareDeleteHidden() } label: {
-                                    Text("Delete hidden campaigns…")
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(isRunning)
-                                .opacity(buttonOpacity(disabled: isRunning))
-
-                                if showDeleteHiddenConfirm {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        Text("This will permanently delete \(deleteHiddenCount) campaigns from disk.")
-                                            .font(.footnote)
-                                            .foregroundColor(.secondary)
-                                        TextField("Type DELETE to confirm", text: $deleteHiddenConfirmText)
-                                            .textFieldStyle(.roundedBorder)
-                                        HStack {
-                                            Button("Cancel") {
-                                                showDeleteHiddenConfirm = false
-                                                deleteHiddenConfirmText = ""
-                                            }
-                                            .buttonStyle(.bordered)
-
-                                            Button("Delete") {
-                                                deleteHiddenCampaigns()
-                                            }
-                                            .buttonStyle(.bordered)
-                                            .disabled(deleteHiddenConfirmText != "DELETE")
-                                        }
-                                    }
-                                }
-
-                                Button { prepareDeleteIncomplete() } label: {
-                                    Text("Delete incomplete campaigns…")
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(isRunning)
-                                .opacity(buttonOpacity(disabled: isRunning))
-
-                                if showDeleteIncompleteConfirm {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        Text("This will permanently delete \(deleteIncompleteCount) campaigns from disk.")
-                                            .font(.footnote)
-                                            .foregroundColor(.secondary)
-                                        TextField("Type DELETE to confirm", text: $deleteIncompleteConfirmText)
-                                            .textFieldStyle(.roundedBorder)
-                                        HStack {
-                                            Button("Cancel") {
-                                                showDeleteIncompleteConfirm = false
-                                                deleteIncompleteConfirmText = ""
-                                            }
-                                            .buttonStyle(.bordered)
-
-                                            Button("Delete") {
-                                                deleteIncompleteCampaigns()
-                                            }
-                                            .buttonStyle(.bordered)
-                                            .disabled(deleteIncompleteConfirmText != "DELETE")
-                                        }
-                                    }
-                                }
-
-                                HStack(spacing: 8) {
-                                    Text("Delete campaigns older than")
-                                        .font(.subheadline)
-                                    Picker("", selection: $deleteOlderDays) {
-                                        Text("7").tag(7)
-                                        Text("14").tag(14)
-                                        Text("30").tag(30)
-                                        Text("90").tag(90)
-                                    }
-                                    .pickerStyle(.segmented)
-                                    .frame(maxWidth: 220)
-                                    Text("days…")
-                                        .font(.subheadline)
-                                }
-
-                                Button { prepareDeleteOlder() } label: {
-                                    Text("Delete campaigns older than \(deleteOlderDays) days…")
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(isRunning)
-                                .opacity(buttonOpacity(disabled: isRunning))
-
-                                if showDeleteOlderConfirm {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        Text("This will permanently delete \(deleteOlderCount) campaigns from disk.")
-                                            .font(.footnote)
-                                            .foregroundColor(.secondary)
-                                        TextField("Type DELETE to confirm", text: $deleteOlderConfirmText)
-                                            .textFieldStyle(.roundedBorder)
-                                        HStack {
-                                            Button("Cancel") {
-                                                showDeleteOlderConfirm = false
-                                                deleteOlderConfirmText = ""
-                                            }
-                                            .buttonStyle(.bordered)
-
-                                            Button("Delete") {
-                                                deleteOlderCampaigns()
-                                            }
-                                            .buttonStyle(.bordered)
-                                            .disabled(deleteOlderConfirmText != "DELETE")
-                                        }
-                                    }
-                                }
-
-                                if let status = historyCleanupStatus {
-                                    Text(status)
-                                        .font(.footnote)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 8)
-                    }
-                    .padding(8)
-                }
-                .modifier(CardStyle(theme: theme))
+                headerSection
+                pathsSection
+                runControlsSection
+                campaignsSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
@@ -1056,13 +219,26 @@ struct ContentView: View {
         .sheet(isPresented: $showCampaignManager) {
             campaignManagerSheet()
         }
+        .alert("Delete campaign?", isPresented: $showDeleteCampaignConfirm) {
+            Button("Delete", role: .destructive) {
+                if let campaign = pendingDeleteCampaign {
+                    deleteCampaign(campaign)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            let name = pendingDeleteCampaign?.name ?? ""
+            Text("Delete campaign '\(name)'? This removes all runs and deliverables.")
+        }
         .onAppear {
             repoRoot = resolvedRepoRoot()
             refreshRecentCampaigns()
             runHistory = loadRunHistory()
+            refreshCampaignsPanel()
         }
         .onChange(of: repoRoot) { _, _ in
             refreshRecentCampaigns()
+            refreshCampaignsPanel()
         }
         .onChange(of: campaignFilter) { _, newValue in
             if newValue == .hidden {
@@ -1073,6 +249,851 @@ struct ContentView: View {
             if showDeleteOlderConfirm {
                 deleteOlderCount = countOlderCampaigns(days: deleteOlderDays)
             }
+        }
+    }
+
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Audit decizional – operator mode")
+                        .font(.title3)
+                        .foregroundColor(.primary)
+                    Spacer()
+                    Button("About") {
+                        showAbout = true
+                    }
+                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                    .help("Open About and Method details")
+                }
+                Divider()
+            }
+
+            GroupBox(label: Text("Inputs").font(.headline)) {
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("URL-uri (un URL pe linie)")
+                            .font(.headline)
+
+                        TextEditor(text: $urlsText)
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundColor(theme.textPrimary)
+                            .padding(8)
+                            .frame(minHeight: 200, idealHeight: 240, maxHeight: 320)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(theme.textEditorBackground)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(theme.border, lineWidth: 1)
+                            )
+                            .help("Paste one URL per line, include https://")
+                    }
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        let labelWidth: CGFloat = 90
+                        HStack(spacing: 12) {
+                            Text("Campaign")
+                                .frame(width: labelWidth, alignment: .leading)
+                            TextField("e.g. Client A / Outreach Jan", text: $campaign)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: 320)
+                                .help("Optional. Use a clear client name, e.g. Client ABC")
+
+                            Text("Language")
+                                .frame(width: labelWidth, alignment: .leading)
+
+                            Picker("", selection: $lang) {
+                                Text("RO").tag("ro")
+                                Text("EN").tag("en")
+                                Text("RO + EN (2 deliverables)").tag("both")
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(maxWidth: 300)
+                            .help("Select delivery language")
+                        }
+                        Text("RO + EN generates two ZIPs")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, labelWidth)
+                    }
+
+                    if !hasAtLeastOneValidURL() {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Add URLs")
+                                .font(.headline)
+                            Text("• One URL per line")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                            Text("• Include https://")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                            Text("• Campaign is required")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(10)
+                        .background(theme.cardBackground)
+                        .cornerRadius(8)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+            }
+            .modifier(CardStyle(theme: theme))
+            .disabled(isRunning)
+        }
+    }
+
+    private var runControlsSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            GroupBox(label: Text("Run").font(.headline)) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
+                        let astraTrimmed = astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let astraReady = !astraTrimmed.isEmpty && FileManager.default.fileExists(atPath: astraTrimmed)
+                        let runDisabled = isRunning || !hasAtLeastOneValidURL() || !campaignIsValid() || !engineFolderAvailable() || !astraReady
+                        Button { runAudit() } label: {
+                            Label("Run", systemImage: "play.fill")
+                        }
+                        .buttonStyle(NeonPrimaryButtonStyle(theme: theme, isRunning: isRunning))
+                        .controlSize(.large)
+                        .disabled(runDisabled)
+                        .opacity(buttonOpacity(disabled: runDisabled))
+                        .help(runHelpText())
+                        InfoButton(text: "Runs the audit engine and prepares deliverables. When finished, use Export/Delivery to send ZIPs.")
+
+                        if isRunning {
+                            Button("Cancel") {
+                                cancelRun()
+                            }
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                            .help("Cancel the running audit")
+                        }
+
+                        let resetDisabled = isRunning
+                        Button { resetForNextClient() } label: {
+                            Label("Reset", systemImage: "arrow.counterclockwise")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(resetDisabled)
+                        .opacity(buttonOpacity(disabled: resetDisabled))
+                        .help("Clear inputs and UI state for next client")
+
+                        let demoDisabled = isRunning || !engineFolderAvailable() || !astraReady
+                        Button { runDemo() } label: {
+                            Label("Run Demo", systemImage: "sparkles")
+                        }
+                        .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                        .disabled(demoDisabled)
+                        .opacity(buttonOpacity(disabled: demoDisabled))
+                        .help("Run a deterministic demo using example.com")
+
+                        Spacer()
+
+                        statusBadge
+                            .help("Last run status (OK/BROKEN/FATAL)")
+                    }
+
+                    if isRunning {
+                        NeonStatusLine(theme: theme)
+                            .frame(maxWidth: 180)
+                            .padding(.leading, 2)
+                    }
+
+                    if let reason = runDisabledReason() {
+                        Text(reason)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if runState != .idle {
+                        Text(runStatusLine())
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack(spacing: 12) {
+                        let outputDisabled = isRunning || outputFolderPath() == nil
+                        Button { openOutputFolder() } label: {
+                            Label("Reveal Output", systemImage: "folder")
+                        }
+                        .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                        .disabled(outputDisabled)
+                        .opacity(buttonOpacity(disabled: outputDisabled))
+                        .help("Reveal the output folder for the last run")
+
+                        let logsDisabled = isRunning || scopeRunLogPath() == nil
+                        Button { openLogs() } label: {
+                            Label("Open Logs", systemImage: "doc.text.magnifyingglass")
+                        }
+                        .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                        .disabled(logsDisabled)
+                        .opacity(buttonOpacity(disabled: logsDisabled))
+                        .help(logsHelpText())
+                    }
+
+                    if demoDeliverablePath != nil {
+                        HStack(spacing: 8) {
+                            let revealDisabled = isRunning || demoDeliverablePath == nil
+                            Button { revealDemoDeliverable() } label: {
+                                Label("Reveal Demo Deliverable", systemImage: "folder.fill")
+                            }
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                            .disabled(revealDisabled)
+                            .opacity(buttonOpacity(disabled: revealDisabled))
+                            .help("Reveal demo output folder")
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+            }
+            .modifier(CardStyle(theme: theme))
+
+            GroupBox(label: Text("Delivery").font(.headline)) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 8) {
+                        let shipRootDisabled = isRunning || shipRootPath() == nil
+                        Button { openShipRoot() } label: {
+                            Label("Open Export/Delivery Root", systemImage: "shippingbox.fill")
+                        }
+                        .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                        .controlSize(.large)
+                        .font(.headline)
+                        .disabled(shipRootDisabled)
+                        .opacity(buttonOpacity(disabled: shipRootDisabled))
+                        .help(shipRootHelpText())
+                        InfoButton(text: "Opens the export/delivery root folder for this campaign.")
+                    }
+
+                    HStack(spacing: 8) {
+                        let exportDisabled = isRunning || resolvedRepoRoot() == nil || !campaignIsValidForExport()
+                        Button {
+                            exportCurrentCampaign()
+                        } label: {
+                            Label("Export Campaign…", systemImage: "square.and.arrow.up")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(exportDisabled)
+                        .opacity(buttonOpacity(disabled: exportDisabled))
+                        .help(exportDisabled ? "Available after run" : "Export client-safe ZIPs to a folder")
+
+                        if let status = exportStatus {
+                            Text(status)
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+                        if lang == "both" {
+                            HStack(spacing: 6) {
+                                let shipRoDisabled = isRunning || shipDirPath(forLang: "ro") == nil
+                                Button { openShipFolder(forLang: "ro") } label: {
+                                    Label("Open RO", systemImage: "shippingbox.fill")
+                                }
+                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                                .disabled(shipRoDisabled)
+                                .opacity(buttonOpacity(disabled: shipRoDisabled))
+                                .help(shipHelpText(forLang: "ro"))
+                                InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
+                            }
+
+                            HStack(spacing: 6) {
+                                let shipEnDisabled = isRunning || shipDirPath(forLang: "en") == nil
+                                Button { openShipFolder(forLang: "en") } label: {
+                                    Label("Open EN", systemImage: "shippingbox.fill")
+                                }
+                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                                .disabled(shipEnDisabled)
+                                .opacity(buttonOpacity(disabled: shipEnDisabled))
+                                .help(shipHelpText(forLang: "en"))
+                                InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
+                            }
+
+                            HStack(spacing: 6) {
+                                let zipRoDisabled = isRunning || shipZipPath(forLang: "ro") == nil
+                                Button { openZIP(forLang: "ro") } label: {
+                                    Label("Reveal ZIP RO", systemImage: "archivebox.fill")
+                                }
+                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                                .disabled(zipRoDisabled)
+                                .opacity(buttonOpacity(disabled: zipRoDisabled))
+                                .help(zipHelpText(forLang: "ro"))
+                                InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
+                            }
+
+                            HStack(spacing: 6) {
+                                let zipEnDisabled = isRunning || shipZipPath(forLang: "en") == nil
+                                Button { openZIP(forLang: "en") } label: {
+                                    Label("Reveal ZIP EN", systemImage: "archivebox.fill")
+                                }
+                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                                .disabled(zipEnDisabled)
+                                .opacity(buttonOpacity(disabled: zipEnDisabled))
+                                .help(zipHelpText(forLang: "en"))
+                                InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
+                            }
+                        } else {
+                            HStack(spacing: 6) {
+                                let shipSingleDisabled = isRunning || shipDirPath(forLang: lang) == nil
+                                Button { openShipFolder(forLang: lang) } label: {
+                                    Label(lang == "ro" ? "Open RO" : "Open EN", systemImage: "shippingbox.fill")
+                                }
+                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                                .disabled(shipSingleDisabled)
+                                .opacity(buttonOpacity(disabled: shipSingleDisabled))
+                                .help(shipHelpText(forLang: lang))
+                                InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
+                            }
+
+                            HStack(spacing: 6) {
+                                let zipSingleDisabled = isRunning || shipZipPath(forLang: lang) == nil
+                                Button { openZIPIfAny() } label: {
+                                    Label("Reveal ZIP", systemImage: "archivebox.fill")
+                                }
+                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                                .disabled(zipSingleDisabled)
+                                .opacity(buttonOpacity(disabled: zipSingleDisabled))
+                                .help(zipHelpText(forLang: lang))
+                                InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
+                            }
+                        }
+
+                        HStack(spacing: 6) {
+                            let logsDisabled = isRunning || scopeRunLogPath() == nil
+                            Button { openLogs() } label: {
+                                Label("Open Logs", systemImage: "doc.text.magnifyingglass")
+                            }
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                            .tint(.secondary)
+                            .disabled(logsDisabled)
+                            .opacity(buttonOpacity(disabled: logsDisabled))
+                            .help(logsHelpText())
+                            InfoButton(text: "Opens the latest run log for troubleshooting.")
+                        }
+                    }
+
+                    if let reason = shipDisabledReason() {
+                        Text(reason)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if let reason = zipDisabledReason() {
+                        Text(reason)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if let readyLine = readyToSendHint() {
+                        Text(readyLine)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if readyToSend && (lastExitCode == 0 || lastExitCode == 1) {
+                        Text("All deliverables are client-safe.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if let summary = lastRunSummary() {
+                        Text(summary)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+            }
+            .modifier(CardStyle(theme: theme))
+        }
+    }
+
+    private var campaignsSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            GroupBox(label: Text("History").font(.headline)) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Recent runs (ASTRA)")
+                        .font(.headline)
+
+                    if runHistory.isEmpty {
+                        Text("No runs yet.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(runHistory.prefix(12)) { entry in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        Text("\(formatRunTimestamp(entry.timestamp)) • \(entry.lang.uppercased()) • \(entry.url)")
+                                            .font(.subheadline)
+                                            .foregroundColor(.primary)
+                                        Spacer()
+                                        Text(entry.status)
+                                            .font(.caption)
+                                            .foregroundColor(entry.status == "OK" ? .green : .orange)
+                                    }
+                                    HStack(spacing: 8) {
+                                        let outDisabled = isRunning || entry.deliverablesDir.isEmpty || !FileManager.default.fileExists(atPath: entry.deliverablesDir)
+                                        Button { openFolder(entry.deliverablesDir) } label: {
+                                            Text("Open Output")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(outDisabled)
+                                        .opacity(buttonOpacity(disabled: outDisabled))
+
+                                        let reportDisabled = isRunning || (entry.reportPdfPath == nil)
+                                        Button {
+                                            if let path = entry.reportPdfPath { revealAndOpenFile(path) }
+                                        } label: {
+                                            Text("Open Report")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(reportDisabled)
+                                        .opacity(buttonOpacity(disabled: reportDisabled))
+
+                                        let logDisabled = isRunning || (entry.logPath == nil)
+                                        Button {
+                                            if let path = entry.logPath { revealAndOpenFile(path) }
+                                        } label: {
+                                            Text("Open Log")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(logDisabled)
+                                        .opacity(buttonOpacity(disabled: logDisabled))
+                                    }
+                                }
+                                Divider()
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    HStack(spacing: 10) {
+                        let repoAvailable = (resolvedRepoRoot() != nil)
+                        Button { openArchiveRoot() } label: {
+                            Label("Open Archive", systemImage: "tray.full.fill")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!repoAvailable)
+                        .opacity(buttonOpacity(disabled: !repoAvailable))
+                        .help(repoAvailable ? "Open deliverables/campaigns" : "Select a repo to enable")
+
+                        Button { openTodaysArchive() } label: {
+                            Label("Open Today's Archive", systemImage: "calendar")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!repoAvailable)
+                        .opacity(buttonOpacity(disabled: !repoAvailable))
+                        .help(repoAvailable ? "Open deliverables/campaigns" : "Select a repo to enable")
+
+                        Button {
+                            openCampaignManager()
+                        } label: {
+                            Text("Manage Campaigns…")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!repoAvailable)
+                        .opacity(buttonOpacity(disabled: !repoAvailable))
+                        .help(repoAvailable ? "Review and delete campaign artifacts" : "Select a repo to enable")
+                    }
+
+                    Text("Recent campaigns")
+                        .font(.headline)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextField("Search campaigns…", text: $campaignSearch)
+                            .textFieldStyle(.roundedBorder)
+
+                        Picker("", selection: $campaignFilter) {
+                            Text("All").tag(CampaignFilter.all)
+                            Text("Ready").tag(CampaignFilter.withRuns)
+                            Text("Hidden").tag(CampaignFilter.hidden)
+                        }
+                        .pickerStyle(.segmented)
+
+                        Toggle("Show hidden campaigns", isOn: $showHiddenCampaigns)
+                            .toggleStyle(.checkbox)
+                    }
+
+                    let repoAvailable = (resolvedRepoRoot() != nil)
+                    if !repoAvailable {
+                        Text("Select Engine Folder to view history.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    } else if recentCampaigns.isEmpty {
+                        Text("No campaigns yet.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    } else {
+                        let displayedCampaigns = filteredCampaigns()
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(displayedCampaigns) { item in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        Text("\(item.campaign) • \(item.lang) • Updated \(formatRunTimestamp(item.lastModified))")
+                                            .font(.subheadline)
+                                            .foregroundColor(item.isHidden ? .secondary : .primary)
+                                            .opacity(item.isHidden ? 0.6 : 1.0)
+                                        statusBadge(for: item)
+                                        Spacer()
+                                        Button { openFolder(item.path) } label: {
+                                            Text("Open")
+                                        }
+                                        .buttonStyle(.bordered)
+
+                                        Button { openCampaignSites(item) } label: {
+                                            Text("Reveal Sites")
+                                        }
+                                        .buttonStyle(.bordered)
+
+                                        Button { deleteCampaignEverywhere(item) } label: {
+                                            Text("Delete")
+                                        }
+                                        .buttonStyle(.bordered)
+                                    }
+
+                                }
+                            }
+                        }
+                        if displayedCampaigns.isEmpty {
+                            Text("No campaigns match.")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+            }
+            .modifier(CardStyle(theme: theme))
+
+            GroupBox(label: Text("Campaigns").font(.headline)) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Campaign storage")
+                            .font(.headline)
+                        Spacer()
+                        Toggle("Also delete ASTRA runs", isOn: $alsoDeleteAstraRuns)
+                            .toggleStyle(.checkbox)
+                    }
+
+                    if campaignsPanel.isEmpty {
+                        Text("No campaigns yet.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    } else {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(campaignsPanel) { campaign in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text("\(campaign.name) • \(campaign.langs.joined(separator: ", ")) • Runs \(campaign.runCount)")
+                                            .font(.subheadline)
+                                            .foregroundColor(.primary)
+                                        Spacer()
+                                        Button("Open") {
+                                            openFolder(campaign.campaignURL.path)
+                                        }
+                                        .buttonStyle(.bordered)
+
+                                        Button("Export") {
+                                            exportCampaignFolder(campaign)
+                                        }
+                                        .buttonStyle(.bordered)
+
+                                        Button("Delete") {
+                                            pendingDeleteCampaign = campaign
+                                            showDeleteCampaignConfirm = true
+                                        }
+                                        .buttonStyle(.bordered)
+                                    }
+
+                                    DisclosureGroup("Manage runs", isExpanded: Binding<Bool>(
+                                        get: { expandedCampaigns.contains(campaign.id) },
+                                        set: { expanded in
+                                            if expanded {
+                                                expandedCampaigns.insert(campaign.id)
+                                            } else {
+                                                expandedCampaigns.remove(campaign.id)
+                                            }
+                                        }
+                                    )) {
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            ForEach(campaign.runs) { run in
+                                                HStack(alignment: .top, spacing: 12) {
+                                                    Text("\(formatCampaignRunTimestamp(run.run.timestamp)) • \(run.run.domain) • \(run.run.url)")
+                                                        .font(.footnote)
+                                                        .foregroundColor(.primary)
+                                                    Spacer()
+                                                    Button("Open Run") {
+                                                        openFolder(run.runURL.path)
+                                                    }
+                                                    .buttonStyle(.bordered)
+
+                                                    Button("Delete Run") {
+                                                        deleteCampaignRun(run)
+                                                    }
+                                                    .buttonStyle(.bordered)
+                                                }
+                                            }
+                                        }
+                                        .padding(.top, 6)
+                                    }
+                                }
+                                .padding(8)
+                                .background(theme.cardBackground)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(theme.border, lineWidth: 1)
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+            }
+            .modifier(CardStyle(theme: theme))
+
+
+        }
+    }
+
+    private var pathsSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            GroupBox {
+                DisclosureGroup("Advanced (debug & logs)", isExpanded: $showAdvanced) {
+                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Engine & ASTRA")
+                            .font(.headline)
+
+                        HStack(spacing: 12) {
+                            let selectDisabled = isRunning
+                            Button { selectEngineFolder() } label: {
+                                Label("Select Engine Folder", systemImage: "folder.badge.plus")
+                            }
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                            .disabled(selectDisabled)
+                            .opacity(buttonOpacity(disabled: selectDisabled))
+                            .help("Select the deterministic-website-audit repo folder")
+
+                            let showDisabled = isRunning || !engineFolderAvailable()
+                            Button { showEngineFolder() } label: {
+                                Label("Show Engine Folder", systemImage: "folder")
+                            }
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                            .disabled(showDisabled)
+                            .opacity(buttonOpacity(disabled: showDisabled))
+                            .help("Reveal the engine repo folder in Finder")
+
+                            Spacer()
+                        }
+
+                        Text(engineFolderSummary())
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 2)
+                    }
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("ASTRA repo")
+                            .font(.headline)
+
+                        HStack(spacing: 12) {
+                            let selectDisabled = isRunning
+                            Button { selectAstraFolder() } label: {
+                                Label("Select ASTRA Folder", systemImage: "folder.badge.plus")
+                            }
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                            .disabled(selectDisabled)
+                            .opacity(buttonOpacity(disabled: selectDisabled))
+                            .help("Select the ASTRA repo folder")
+
+                            let showDisabled = isRunning || !astraFolderAvailable()
+                            Button { showAstraFolder() } label: {
+                                Label("Show ASTRA Folder", systemImage: "folder")
+                            }
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                            .disabled(showDisabled)
+                            .opacity(buttonOpacity(disabled: showDisabled))
+                            .help("Reveal the ASTRA repo folder in Finder")
+                            Spacer()
+                        }
+
+                        Text(astraFolderSummary())
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 2)
+                    }
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Debugging")
+                            .font(.headline)
+
+                        HStack(spacing: 10) {
+                            Button { revealLatestDeliverables() } label: {
+                                Label("Reveal latest deliverables", systemImage: "folder.fill")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(isRunning || lastRunDir == nil)
+                            .opacity(buttonOpacity(disabled: isRunning || lastRunDir == nil))
+
+                            Button { openLogOutputModal() } label: {
+                                Label("Show log output", systemImage: "doc.text")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(isRunning || logOutput.isEmpty)
+                            .opacity(buttonOpacity(disabled: isRunning || logOutput.isEmpty))
+
+                            Button { clearLogOutput() } label: {
+                                Label("Clear log output", systemImage: "trash")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(isRunning || logOutput.isEmpty)
+                            .opacity(buttonOpacity(disabled: isRunning || logOutput.isEmpty))
+                        }
+                    }
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("History cleanup")
+                            .font(.headline)
+
+                        HStack(spacing: 10) {
+                            Button { prepareDeleteHidden() } label: {
+                                Text("Delete hidden campaigns…")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(isRunning)
+                            .opacity(buttonOpacity(disabled: isRunning))
+
+                            Button { prepareDeleteIncomplete() } label: {
+                                Text("Delete incomplete campaigns…")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(isRunning)
+                            .opacity(buttonOpacity(disabled: isRunning))
+                        }
+
+                        if showDeleteHiddenConfirm {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("This will permanently delete \(deleteHiddenCount) hidden campaigns from disk.")
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                                TextField("Type DELETE to confirm", text: $deleteHiddenConfirmText)
+                                    .textFieldStyle(.roundedBorder)
+                                HStack {
+                                    Button("Cancel") {
+                                        showDeleteHiddenConfirm = false
+                                        deleteHiddenConfirmText = ""
+                                    }
+                                    .buttonStyle(.bordered)
+
+                                    Button("Delete") {
+                                        deleteHiddenCampaigns()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(deleteHiddenConfirmText != "DELETE")
+                                }
+                            }
+                        }
+
+                        if showDeleteIncompleteConfirm {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("This will permanently delete \(deleteIncompleteCount) incomplete campaigns from disk.")
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                                TextField("Type DELETE to confirm", text: $deleteIncompleteConfirmText)
+                                    .textFieldStyle(.roundedBorder)
+                                HStack {
+                                    Button("Cancel") {
+                                        showDeleteIncompleteConfirm = false
+                                        deleteIncompleteConfirmText = ""
+                                    }
+                                    .buttonStyle(.bordered)
+
+                                    Button("Delete") {
+                                        deleteIncompleteCampaigns()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(deleteIncompleteConfirmText != "DELETE")
+                                }
+                            }
+                        }
+
+                        HStack(spacing: 8) {
+                            Text("Delete campaigns older than")
+                                .font(.subheadline)
+                            Picker("", selection: $deleteOlderDays) {
+                                Text("7").tag(7)
+                                Text("14").tag(14)
+                                Text("30").tag(30)
+                                Text("90").tag(90)
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(maxWidth: 220)
+                            Text("days…")
+                                .font(.subheadline)
+                        }
+
+                        Button { prepareDeleteOlder() } label: {
+                            Text("Delete campaigns older than \(deleteOlderDays) days…")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isRunning)
+                        .opacity(buttonOpacity(disabled: isRunning))
+
+                        if showDeleteOlderConfirm {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("This will permanently delete \(deleteOlderCount) campaigns from disk.")
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                                TextField("Type DELETE to confirm", text: $deleteOlderConfirmText)
+                                    .textFieldStyle(.roundedBorder)
+                                HStack {
+                                    Button("Cancel") {
+                                        showDeleteOlderConfirm = false
+                                        deleteOlderConfirmText = ""
+                                    }
+                                    .buttonStyle(.bordered)
+
+                                    Button("Delete") {
+                                        deleteOlderCampaigns()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(deleteOlderConfirmText != "DELETE")
+                                }
+                            }
+                        }
+
+                        if let status = historyCleanupStatus {
+                            Text(status)
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 8)
+                }
+                .padding(8)
+            }
+            .modifier(CardStyle(theme: theme))
         }
     }
 
@@ -1362,42 +1383,35 @@ struct ContentView: View {
         return formatter.string(from: date)
     }
 
+    private func formatCampaignRunTimestamp(_ value: String) -> String {
+        if let date = parseISO8601Date(value) {
+            return formatRunTimestamp(date)
+        }
+        return value
+    }
+
     private func exportRootPath() -> String? {
         guard let repo = resolvedRepoRoot() else { return nil }
         return (repo as NSString).appendingPathComponent("deliverables")
     }
 
-    private func campaignsRootPath() -> String? {
-        guard let exportRoot = exportRootPath() else { return nil }
-        return (exportRoot as NSString).appendingPathComponent("Campaigns")
+    private func campaignStore() -> CampaignStore? {
+        guard let repo = resolvedRepoRoot() else { return nil }
+        return CampaignStore(repoRoot: repo)
     }
 
-    private func sanitizeForFilesystem(_ value: String) -> String {
-        let forbidden = CharacterSet(charactersIn: "/\\:*?\"<>|")
-        var result = ""
-        for scalar in value.unicodeScalars {
-            if forbidden.contains(scalar) {
-                result.append("_")
-            } else {
-                result.append(String(scalar))
-            }
-        }
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func campaignsRootPath() -> String? {
+        guard let exportRoot = exportRootPath() else { return nil }
+        return (exportRoot as NSString).appendingPathComponent("campaigns")
     }
 
     private func campaignFolderPath(campaignName: String, lang: String) -> String? {
-        guard let root = campaignsRootPath() else { return nil }
-        let campaignFS = sanitizeForFilesystem(campaignName)
-        let langFolder = lang.uppercased()
-        return ((root as NSString).appendingPathComponent(campaignFS) as NSString).appendingPathComponent(langFolder)
+        guard let store = campaignStore(), let exportRoot = exportRootPath() else { return nil }
+        return store.campaignLangURL(campaign: campaignName, lang: lang, exportRoot: exportRoot).path
     }
 
     private func sitesRootPath(campaignLangPath: String) -> String {
-        (campaignLangPath as NSString).appendingPathComponent("sites")
-    }
-
-    private func campaignManifestPath(campaignLangPath: String) -> String {
-        (campaignLangPath as NSString).appendingPathComponent("manifest.json")
+        campaignLangPath
     }
 
     private func domainFromURLString(_ url: String) -> String? {
@@ -1405,15 +1419,53 @@ struct ContentView: View {
         return host.lowercased()
     }
 
-    private func sanitizeDomainForFS(_ domain: String) -> String {
-        sanitizeForFilesystem(domain.lowercased())
-    }
-
     private func openCampaignManager() {
         campaignManagerSelection = []
         campaignManagerItems = loadCampaignManagerItems()
         campaignManagerStatus = nil
         showCampaignManager = true
+    }
+
+    private func refreshCampaignsPanel() {
+        guard let exportRoot = exportRootPath() else {
+            campaignsPanel = []
+            return
+        }
+        campaignsPanel = campaignStore()?.listCampaigns(exportRoot: exportRoot) ?? []
+    }
+
+    private func exportCampaignFolder(_ campaign: CampaignSummary) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Select a destination folder for export"
+
+        panel.begin { resp in
+            guard resp == .OK, let destUrl = panel.url else { return }
+            let store = self.campaignStore()
+            let safeName = store?.campaignFolderName(for: campaign.name) ?? campaign.name
+            let zipName = "\(safeName)_ASTRA.zip"
+            let destPath = (destUrl.path as NSString).appendingPathComponent(zipName)
+            let fm = FileManager.default
+            try? fm.removeItem(atPath: destPath)
+            do {
+                try zipFolderWithDitto(sourceFolder: campaign.campaignURL, zipPath: destPath)
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func deleteCampaign(_ campaign: CampaignSummary) {
+        campaignStore()?.deleteCampaignFolder(campaign.campaignURL)
+        pendingDeleteCampaign = nil
+        refreshCampaignsPanel()
+    }
+
+    private func deleteCampaignRun(_ run: CampaignRunItem) {
+        campaignStore()?.deleteRunFolder(run.runURL)
+        refreshCampaignsPanel()
     }
 
     @ViewBuilder
@@ -1527,6 +1579,14 @@ struct ContentView: View {
         openFolder(runDir)
     }
 
+    private func openLogOutputModal() {
+        isShowingLogOutput = true
+    }
+
+    private func clearLogOutput() {
+        logOutput = ""
+    }
+
     private func openFolder(_ path: String) {
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
@@ -1560,26 +1620,13 @@ struct ContentView: View {
     private func deleteCampaignEverywhere(_ item: RecentCampaign) {
         guard confirmDeleteCampaign(item.campaign) else { return }
         let fm = FileManager.default
-        let manifestPath = campaignManifestPath(campaignLangPath: item.path)
-        let manifest = readCampaignManifest(at: manifestPath)
-        let runDirs = Set(manifest?.urls.map { $0.run_dir } ?? [])
 
         if fm.fileExists(atPath: item.path) {
             try? fm.removeItem(atPath: item.path)
         }
-
-        for runDir in runDirs {
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: runDir, isDirectory: &isDir), isDir.boolValue {
-                try? fm.removeItem(atPath: runDir)
-            }
-        }
-
-        if !runDirs.isEmpty {
-            let filtered = runHistory.filter { !runDirs.contains($0.runDir) }
-            runHistory = filtered
-            saveRunHistory(filtered)
-        }
+        let filtered = runHistory.filter { !$0.deliverablesDir.hasPrefix(item.path) }
+        runHistory = filtered
+        saveRunHistory(filtered)
 
         refreshRecentCampaigns()
     }
@@ -1616,118 +1663,75 @@ struct ContentView: View {
         return total
     }
 
-    private func readCampaignManifest(at path: String) -> CampaignManifest? {
+    private func copyScopeFolderIfNeeded(from sourcePath: String, to destPath: String) {
         let fm = FileManager.default
-        guard let data = fm.contents(atPath: path) else { return nil }
-        return try? JSONDecoder().decode(CampaignManifest.self, from: data)
-    }
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: sourcePath, isDirectory: &isDir), isDir.boolValue else { return }
 
-    private func writeCampaignManifestAtomic(_ manifest: CampaignManifest, to path: String) {
-        guard let data = try? JSONEncoder().encode(manifest) else { return }
-        let url = URL(fileURLWithPath: path)
-        let tmpURL = url.appendingPathExtension("tmp")
-        do {
-            try data.write(to: tmpURL, options: .atomic)
-            let fm = FileManager.default
-            if fm.fileExists(atPath: url.path) {
-                _ = try? fm.replaceItemAt(url, withItemAt: tmpURL)
-            } else {
-                try? fm.moveItem(at: tmpURL, to: url)
-            }
-            if fm.fileExists(atPath: tmpURL.path) {
-                try? fm.removeItem(at: tmpURL)
-            }
-        } catch {
+        let maxBytes: Int64 = 200 * 1024 * 1024
+        if let size = directorySizeBytes(at: sourcePath), size <= maxBytes {
+            try? fm.copyItem(atPath: sourcePath, toPath: destPath)
             return
         }
-    }
 
-    private func ensureDirectory(_ path: String) {
-        if !FileManager.default.fileExists(atPath: path) {
-            try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        if !fm.fileExists(atPath: destPath) {
+            try? fm.createDirectory(atPath: destPath, withIntermediateDirectories: true)
         }
-    }
-
-    private func loadOrCreateCampaignManifest(campaignLangPath: String, campaignName: String, campaignFs: String, lang: String) -> CampaignManifest {
-        ensureDirectory(campaignLangPath)
-        let manifestPath = campaignManifestPath(campaignLangPath: campaignLangPath)
-        var needsSave = false
-
-        var manifest: CampaignManifest
-        if let decoded = readCampaignManifest(at: manifestPath) {
-            manifest = decoded
-        } else {
-            manifest = CampaignManifest(
-                campaign: campaignName,
-                campaign_fs: campaignFs,
-                lang: lang.uppercased(),
-                created_at: iso8601String(Date()),
-                updated_at: iso8601String(Date()),
-                astra_root: astraRootPath,
-                urls: []
-            )
-            needsSave = true
+        let files = (try? fm.contentsOfDirectory(atPath: sourcePath)) ?? []
+        for file in files {
+            let lower = file.lowercased()
+            guard lower.contains("summary") || lower.contains("evidence") else { continue }
+            let src = (sourcePath as NSString).appendingPathComponent(file)
+            let dst = (destPath as NSString).appendingPathComponent(file)
+            var isFile: ObjCBool = false
+            if fm.fileExists(atPath: src, isDirectory: &isFile), !isFile.boolValue {
+                try? fm.copyItem(atPath: src, toPath: dst)
+            }
         }
-
-        if manifest.campaign.isEmpty {
-            manifest.campaign = campaignName
-            needsSave = true
-        }
-        if manifest.campaign_fs.isEmpty {
-            manifest.campaign_fs = campaignFs
-            needsSave = true
-        }
-        if manifest.lang.isEmpty {
-            manifest.lang = lang.uppercased()
-            needsSave = true
-        }
-        if manifest.astra_root.isEmpty, !astraRootPath.isEmpty {
-            manifest.astra_root = astraRootPath
-            needsSave = true
-        }
-
-        if manifest.created_at.isEmpty {
-            manifest.created_at = iso8601String(Date())
-            needsSave = true
-        }
-        if manifest.updated_at.isEmpty {
-            manifest.updated_at = iso8601String(Date())
-            needsSave = true
-        }
-
-        if needsSave {
-            writeCampaignManifestAtomic(manifest, to: manifestPath)
-        }
-
-        return manifest
     }
 
     private func loadCampaignManagerItems() -> [CampaignManagerItem] {
         let entries = listAllCampaigns()
         let fm = FileManager.default
+        let store = campaignStore()
+        let exportRoot = exportRootPath()
         var items: [CampaignManagerItem] = []
 
         for entry in entries {
-            let manifest = loadOrCreateCampaignManifest(
-                campaignLangPath: entry.path,
-                campaignName: entry.campaign,
-                campaignFs: entry.campaignFs,
-                lang: entry.lang
-            )
+            let manifest = (exportRoot != nil)
+                ? store?.loadOrCreateManifest(
+                    campaign: entry.campaign,
+                    lang: entry.lang,
+                    exportRoot: exportRoot ?? "",
+                    isoNow: { iso8601String(Date()) }
+                ).manifest
+                : nil
             let attrs = (try? fm.attributesOfItem(atPath: entry.path)) ?? [:]
-            let lastModified = parseISO8601Date(manifest.updated_at) ?? (attrs[.modificationDate] as? Date) ?? Date()
+            let updatedAt = manifest?.updated_at ?? ""
+            let lastModified = parseISO8601Date(updatedAt) ?? (attrs[.modificationDate] as? Date) ?? Date()
             let size = directorySizeBytes(at: entry.path)
             let id = entry.path
-            let runDirs = Set(manifest.urls.map { $0.run_dir })
+            let manifestLang = manifest?.lang ?? ""
+            let langResolved = manifestLang.isEmpty ? entry.lang : manifestLang
+            let runDirCountResolved = manifest?.runs.count ?? 0
+            let safeFolderName = entry.campaignFs
+            let fallbackManifest = CampaignManifest(
+                campaign: entry.campaign,
+                campaign_fs: safeFolderName,
+                lang: entry.lang,
+                created_at: iso8601String(Date()),
+                updated_at: iso8601String(Date()),
+                runs: []
+            )
             let item = CampaignManagerItem(
                 id: id,
                 campaign: entry.campaign,
-                lang: manifest.lang.isEmpty ? entry.lang : manifest.lang,
+                lang: langResolved,
                 lastModified: lastModified,
-                runDirCount: runDirs.count,
+                runDirCount: runDirCountResolved,
                 sizeBytes: size,
                 path: entry.path,
-                manifest: manifest
+                manifest: (manifest ?? fallbackManifest)
             )
             items.append(item)
         }
@@ -1740,11 +1744,6 @@ struct ContentView: View {
         guard !selected.isEmpty else { return }
         let fm = FileManager.default
         var deleted = 0
-        var runDirsToDelete: Set<String> = []
-
-        for item in selected {
-            runDirsToDelete.formUnion(item.manifest.urls.map { $0.run_dir })
-        }
 
         for item in selected {
             do {
@@ -1754,19 +1753,12 @@ struct ContentView: View {
                 continue
             }
         }
-
-        for runDir in runDirsToDelete {
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: runDir, isDirectory: &isDir), isDir.boolValue {
-                try? fm.removeItem(atPath: runDir)
-            }
+        let deletedRoots = selected.map { $0.path }
+        let filtered = runHistory.filter { entry in
+            !deletedRoots.contains(where: { entry.deliverablesDir.hasPrefix($0) })
         }
-
-        if !runDirsToDelete.isEmpty {
-            let filtered = runHistory.filter { !runDirsToDelete.contains($0.runDir) }
-            runHistory = filtered
-            saveRunHistory(filtered)
-        }
+        runHistory = filtered
+        saveRunHistory(filtered)
 
         campaignManagerStatus = "Deleted \(deleted) campaign(s)."
         campaignManagerSelection = []
@@ -1774,126 +1766,91 @@ struct ContentView: View {
         campaignManagerItems = loadCampaignManagerItems()
     }
 
-    private func updateCampaignManifest(
-        campaignName: String,
-        campaignFs: String,
-        lang: String,
-        url: String,
-        domain: String,
-        runDir: String,
-        deliveredDir: String,
-        verdict: String
-    ) {
-        guard let campaignLangPath = campaignFolderPath(campaignName: campaignName, lang: lang) else { return }
-        var manifest = loadOrCreateCampaignManifest(
-            campaignLangPath: campaignLangPath,
-            campaignName: campaignName,
-            campaignFs: campaignFs,
-            lang: lang
-        )
-
-        let timestamp = iso8601String(Date())
-        let normalizedDomain = domain.lowercased()
-        manifest.urls.removeAll { $0.domain.lowercased() == normalizedDomain }
-        manifest.urls.append(CampaignManifestURL(
-            url: url,
-            domain: normalizedDomain,
-            run_dir: runDir,
-            delivered_dir: deliveredDir,
-            verdict: verdict,
-            timestamp_utc: timestamp
-        ))
-        manifest.updated_at = timestamp
-        if manifest.astra_root.isEmpty, !astraRootPath.isEmpty {
-            manifest.astra_root = astraRootPath
-        }
-
-        let manifestPath = campaignManifestPath(campaignLangPath: campaignLangPath)
-        writeCampaignManifestAtomic(manifest, to: manifestPath)
-    }
-
-    private func readVerdict(from verdictPath: String) -> String {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: verdictPath)),
-              let obj = try? JSONSerialization.jsonObject(with: data),
-              let dict = obj as? [String: Any],
-              let verdict = dict["verdict"] as? String,
-              !verdict.isEmpty else {
-            return "NOT_AUDITABLE"
-        }
-        return verdict
-    }
-
     private func deliverAstraRun(
         runDir: String,
         url: String,
         campaignName: String,
         lang: String
-    ) -> (campaignLangPath: String?, deliveredDir: String?, domain: String?, reportPath: String?, decisionBriefPdf: String?, decisionBriefTxt: String?, scopeLogPath: String?, verdict: String?, success: Bool) {
+    ) -> (campaignLangPath: String?, deliveredDir: String?, runFolderPath: String?, domain: String?, reportPath: String?, scopeLogPath: String?, success: Bool) {
         guard let domain = domainFromURLString(url) else {
-            return (nil, nil, nil, nil, nil, nil, nil, nil, false)
+            return (nil, nil, nil, nil, nil, nil, false)
         }
-        guard let campaignLangPath = campaignFolderPath(campaignName: campaignName, lang: lang) else {
-            return (nil, nil, domain, nil, nil, nil, nil, nil, false)
+        guard let store = campaignStore(), let exportRoot = exportRootPath() else {
+            return (nil, nil, nil, domain, nil, nil, false)
         }
 
         let fm = FileManager.default
-        let deliverablesSource = (runDir as NSString).appendingPathComponent("deliverables")
+        let timestampDate = Date()
+        let timestampString = iso8601String(timestampDate)
+        let campaignLangURL = store.campaignLangURL(campaign: campaignName, lang: lang, exportRoot: exportRoot)
+        store.ensureDirectory(campaignLangURL.path)
+
         var isDir: ObjCBool = false
+        let deliverablesSource = (runDir as NSString).appendingPathComponent("deliverables")
         guard fm.fileExists(atPath: deliverablesSource, isDirectory: &isDir), isDir.boolValue else {
-            return (campaignLangPath, nil, domain, nil, nil, nil, nil, nil, false)
+            return (campaignLangURL.path, nil, nil, domain, nil, nil, false)
         }
 
-        ensureDirectory(campaignLangPath)
-        let sitesRoot = sitesRootPath(campaignLangPath: campaignLangPath)
-        ensureDirectory(sitesRoot)
-        let domainFs = sanitizeDomainForFS(domain)
-        let deliveredDir = (sitesRoot as NSString).appendingPathComponent(domainFs)
-        if fm.fileExists(atPath: deliveredDir) {
-            try? fm.removeItem(atPath: deliveredDir)
-        }
-        ensureDirectory(deliveredDir)
-
-        let items = (try? fm.contentsOfDirectory(atPath: deliverablesSource)) ?? []
-        for item in items {
-            let src = (deliverablesSource as NSString).appendingPathComponent(item)
-            let dst = (deliveredDir as NSString).appendingPathComponent(item)
-            try? fm.copyItem(atPath: src, toPath: dst)
-        }
-
-        let reportPath = (deliveredDir as NSString).appendingPathComponent("report.pdf")
-        let verdictPath = (deliveredDir as NSString).appendingPathComponent("verdict.json")
-        let reportExists = fm.fileExists(atPath: reportPath)
-        let verdictExists = fm.fileExists(atPath: verdictPath)
-        guard reportExists && verdictExists else {
-            return (campaignLangPath, deliveredDir, domain, reportExists ? reportPath : nil, nil, nil, nil, nil, false)
-        }
-
-        let decisionBriefPdf = (deliveredDir as NSString).appendingPathComponent("Decision Brief - \(domain) - \(lang.uppercased()).pdf")
-        let decisionBriefTxt = (deliveredDir as NSString).appendingPathComponent("Decision Brief - \(domain) - \(lang.uppercased()).txt")
-        let scopeLogPath = (deliveredDir as NSString).appendingPathComponent("scope_run.log")
-        let verdict = readVerdict(from: verdictPath)
-
-        updateCampaignManifest(
-            campaignName: campaignName,
-            campaignFs: sanitizeForFilesystem(campaignName),
-            lang: lang.uppercased(),
-            url: url,
+        let runFolderURL = store.runFolderURL(
+            campaign: campaignName,
+            lang: lang,
             domain: domain,
-            runDir: runDir,
-            deliveredDir: deliveredDir,
-            verdict: verdict
+            timestamp: timestampString,
+            exportRoot: exportRoot
+        )
+        if fm.fileExists(atPath: runFolderURL.path) {
+            try? fm.removeItem(at: runFolderURL)
+        }
+        store.ensureDirectory(runFolderURL.path)
+
+        let deliverablesDest = runFolderURL.appendingPathComponent("deliverables")
+        try? fm.copyItem(atPath: deliverablesSource, toPath: deliverablesDest.path)
+
+        let scopeSource = (runDir as NSString).appendingPathComponent("scope")
+        let scopeDest = runFolderURL.appendingPathComponent("scope")
+        copyScopeFolderIfNeeded(from: scopeSource, to: scopeDest.path)
+
+        let scopeLogSource = (runDir as NSString).appendingPathComponent("scope_run.log")
+        let scopeLogDest = runFolderURL.appendingPathComponent("scope_run.log")
+        if fm.fileExists(atPath: scopeLogSource) {
+            try? fm.copyItem(atPath: scopeLogSource, toPath: scopeLogDest.path)
+        }
+
+        let verdictSourceInDeliverables = (deliverablesSource as NSString).appendingPathComponent("verdict.json")
+        let verdictSourceAtRoot = (runDir as NSString).appendingPathComponent("verdict.json")
+        let verdictDest = runFolderURL.appendingPathComponent("verdict.json")
+        if fm.fileExists(atPath: verdictSourceInDeliverables) {
+            try? fm.copyItem(atPath: verdictSourceInDeliverables, toPath: verdictDest.path)
+        } else if fm.fileExists(atPath: verdictSourceAtRoot) {
+            try? fm.copyItem(atPath: verdictSourceAtRoot, toPath: verdictDest.path)
+        }
+
+        let reportPath = deliverablesDest.appendingPathComponent("report.pdf").path
+        let verdictPath = deliverablesDest.appendingPathComponent("verdict.json").path
+        let reportExists = fm.fileExists(atPath: reportPath)
+        let verdictExists = fm.fileExists(atPath: verdictPath) || fm.fileExists(atPath: verdictDest.path)
+        let success = reportExists && verdictExists
+        if !success {
+            try? fm.removeItem(at: runFolderURL)
+            return (campaignLangURL.path, nil, nil, domain, reportExists ? reportPath : nil, nil, false)
+        }
+
+        store.appendRun(
+            campaign: campaignName,
+            lang: lang,
+            runFolderName: runFolderURL.lastPathComponent,
+            exportRoot: exportRoot,
+            isoNow: { iso8601String(Date()) }
         )
 
         return (
-            campaignLangPath,
-            deliveredDir,
+            campaignLangURL.path,
+            deliverablesDest.path,
+            runFolderURL.path,
             domain,
-            reportPath,
-            fm.fileExists(atPath: decisionBriefPdf) ? decisionBriefPdf : nil,
-            fm.fileExists(atPath: decisionBriefTxt) ? decisionBriefTxt : nil,
-            fm.fileExists(atPath: scopeLogPath) ? scopeLogPath : nil,
-            verdict,
-            true
+            reportExists ? reportPath : nil,
+            fm.fileExists(atPath: scopeLogDest.path) ? scopeLogDest.path : nil,
+            success
         )
     }
 
@@ -2264,14 +2221,12 @@ cd "$ASTRA_ROOT"
                     var delivery = (
                         campaignLangPath: String?,
                         deliveredDir: String?,
+                        runFolderPath: String?,
                         domain: String?,
                         reportPath: String?,
-                        decisionBriefPdf: String?,
-                        decisionBriefTxt: String?,
                         scopeLogPath: String?,
-                        verdict: String?,
                         success: Bool
-                    )(nil, nil, nil, nil, nil, nil, nil, nil, false)
+                    )(nil, nil, nil, nil, nil, nil, false)
                     if let runDir, let campaignName = self.lastRunCampaign {
                         delivery = self.deliverAstraRun(runDir: runDir, url: spec.url, campaignName: campaignName, lang: spec.lang)
                     }
@@ -2290,10 +2245,9 @@ cd "$ASTRA_ROOT"
                     self.lastRunDomain = delivery.domain ?? self.domainFromURLString(spec.url)
                     self.lastRunLogPath = delivery.scopeLogPath
 
-                    let deliverablesDir = delivery.deliveredDir ?? ""
+                    let deliverablesDir = delivery.runFolderPath ?? delivery.deliveredDir ?? ""
                     let reportPath = delivery.reportPath
                     let reportExists = reportPath != nil
-                    let decisionBrief = delivery.decisionBriefPdf
 
                     let status = cancelRequested ? "Canceled" : ((code == 0 && delivery.success) ? "OK" : "FAILED")
                     let entry = RunEntry(
@@ -2305,12 +2259,13 @@ cd "$ASTRA_ROOT"
                         runDir: runDir ?? "",
                         deliverablesDir: deliverablesDir,
                         reportPdfPath: reportExists ? reportPath : nil,
-                        decisionBriefPdfPath: decisionBrief,
+                        decisionBriefPdfPath: nil,
                         logPath: delivery.scopeLogPath
                     )
                     self.runHistory.insert(entry, at: 0)
                     self.saveRunHistory(self.runHistory)
                     onRunRecorded?(entry)
+                    self.refreshCampaignsPanel()
 
                     self.lastRunLang = spec.lang
                     self.lastRunStatus = status
@@ -2606,6 +2561,33 @@ cd "$ASTRA_ROOT"
         resolvedEngineURL() != nil
     }
 
+    private func engineFolderSummary() -> String {
+        guard let path = resolvedRepoRoot(), !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "Not set"
+        }
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        return "\(name) • \(path)"
+    }
+
+    private func astraFolderAvailable() -> Bool {
+        let trimmed = astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDir) && isDir.boolValue
+    }
+
+    private func astraFolderSummary() -> String {
+        let trimmed = astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Not set" }
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDir) && isDir.boolValue
+        if !exists {
+            return "Missing • \(trimmed)"
+        }
+        let name = URL(fileURLWithPath: trimmed).lastPathComponent
+        return "\(name) • \(trimmed)"
+    }
+
     private func beginEngineAccess() -> URL? {
         guard let url = resolvedEngineURL() else { return nil }
         return url.startAccessingSecurityScopedResource() ? url : nil
@@ -2620,15 +2602,17 @@ cd "$ASTRA_ROOT"
     }
 
     private func outputFolderPath() -> String? {
-        guard let runDir = lastRunDir else { return nil }
-        return FileManager.default.fileExists(atPath: runDir) ? runDir : nil
+        if let runDir = lastRunDir, FileManager.default.fileExists(atPath: runDir) {
+            return runDir
+        }
+        if let latest = runHistory.first, FileManager.default.fileExists(atPath: latest.deliverablesDir) {
+            return latest.deliverablesDir
+        }
+        return nil
     }
 
     private func scopeRunLogPath() -> String? {
-        guard let runDir = lastRunDir, let domain = lastRunDomain else { return nil }
-        let sitesDir = (runDir as NSString).appendingPathComponent("sites")
-        let domainDir = (sitesDir as NSString).appendingPathComponent(sanitizeDomainForFS(domain))
-        let logPath = (domainDir as NSString).appendingPathComponent("scope_run.log")
+        guard let logPath = lastRunLogPath else { return nil }
         return FileManager.default.fileExists(atPath: logPath) ? logPath : nil
     }
 
@@ -2643,8 +2627,15 @@ cd "$ASTRA_ROOT"
             setExportStatus("No ZIP found to export.")
             return
         }
-        let dateString = todayString()
-        exportCampaign(campaign: campaign, dateString: dateString, allowOutFallback: true) { status in
+        let requestedLangs: [String]
+        if lang == "both" {
+            requestedLangs = ["ro", "en"]
+        } else if let last = lastRunLang, last.lowercased() != "both" {
+            requestedLangs = [last.lowercased()]
+        } else {
+            requestedLangs = [lang.lowercased()]
+        }
+        exportCampaign(campaign: campaign, langs: requestedLangs) { status in
             setExportStatus(status)
         }
     }
@@ -2681,9 +2672,7 @@ cd "$ASTRA_ROOT"
         openArchiveRoot()
     }
 
-    private func exportCampaign(campaign: String, dateString: String, allowOutFallback: Bool, statusHandler: @escaping (String) -> Void) {
-        guard let repo = resolvedRepoRoot() else { return }
-
+    private func exportCampaign(campaign: String, langs: [String], statusHandler: @escaping (String) -> Void) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -2692,75 +2681,67 @@ cd "$ASTRA_ROOT"
 
         panel.begin { resp in
             guard resp == .OK, let destUrl = panel.url else { return }
-            let folderName = "SCOPE - \(dateString) - \(campaign)"
-            let destFolder = (destUrl.path as NSString).appendingPathComponent(folderName)
-
-            let zips = self.findArchiveZips(repoRoot: repo, dateString: dateString, campaign: campaign)
-            let fallbackZips = allowOutFallback ? self.findOutZips(repoRoot: repo, campaign: campaign) : []
-            let selectedZips = zips.isEmpty ? fallbackZips : zips
-
-            guard !selectedZips.isEmpty else {
-                DispatchQueue.main.async {
-                    statusHandler("No ZIP found to export.")
-                }
-                return
-            }
- 
+            let destFolder = destUrl.path
             let fm = FileManager.default
-            try? fm.createDirectory(atPath: destFolder, withIntermediateDirectories: true)
-            for zipPath in selectedZips {
-                let fileName = (zipPath as NSString).lastPathComponent
-                let destPath = (destFolder as NSString).appendingPathComponent(fileName)
-                try? fm.removeItem(atPath: destPath)
+            let store = self.campaignStore()
+            var exported = 0
+            var missing = 0
+
+            for lang in langs {
+                guard let store else { continue }
+                guard let exportRoot = exportRootPath() else { continue }
+                let campaignURL = store.campaignLangURL(campaign: campaign, lang: lang, exportRoot: exportRoot)
+                if !fm.fileExists(atPath: campaignURL.path) {
+                    missing += 1
+                    continue
+                }
+                let safeCampaign = store.campaignFolderName(for: campaign)
+                let zipName = "\(safeCampaign)_\(lang.uppercased())_ASTRA.zip"
+                let zipPath = (destFolder as NSString).appendingPathComponent(zipName)
+                try? fm.removeItem(atPath: zipPath)
                 do {
-                    try fm.copyItem(atPath: zipPath, toPath: destPath)
+                    try zipFolderWithDitto(sourceFolder: campaignURL, zipPath: zipPath)
+                    exported += 1
                 } catch {
                     continue
                 }
             }
 
             DispatchQueue.main.async {
-                statusHandler("Exported.")
+                if exported > 0 {
+                    statusHandler("Exported \(exported) ZIP(s).")
+                } else if missing > 0 {
+                    statusHandler("Campaign folder not found.")
+                } else {
+                    statusHandler("No ZIP found to export.")
+                }
             }
         }
     }
 
-    private func findArchiveZips(repoRoot: String, dateString: String, campaign: String) -> [String] {
+    private func zipFolderWithDitto(sourceFolder: URL, zipPath: String) throws {
+        let zipURL = URL(fileURLWithPath: zipPath)
         let fm = FileManager.default
-        let archiveRoot = (repoRoot as NSString).appendingPathComponent("deliverables/archive")
-        let campaignRoot = (archiveRoot as NSString).appendingPathComponent(dateString)
-        let campaignRootFull = (campaignRoot as NSString).appendingPathComponent(campaign)
-        let langs = ["RO", "EN"]
-        var zips: [String] = []
-        for lang in langs {
-            let langPath = (campaignRootFull as NSString).appendingPathComponent(lang)
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: langPath, isDirectory: &isDir), isDir.boolValue else { continue }
-            let files: [String] = (try? fm.contentsOfDirectory(atPath: langPath)) ?? []
-            for f in files where f.lowercased().hasSuffix(".zip") {
-                zips.append((langPath as NSString).appendingPathComponent(f))
-            }
-
+        if fm.fileExists(atPath: zipURL.path) {
+            try fm.removeItem(at: zipURL)
         }
-        return zips.sorted()
-    }
 
-    private func findOutZips(repoRoot: String, campaign: String) -> [String] {
-        let fm = FileManager.default
-        let outRoot = (repoRoot as NSString).appendingPathComponent("deliverables/out")
-        guard let files = try? fm.contentsOfDirectory(atPath: outRoot) else { return [] }
-        let lowerCampaign = campaign.lowercased()
-        let matches = files.filter { file in
-            let lower = file.lowercased()
-            return lower.hasPrefix(lowerCampaign.lowercased()) && lower.hasSuffix(".zip")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        p.arguments = ["-c", "-k", "--sequesterRsrc", "--keepParent", sourceFolder.path, zipURL.path]
+
+        let pipe = Pipe()
+        p.standardError = pipe
+        p.standardOutput = pipe
+
+        try p.run()
+        p.waitUntilExit()
+
+        if p.terminationStatus != 0 {
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let msg = String(data: data, encoding: .utf8) ?? "ditto failed"
+            throw NSError(domain: "SCOPE.Zip", code: Int(p.terminationStatus), userInfo: [NSLocalizedDescriptionKey: msg])
         }
-        return matches.sorted().map { (outRoot as NSString).appendingPathComponent($0) }
-    }
-
-    private func todayString() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: Date())
     }
 
     private func campaignIsValidForExport() -> Bool {
@@ -2773,15 +2754,6 @@ cd "$ASTRA_ROOT"
         DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
             if exportStatus == text {
                 exportStatus = nil
-            }
-        }
-    }
-
-    private func setHistoryExportStatus(_ text: String, for id: String) {
-        historyExportStatus[id] = text
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
-            if historyExportStatus[id] == text {
-                historyExportStatus[id] = nil
             }
         }
     }
@@ -2925,12 +2897,13 @@ cd "$ASTRA_ROOT"
         guard let campaignsRoot = campaignsRootPath() else { return [] }
         let fm = FileManager.default
         guard fm.fileExists(atPath: campaignsRoot) else { return [] }
+        let store = campaignStore()
 
         guard let campaignDirs = try? fm.contentsOfDirectory(atPath: campaignsRoot) else { return [] }
         var items: [CampaignEntry] = []
 
-        for campaignFs in campaignDirs {
-            let campaignRoot = (campaignsRoot as NSString).appendingPathComponent(campaignFs)
+        for campaignName in campaignDirs {
+            let campaignRoot = (campaignsRoot as NSString).appendingPathComponent(campaignName)
             var isCampaignDir: ObjCBool = false
             guard fm.fileExists(atPath: campaignRoot, isDirectory: &isCampaignDir), isCampaignDir.boolValue else { continue }
 
@@ -2942,26 +2915,37 @@ cd "$ASTRA_ROOT"
                 let lang = langDir.uppercased()
                 guard lang == "RO" || lang == "EN" else { continue }
 
-                let manifest = loadOrCreateCampaignManifest(
-                    campaignLangPath: campaignLangPath,
-                    campaignName: campaignFs,
-                    campaignFs: campaignFs,
-                    lang: lang
-                )
-                let name = manifest.campaign.isEmpty ? campaignFs : manifest.campaign
+                let manifest = (exportRootPath() != nil)
+                    ? store?.loadOrCreateManifest(
+                        campaign: campaignName,
+                        lang: lang,
+                        exportRoot: exportRootPath() ?? "",
+                        isoNow: { iso8601String(Date()) }
+                    ).manifest
+                    : nil
+                    ?? CampaignManifest(
+                        campaign: campaignName,
+                        campaign_fs: campaignName,
+                        lang: lang,
+                        created_at: iso8601String(Date()),
+                        updated_at: iso8601String(Date()),
+                        runs: []
+                    )
+                let manifestCampaign = manifest?.campaign ?? ""
+                let name = manifestCampaign.isEmpty ? campaignName : manifestCampaign
                 let attrs = (try? fm.attributesOfItem(atPath: campaignLangPath)) ?? [:]
-                let lastModified = parseISO8601Date(manifest.updated_at)
+                let lastModified = parseISO8601Date(manifest?.updated_at ?? "")
                     ?? (attrs[.modificationDate] as? Date)
                     ?? Date()
-                let runDirs = Array(Set(manifest.urls.map { $0.run_dir }))
+                let runDirs = Array(Set(manifest?.runs ?? []))
                 let sitesPath = sitesRootPath(campaignLangPath: campaignLangPath)
                 let hiddenPath = (campaignLangPath as NSString).appendingPathComponent(".hidden")
                 let isHidden = fm.fileExists(atPath: hiddenPath)
-                let hasRuns = !manifest.urls.isEmpty
+                let hasRuns = !(manifest?.runs ?? []).isEmpty
 
                 items.append(CampaignEntry(
                     campaign: name,
-                    campaignFs: campaignFs,
+                    campaignFs: campaignName,
                     lang: lang,
                     path: campaignLangPath,
                     sitesPath: sitesPath,
@@ -2981,14 +2965,9 @@ cd "$ASTRA_ROOT"
         let fm = FileManager.default
         let root = (campaignsRoot as NSString).standardizingPath
         var deleted = 0
-        var runDirsToDelete: Set<String> = []
         for item in items {
             let path = (item.path as NSString).standardizingPath
             if path.hasPrefix(root + "/") {
-                let manifestPath = campaignManifestPath(campaignLangPath: item.path)
-                if let manifest = readCampaignManifest(at: manifestPath) {
-                    runDirsToDelete.formUnion(manifest.urls.map { $0.run_dir })
-                }
                 do {
                     try fm.removeItem(atPath: path)
                     deleted += 1
@@ -2997,17 +2976,12 @@ cd "$ASTRA_ROOT"
                 }
             }
         }
-        for runDir in runDirsToDelete {
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: runDir, isDirectory: &isDir), isDir.boolValue {
-                try? fm.removeItem(atPath: runDir)
-            }
+        let deletedRoots = items.map { $0.path }
+        let filtered = runHistory.filter { entry in
+            !deletedRoots.contains(where: { entry.deliverablesDir.hasPrefix($0) })
         }
-        if !runDirsToDelete.isEmpty {
-            let filtered = runHistory.filter { !runDirsToDelete.contains($0.runDir) }
-            runHistory = filtered
-            saveRunHistory(filtered)
-        }
+        runHistory = filtered
+        saveRunHistory(filtered)
         return deleted
     }
 
