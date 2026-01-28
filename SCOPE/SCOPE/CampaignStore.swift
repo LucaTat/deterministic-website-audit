@@ -105,7 +105,7 @@ final class CampaignStore: ObservableObject {
 
     func campaignLangURL(campaign: String, lang: String, exportRoot: String) -> URL {
         let safe = campaignFolderName(for: campaign)
-        return campaignsRoot(exportRoot: exportRoot).appendingPathComponent(safe).appendingPathComponent(lang)
+        return campaignsRoot(exportRoot: exportRoot).appendingPathComponent(safe)
     }
 
     func loadOrCreateManifest(
@@ -115,9 +115,9 @@ final class CampaignStore: ObservableObject {
         isoNow: () -> String
     ) -> (manifest: CampaignManifest, manifestURL: URL) {
         let safe = campaignFolderName(for: campaign)
-        let langURL = campaignsRoot(exportRoot: exportRoot).appendingPathComponent(safe).appendingPathComponent(lang)
-        ensureDirectory(langURL.path)
-        let manifestURL = langURL.appendingPathComponent("manifest.json")
+        let campaignURL = campaignsRoot(exportRoot: exportRoot).appendingPathComponent(safe)
+        ensureDirectory(campaignURL.path)
+        let manifestURL = campaignURL.appendingPathComponent("manifest.json")
 
         if let data = try? Data(contentsOf: manifestURL),
            let decoded = try? JSONDecoder().decode(CampaignManifest.self, from: data) {
@@ -147,10 +147,10 @@ final class CampaignStore: ObservableObject {
     ) -> URL {
         let safeCampaign = campaignFolderName(for: campaign)
         let safeDomain = domain.lowercased().replacingOccurrences(of: "/", with: "-")
-        let runName = "\(timestamp)_\(safeDomain)"
+        let runName = "\(timestamp)_\(safeDomain)_\(lang)"
         return campaignsRoot(exportRoot: exportRoot)
             .appendingPathComponent(safeCampaign)
-            .appendingPathComponent(lang)
+            .appendingPathComponent("runs")
             .appendingPathComponent(runName)
     }
 
@@ -176,11 +176,8 @@ final class CampaignStore: ObservableObject {
 
         var out: [CampaignSummary] = []
         for c in items where c.hasDirectoryPath {
-            let langs = (try? fm.contentsOfDirectory(at: c, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]))?
-                .filter { $0.hasDirectoryPath }
-                .map { $0.lastPathComponent }
-                .sorted() ?? []
             let runs = listRuns(campaignURL: c)
+            let langs = Array(Set(runs.map { $0.run.lang })).sorted()
             let lastUpdated = mostRecentRunDate(campaignURL: c) ?? (try? c.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
             let runCount = runs.count
             out.append(CampaignSummary(name: c.lastPathComponent, langs: langs, campaignURL: c, runCount: runCount, runs: runs, lastUpdated: lastUpdated))
@@ -190,24 +187,24 @@ final class CampaignStore: ObservableObject {
 
     private func listRuns(campaignURL: URL) -> [CampaignRunItem] {
         var out: [CampaignRunItem] = []
-        let langs = (try? fm.contentsOfDirectory(at: campaignURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]))?.filter { $0.hasDirectoryPath } ?? []
-        for langURL in langs {
-            let lang = langURL.lastPathComponent
-            guard let runDirs = try? fm.contentsOfDirectory(at: langURL, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]) else { continue }
-            for runURL in runDirs where runURL.hasDirectoryPath {
-                let name = runURL.lastPathComponent
-                let parts = name.split(separator: "_", maxSplits: 1).map(String.init)
-                let timestamp = parts.first ?? ""
-                let domain = parts.count > 1 ? parts[1] : ""
-                let info = CampaignRunInfo(
-                    url: "",
-                    domain: domain,
-                    timestamp: timestamp,
-                    lang: lang,
-                    campaign: campaignURL.lastPathComponent
-                )
-                out.append(CampaignRunItem(id: runURL.path, runURL: runURL, run: info))
-            }
+        let runsRoot = campaignURL.appendingPathComponent("runs")
+        guard let runDirs = try? fm.contentsOfDirectory(at: runsRoot, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]) else {
+            return out
+        }
+        for runURL in runDirs where runURL.hasDirectoryPath {
+            let name = runURL.lastPathComponent
+            let parts = name.split(separator: "_").map(String.init)
+            let timestamp = parts.first ?? ""
+            let lang = parts.last ?? ""
+            let domain = parts.count >= 2 ? parts[1] : ""
+            let info = CampaignRunInfo(
+                url: "",
+                domain: domain,
+                timestamp: timestamp,
+                lang: lang,
+                campaign: campaignURL.lastPathComponent
+            )
+            out.append(CampaignRunItem(id: runURL.path, runURL: runURL, run: info))
         }
         return out.sorted { $0.run.timestamp > $1.run.timestamp }
     }
@@ -218,16 +215,14 @@ final class CampaignStore: ObservableObject {
     }
 
     private func mostRecentRunDate(campaignURL: URL) -> Date? {
-        let langs = (try? fm.contentsOfDirectory(at: campaignURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]))?.filter { $0.hasDirectoryPath } ?? []
+        let runsRoot = campaignURL.appendingPathComponent("runs")
+        let runDirs = (try? fm.contentsOfDirectory(at: runsRoot, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]))?.filter { $0.hasDirectoryPath } ?? []
         var latest: Date? = nil
-        for langURL in langs {
-            let runDirs = (try? fm.contentsOfDirectory(at: langURL, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]))?.filter { $0.hasDirectoryPath } ?? []
-            for runURL in runDirs {
-                let date = (try? runURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
-                if let date {
-                    if latest == nil || date > latest! {
-                        latest = date
-                    }
+        for runURL in runDirs {
+            let date = (try? runURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+            if let date {
+                if latest == nil || date > latest! {
+                    latest = date
                 }
             }
         }
@@ -256,6 +251,111 @@ final class CampaignStore: ObservableObject {
         try? fm.removeItem(at: runURL)
     }
 
+    private func runRootURL(campaignId: String, runId: String, exportRoot: String) -> URL {
+        campaignsRoot(exportRoot: exportRoot)
+            .appendingPathComponent(campaignId)
+            .appendingPathComponent("runs")
+            .appendingPathComponent(runId)
+    }
+
+    private func legacyCampaignId() -> String {
+        campaignFolderName(for: "Legacy")
+    }
+
+    func migrateLegacyRunsIfNeeded(astraRootPath: String, exportRoot: String) -> [RunEntry] {
+        let campaignsRootURL = campaignsRoot(exportRoot: exportRoot).standardizedFileURL
+        let history = loadRunHistory()
+        guard !history.isEmpty else { return history }
+
+        var updated: [RunEntry] = []
+        updated.reserveCapacity(history.count)
+
+        for entry in history {
+            let runDirPath = entry.runDir
+            if runDirPath.isEmpty {
+                updated.append(entry)
+                continue
+            }
+            let runDirURL = URL(fileURLWithPath: runDirPath).standardizedFileURL
+            let runComponents = runDirURL.pathComponents
+            if runComponents.starts(with: campaignsRootURL.pathComponents) {
+                updated.append(entry)
+                continue
+            }
+            if !runDirPath.hasPrefix(astraRootPath) {
+                updated.append(entry)
+                continue
+            }
+
+            let campaignId = inferCampaignId(from: entry, exportRoot: exportRoot) ?? legacyCampaignId()
+            let runId = runIdForEntry(entry)
+            let runRoot = runRootURL(campaignId: campaignId, runId: runId, exportRoot: exportRoot)
+            let astraDest = runRoot.appendingPathComponent("astra")
+
+            if !fm.fileExists(atPath: runRoot.deletingLastPathComponent().path) {
+                ensureDirectory(runRoot.deletingLastPathComponent().path)
+            }
+            if !fm.fileExists(atPath: runRoot.path) {
+                ensureDirectory(runRoot.path)
+            }
+
+            if !fm.fileExists(atPath: astraDest.path) {
+                do {
+                    try fm.moveItem(at: runDirURL, to: astraDest)
+                } catch {
+                    if !fm.fileExists(atPath: astraDest.path) {
+                        try? fm.copyItem(at: runDirURL, to: astraDest)
+                    }
+                }
+            }
+
+            let newRunDir = astraDest.path
+            let newDeliverables = runRoot.path
+            let newLogPath = (fm.fileExists(atPath: astraDest.appendingPathComponent("scope_run.log").path))
+                ? astraDest.appendingPathComponent("scope_run.log").path
+                : entry.logPath
+            let newReportPath = astraDest.appendingPathComponent("deliverables").appendingPathComponent("report.pdf").path
+            let reportPath = fm.fileExists(atPath: newReportPath) ? newReportPath : entry.reportPdfPath
+
+            let migrated = RunEntry(
+                id: entry.id,
+                timestamp: entry.timestamp,
+                url: entry.url,
+                lang: entry.lang,
+                status: entry.status,
+                runDir: newRunDir,
+                deliverablesDir: newDeliverables,
+                reportPdfPath: reportPath,
+                decisionBriefPdfPath: entry.decisionBriefPdfPath,
+                logPath: newLogPath
+            )
+            updated.append(migrated)
+        }
+
+        saveRunHistory(updated)
+        return updated
+    }
+
+    private func runIdForEntry(_ entry: RunEntry) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd_HHmmss"
+        let stamp = formatter.string(from: entry.timestamp)
+        let host = URL(string: entry.url)?.host?.lowercased() ?? "run"
+        let safeHost = host.replacingOccurrences(of: "/", with: "-")
+        return "\(stamp)_\(safeHost)_\(entry.lang)"
+    }
+
+    private func inferCampaignId(from entry: RunEntry, exportRoot: String) -> String? {
+        let root = campaignsRoot(exportRoot: exportRoot).standardizedFileURL
+        let deliverables = URL(fileURLWithPath: entry.deliverablesDir).standardizedFileURL
+        let rootComponents = root.pathComponents
+        let deliverablesComponents = deliverables.pathComponents
+        guard deliverablesComponents.starts(with: rootComponents) else { return nil }
+        let idx = rootComponents.count
+        guard deliverablesComponents.count > idx else { return nil }
+        return deliverablesComponents[idx]
+    }
+
     func deleteCampaign(_ campaign: Campaign, alsoDeleteAstra: Bool) throws {
         guard let exportRoot = exportRootPath() else {
             throw NSError(domain: "SCOPE.Delete", code: 1, userInfo: [NSLocalizedDescriptionKey: "Export root not available."])
@@ -266,6 +366,8 @@ final class CampaignStore: ObservableObject {
         }
         let history = loadRunHistory()
         let campaignPath = campaign.campaignURL.standardizedFileURL.path
+        let campaignsRootURL = campaignsRoot(exportRoot: exportRoot).standardizedFileURL
+        let rootComponents = campaignsRootURL.pathComponents
         var filtered: [RunEntry] = []
         for entry in history {
             let deliverables = entry.deliverablesDir
@@ -274,7 +376,10 @@ final class CampaignStore: ObservableObject {
             let isCampaignRun = deliverables.hasPrefix(campaignPath) || runDir.hasPrefix(campaignPath) || logPath.hasPrefix(campaignPath)
             if isCampaignRun {
                 if alsoDeleteAstra, !runDir.isEmpty, fm.fileExists(atPath: runDir) {
-                    try? fm.removeItem(atPath: runDir)
+                    let runURL = URL(fileURLWithPath: runDir).standardizedFileURL
+                    if runURL.pathComponents.starts(with: rootComponents) {
+                        try? fm.removeItem(at: runURL)
+                    }
                 }
                 continue
             }
