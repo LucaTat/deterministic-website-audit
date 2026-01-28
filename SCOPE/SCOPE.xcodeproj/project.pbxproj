@@ -17,6 +17,8 @@
 		74A0A1012F17A00100000008 /* WindowEventObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A0A0012F17A00100000008 /* WindowEventObserver.swift */; };
 		74A0A1012F17A00100000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 74A0A0012F17A00100000009 /* Assets.xcassets */; };
 		74A0A1012F17A0010000000A /* launch_chime.wav in Resources */ = {isa = PBXBuildFile; fileRef = 74A0A0012F17A0010000000A /* launch_chime.wav */; };
+		74A0A1012F17A0010000000B /* CampaignModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A0A0012F17A0010000000B /* CampaignModels.swift */; };
+		74A0A1012F17A0010000000C /* CampaignStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74A0A0012F17A0010000000C /* CampaignStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,6 +33,8 @@
 		74A0A0012F17A00100000008 /* WindowEventObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowEventObserver.swift; sourceTree = "<group>"; };
 		74A0A0012F17A00100000009 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		74A0A0012F17A0010000000A /* launch_chime.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = launch_chime.wav; sourceTree = "<group>"; };
+		74A0A0012F17A0010000000B /* CampaignModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CampaignModels.swift; sourceTree = "<group>"; };
+		74A0A0012F17A0010000000C /* CampaignStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CampaignStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -57,6 +61,8 @@
 			children = (
 				74A0A0012F17A00100000005 /* SCOPEApp.swift */,
 				74A0A0012F17A00100000003 /* ContentView.swift */,
+				74A0A0012F17A0010000000B /* CampaignModels.swift */,
+				74A0A0012F17A0010000000C /* CampaignStore.swift */,
 				74A0A0012F17A00100000001 /* AboutView.swift */,
 				74A0A0012F17A00100000006 /* SplashView.swift */,
 				74A0A0012F17A00100000002 /* ChimePlayer.swift */,
@@ -152,6 +158,8 @@
 			files = (
 				74A0A1012F17A00100000001 /* AboutView.swift in Sources */,
 				74A0A1012F17A00100000002 /* ChimePlayer.swift in Sources */,
+				74A0A1012F17A0010000000B /* CampaignModels.swift in Sources */,
+				74A0A1012F17A0010000000C /* CampaignStore.swift in Sources */,
 				74A0A1012F17A00100000003 /* ContentView.swift in Sources */,
 				74A0A1012F17A00100000004 /* NeonStyles.swift in Sources */,
 				74A0A1012F17A00100000005 /* SCOPEApp.swift in Sources */,

@@ -1,0 +1,145 @@
+import Foundation
+
+final class CampaignStore {
+    let repoRoot: String
+    private let fm = FileManager.default
+
+    init(repoRoot: String) {
+        self.repoRoot = repoRoot
+    }
+
+    func ensureDirectory(_ path: String) {
+        if !fm.fileExists(atPath: path) {
+            try? fm.createDirectory(atPath: path, withIntermediateDirectories: true)
+        }
+    }
+
+    func campaignFolderName(for raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "Campaign" }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_ ."))
+        let cleaned = String(trimmed.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" })
+        let collapsed = cleaned.replacingOccurrences(of: "--", with: "-")
+        return collapsed.prefix(80).description
+    }
+
+    func campaignsRoot(exportRoot: String) -> URL {
+        URL(fileURLWithPath: exportRoot).appendingPathComponent("campaigns")
+    }
+
+    func campaignLangURL(campaign: String, lang: String, exportRoot: String) -> URL {
+        let safe = campaignFolderName(for: campaign)
+        return campaignsRoot(exportRoot: exportRoot).appendingPathComponent(safe).appendingPathComponent(lang)
+    }
+
+    func loadOrCreateManifest(
+        campaign: String,
+        lang: String,
+        exportRoot: String,
+        isoNow: () -> String
+    ) -> (manifest: CampaignManifest, manifestURL: URL) {
+        let safe = campaignFolderName(for: campaign)
+        let langURL = campaignsRoot(exportRoot: exportRoot).appendingPathComponent(safe).appendingPathComponent(lang)
+        ensureDirectory(langURL.path)
+        let manifestURL = langURL.appendingPathComponent("manifest.json")
+
+        if let data = try? Data(contentsOf: manifestURL),
+           let decoded = try? JSONDecoder().decode(CampaignManifest.self, from: data) {
+            return (decoded, manifestURL)
+        }
+
+        let now = isoNow()
+        let m = CampaignManifest.new(campaign: campaign, campaign_fs: safe, lang: lang, now: now)
+        writeManifestAtomic(m, to: manifestURL)
+        return (m, manifestURL)
+    }
+
+    func writeManifestAtomic(_ manifest: CampaignManifest, to url: URL) {
+        guard let data = try? JSONEncoder().encode(manifest) else { return }
+        let tmp = url.deletingLastPathComponent().appendingPathComponent(".manifest.tmp.\(UUID().uuidString)")
+        try? data.write(to: tmp, options: [.atomic])
+        try? fm.removeItem(at: url)
+        try? fm.moveItem(at: tmp, to: url)
+    }
+
+    func runFolderURL(
+        campaign: String,
+        lang: String,
+        domain: String,
+        timestamp: String,
+        exportRoot: String
+    ) -> URL {
+        let safeCampaign = campaignFolderName(for: campaign)
+        let safeDomain = domain.lowercased().replacingOccurrences(of: "/", with: "-")
+        let runName = "\(timestamp)_\(safeDomain)"
+        return campaignsRoot(exportRoot: exportRoot)
+            .appendingPathComponent(safeCampaign)
+            .appendingPathComponent(lang)
+            .appendingPathComponent(runName)
+    }
+
+    func appendRun(
+        campaign: String,
+        lang: String,
+        runFolderName: String,
+        exportRoot: String,
+        isoNow: () -> String
+    ) {
+        let (manifest, manifestURL) = loadOrCreateManifest(campaign: campaign, lang: lang, exportRoot: exportRoot, isoNow: isoNow)
+        var m = manifest
+        if !m.runs.contains(runFolderName) {
+            m.runs.append(runFolderName)
+        }
+        m.updated_at = isoNow()
+        writeManifestAtomic(m, to: manifestURL)
+    }
+
+    func listCampaigns(exportRoot: String) -> [CampaignSummary] {
+        let root = campaignsRoot(exportRoot: exportRoot)
+        guard let items = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
+
+        var out: [CampaignSummary] = []
+        for c in items where c.hasDirectoryPath {
+            let langs = (try? fm.contentsOfDirectory(at: c, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]))?
+                .filter { $0.hasDirectoryPath }
+                .map { $0.lastPathComponent }
+                .sorted() ?? []
+            let runs = listRuns(campaignURL: c)
+            let runCount = runs.count
+            out.append(CampaignSummary(name: c.lastPathComponent, langs: langs, campaignURL: c, runCount: runCount, runs: runs))
+        }
+        return out.sorted { $0.name.lowercased() < $1.name.lowercased() }
+    }
+
+    private func listRuns(campaignURL: URL) -> [CampaignRunItem] {
+        var out: [CampaignRunItem] = []
+        let langs = (try? fm.contentsOfDirectory(at: campaignURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]))?.filter { $0.hasDirectoryPath } ?? []
+        for langURL in langs {
+            let lang = langURL.lastPathComponent
+            guard let runDirs = try? fm.contentsOfDirectory(at: langURL, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]) else { continue }
+            for runURL in runDirs where runURL.hasDirectoryPath {
+                let name = runURL.lastPathComponent
+                let parts = name.split(separator: "_", maxSplits: 1).map(String.init)
+                let timestamp = parts.first ?? ""
+                let domain = parts.count > 1 ? parts[1] : ""
+                let info = CampaignRunInfo(
+                    url: "",
+                    domain: domain,
+                    timestamp: timestamp,
+                    lang: lang,
+                    campaign: campaignURL.lastPathComponent
+                )
+                out.append(CampaignRunItem(id: runURL.path, runURL: runURL, run: info))
+            }
+        }
+        return out
+    }
+
+    func deleteCampaignFolder(_ campaignURL: URL) {
+        try? fm.removeItem(at: campaignURL)
+    }
+
+    func deleteRunFolder(_ runURL: URL) {
+        try? fm.removeItem(at: runURL)
+    }
+}
