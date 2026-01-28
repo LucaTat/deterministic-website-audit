@@ -103,6 +103,36 @@ struct RunEntry: Identifiable, Codable {
     let logPath: String?
 }
 
+struct CampaignManifestURL: Codable {
+    var url: String
+    var domain: String
+    var run_dir: String
+    var delivered_dir: String
+    var verdict: String
+    var timestamp_utc: String
+}
+
+struct CampaignManifest: Codable {
+    var campaign: String
+    var campaign_fs: String
+    var lang: String
+    var created_at: String
+    var updated_at: String
+    var astra_root: String
+    var urls: [CampaignManifestURL]
+}
+
+struct CampaignManagerItem: Identifiable {
+    let id: String
+    let campaign: String
+    let lang: String
+    let lastModified: Date
+    let runDirCount: Int
+    let sizeBytes: Int64?
+    let path: String
+    let manifest: CampaignManifest
+}
+
 // MARK: - ContentView
 
 struct ContentView: View {
@@ -137,6 +167,7 @@ struct ContentView: View {
     @State private var lastRunStatus: String? = nil
     @State private var lastRunDir: String? = nil
     @State private var lastRunLogPath: String? = nil
+    @State private var lastRunDomain: String? = nil
     @State private var showAdvanced: Bool = false
     @State private var recentCampaigns: [RecentCampaign] = []
     @State private var runHistory: [RunEntry] = []
@@ -159,6 +190,11 @@ struct ContentView: View {
     @State private var historyCleanupStatus: String? = nil
     @State private var showAbout: Bool = false
     @State private var demoDeliverablePath: String? = nil
+    @State private var showCampaignManager: Bool = false
+    @State private var campaignManagerItems: [CampaignManagerItem] = []
+    @State private var campaignManagerSelection: Set<String> = []
+    @State private var showCampaignManagerDeleteConfirm: Bool = false
+    @State private var campaignManagerStatus: String? = nil
     @AppStorage("scopeTheme") private var themeRaw: String = Theme.light.rawValue
     @AppStorage("scope_use_ai") private var useAI: Bool = true
     @AppStorage("scope_analysis_mode") private var analysisModeRaw: String = "standard"
@@ -236,16 +272,6 @@ struct ContentView: View {
                                 .frame(maxWidth: 300)
                                 .help("Select delivery language")
                             }
-                            HStack(spacing: 12) {
-                                Text("Theme")
-                                    .frame(width: labelWidth, alignment: .leading)
-                                Picker("", selection: $themeRaw) {
-                                    Text("Light").tag(Theme.light.rawValue)
-                                    Text("Dark").tag(Theme.dark.rawValue)
-                                }
-                                .pickerStyle(.segmented)
-                                .frame(maxWidth: 220)
-                            }
                             Text("RO + EN generates two ZIPs")
                                 .font(.footnote)
                                 .foregroundColor(.secondary)
@@ -262,7 +288,7 @@ struct ContentView: View {
                                 Text("• Include https://")
                                     .font(.footnote)
                                     .foregroundColor(.secondary)
-                                Text("• Campaign is optional")
+                                Text("• Campaign is required")
                                     .font(.footnote)
                                     .foregroundColor(.secondary)
                             }
@@ -280,7 +306,9 @@ struct ContentView: View {
                 GroupBox(label: Text("Run").font(.headline)) {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 12) {
-                            let runDisabled = isRunning || !hasAtLeastOneValidURL() || !engineFolderAvailable() || astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            let astraTrimmed = astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let astraReady = !astraTrimmed.isEmpty && FileManager.default.fileExists(atPath: astraTrimmed)
+                            let runDisabled = isRunning || !hasAtLeastOneValidURL() || !campaignIsValid() || !engineFolderAvailable() || !astraReady
                             Button { runAudit() } label: {
                                 Label("Run", systemImage: "play.fill")
                             }
@@ -308,7 +336,7 @@ struct ContentView: View {
                             .opacity(buttonOpacity(disabled: resetDisabled))
                             .help("Clear inputs and UI state for next client")
 
-                            let demoDisabled = isRunning || !engineFolderAvailable() || astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            let demoDisabled = isRunning || !engineFolderAvailable() || !astraReady
                             Button { runDemo() } label: {
                                 Label("Run Demo", systemImage: "sparkles")
                             }
@@ -351,15 +379,14 @@ struct ContentView: View {
                             .opacity(buttonOpacity(disabled: outputDisabled))
                             .help("Reveal the output folder for the last run")
 
-                            let hasLog = (lastRunLogPath != nil && FileManager.default.fileExists(atPath: lastRunLogPath ?? ""))
-                            let logsDisabled = isRunning || !hasLog
+                            let logsDisabled = isRunning || scopeRunLogPath() == nil
                             Button { openLogs() } label: {
                                 Label("Open Logs", systemImage: "doc.text.magnifyingglass")
                             }
                             .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                             .disabled(logsDisabled)
                             .opacity(buttonOpacity(disabled: logsDisabled))
-                            .help("Open the latest run log")
+                            .help(logsHelpText())
                         }
 
                         if demoDeliverablePath != nil {
@@ -492,8 +519,7 @@ struct ContentView: View {
                             }
 
                             HStack(spacing: 6) {
-                            let logCandidates = [result?.logFile, result?.archivedLogFile].compactMap { $0 }
-                            let logsDisabled = isRunning || !logCandidates.contains { FileManager.default.fileExists(atPath: $0) }
+                            let logsDisabled = isRunning || scopeRunLogPath() == nil
                             Button { openLogs() } label: {
                                 Label("Open Logs", systemImage: "doc.text.magnifyingglass")
                             }
@@ -608,7 +634,7 @@ struct ContentView: View {
                             .buttonStyle(.bordered)
                             .disabled(!repoAvailable)
                             .opacity(buttonOpacity(disabled: !repoAvailable))
-                            .help(repoAvailable ? "Open deliverables/archive" : "Select a repo to enable")
+                            .help(repoAvailable ? "Open deliverables/Campaigns" : "Select a repo to enable")
 
                             Button { openTodaysArchive() } label: {
                                 Label("Open Today's Archive", systemImage: "calendar")
@@ -616,7 +642,17 @@ struct ContentView: View {
                             .buttonStyle(.bordered)
                             .disabled(!repoAvailable)
                             .opacity(buttonOpacity(disabled: !repoAvailable))
-                            .help(repoAvailable ? "Open deliverables/archive/<today>" : "Select a repo to enable")
+                            .help(repoAvailable ? "Open deliverables/Campaigns" : "Select a repo to enable")
+
+                            Button {
+                                openCampaignManager()
+                            } label: {
+                                Text("Manage Campaigns…")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(!repoAvailable)
+                            .opacity(buttonOpacity(disabled: !repoAvailable))
+                            .help(repoAvailable ? "Review and delete campaign artifacts" : "Select a repo to enable")
                         }
 
                         Text("Recent campaigns")
@@ -628,7 +664,7 @@ struct ContentView: View {
 
                             Picker("", selection: $campaignFilter) {
                                 Text("All").tag(CampaignFilter.all)
-                                Text("Ready").tag(CampaignFilter.withZips)
+                                Text("Ready").tag(CampaignFilter.withRuns)
                                 Text("Hidden").tag(CampaignFilter.hidden)
                             }
                             .pickerStyle(.segmented)
@@ -652,7 +688,7 @@ struct ContentView: View {
                                 ForEach(displayedCampaigns) { item in
                                     VStack(alignment: .leading, spacing: 6) {
                                         HStack {
-                                            Text("\(item.dateString) • \(item.campaign)")
+                                            Text("\(item.campaign) • \(item.lang) • Updated \(formatRunTimestamp(item.lastModified))")
                                                 .font(.subheadline)
                                                 .foregroundColor(item.isHidden ? .secondary : .primary)
                                                 .opacity(item.isHidden ? 0.6 : 1.0)
@@ -663,44 +699,17 @@ struct ContentView: View {
                                             }
                                             .buttonStyle(.bordered)
 
-                                            let exportDisabled = isRunning || resolvedRepoRoot() == nil || !item.hasZips
-                                            Button {
-                                                exportHistoryCampaign(item)
-                                            } label: {
-                                                Text("Export…")
+                                            Button { openCampaignSites(item) } label: {
+                                                Text("Reveal Sites")
                                             }
                                             .buttonStyle(.bordered)
-                                            .disabled(exportDisabled)
-                                            .opacity(buttonOpacity(disabled: exportDisabled))
-                                            .help(exportDisabled && !item.hasZips ? "No ZIPs yet" : "Export ZIPs to a folder")
 
-                                            if item.isHidden {
-                                                Button { unhideCampaign(item) } label: {
-                                                    Label("Unhide", systemImage: "eye")
-                                                }
-                                                .buttonStyle(.bordered)
-                                            } else {
-                                                Button { hideCampaign(item) } label: {
-                                                    Label("Hide", systemImage: "eye.slash")
-                                                }
-                                                .buttonStyle(.bordered)
-                                            }
-
-                                            let revealDisabled = !item.hasZips
-                                            Button { revealCampaignZips(item) } label: {
-                                                Text("Reveal ZIPs")
+                                            Button { deleteCampaignEverywhere(item) } label: {
+                                                Text("Delete")
                                             }
                                             .buttonStyle(.bordered)
-                                            .disabled(revealDisabled)
-                                            .opacity(buttonOpacity(disabled: revealDisabled))
-                                            .help(revealDisabled ? "No ZIPs yet" : "Reveal ZIPs in Finder")
                                         }
 
-                                        if let status = historyExportStatus[item.id] {
-                                            Text(status)
-                                                .font(.footnote)
-                                                .foregroundColor(.secondary)
-                                        }
                                     }
                                 }
                             }
@@ -787,6 +796,17 @@ struct ContentView: View {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("Run options")
                                     .font(.headline)
+
+                                HStack(spacing: 12) {
+                                    Text("Theme")
+                                        .frame(width: 90, alignment: .leading)
+                                    Picker("", selection: $themeRaw) {
+                                        Text("Light").tag(Theme.light.rawValue)
+                                        Text("Dark").tag(Theme.dark.rawValue)
+                                    }
+                                    .pickerStyle(.segmented)
+                                    .frame(maxWidth: 220)
+                                }
 
                                 HStack(spacing: 12) {
                                     Toggle("Use AI", isOn: $useAI)
@@ -1033,6 +1053,9 @@ struct ContentView: View {
             AboutView()
                 .frame(width: 520, height: 560)
         }
+        .sheet(isPresented: $showCampaignManager) {
+            campaignManagerSheet()
+        }
         .onAppear {
             repoRoot = resolvedRepoRoot()
             refreshRecentCampaigns()
@@ -1202,6 +1225,7 @@ struct ContentView: View {
         let astraTrimmed = astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
         if astraTrimmed.isEmpty { return "Select ASTRA Folder to continue." }
         if !FileManager.default.fileExists(atPath: astraTrimmed) { return "ASTRA folder not found. Select ASTRA Folder." }
+        if !campaignIsValid() { return "Enter Campaign" }
         if !hasAtLeastOneValidURL() { return "Run disabled: Add at least 1 valid URL" }
         return nil
     }
@@ -1276,16 +1300,16 @@ struct ContentView: View {
 
     private func outputHelpText() -> String {
         if outputFolderPath() == nil {
-            return "Open archive root. Available after run."
+            return "Open campaign folder. Available after run."
         }
-        return "Open archive root"
+        return "Open campaign folder"
     }
 
     private func logsHelpText() -> String {
-        if (result?.archivedLogFile == nil) && (result?.logFile == nil) {
-            return "Open logs folder. Available after run."
+        if scopeRunLogPath() == nil {
+            return "scope_run.log not found yet. Finish a run to enable logs."
         }
-        return "Open the run log file or logs folder"
+        return "Open scope_run.log for the last run"
     }
 
     private func evidenceHelpText() -> String {
@@ -1338,18 +1362,168 @@ struct ContentView: View {
         return formatter.string(from: date)
     }
 
+    private func exportRootPath() -> String? {
+        guard let repo = resolvedRepoRoot() else { return nil }
+        return (repo as NSString).appendingPathComponent("deliverables")
+    }
+
+    private func campaignsRootPath() -> String? {
+        guard let exportRoot = exportRootPath() else { return nil }
+        return (exportRoot as NSString).appendingPathComponent("Campaigns")
+    }
+
+    private func sanitizeForFilesystem(_ value: String) -> String {
+        let forbidden = CharacterSet(charactersIn: "/\\:*?\"<>|")
+        var result = ""
+        for scalar in value.unicodeScalars {
+            if forbidden.contains(scalar) {
+                result.append("_")
+            } else {
+                result.append(String(scalar))
+            }
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func campaignFolderPath(campaignName: String, lang: String) -> String? {
+        guard let root = campaignsRootPath() else { return nil }
+        let campaignFS = sanitizeForFilesystem(campaignName)
+        let langFolder = lang.uppercased()
+        return ((root as NSString).appendingPathComponent(campaignFS) as NSString).appendingPathComponent(langFolder)
+    }
+
+    private func sitesRootPath(campaignLangPath: String) -> String {
+        (campaignLangPath as NSString).appendingPathComponent("sites")
+    }
+
+    private func campaignManifestPath(campaignLangPath: String) -> String {
+        (campaignLangPath as NSString).appendingPathComponent("manifest.json")
+    }
+
+    private func domainFromURLString(_ url: String) -> String? {
+        guard let parsed = URL(string: url), let host = parsed.host, !host.isEmpty else { return nil }
+        return host.lowercased()
+    }
+
+    private func sanitizeDomainForFS(_ domain: String) -> String {
+        sanitizeForFilesystem(domain.lowercased())
+    }
+
+    private func openCampaignManager() {
+        campaignManagerSelection = []
+        campaignManagerItems = loadCampaignManagerItems()
+        campaignManagerStatus = nil
+        showCampaignManager = true
+    }
+
+    @ViewBuilder
+    private func campaignManagerSheet() -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Campaign Manager")
+                    .font(.title3)
+                    .foregroundColor(.primary)
+                Spacer()
+                Button("Close") {
+                    showCampaignManager = false
+                }
+                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+            }
+
+            if let status = campaignManagerStatus {
+                Text(status)
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+
+            if campaignManagerItems.isEmpty {
+                Text("No campaigns found.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(campaignManagerItems) { item in
+                            HStack(alignment: .center, spacing: 12) {
+                                Toggle(isOn: campaignManagerSelectionBinding(for: item.id)) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(item.campaign)
+                                            .font(.headline)
+                                            .foregroundColor(.primary)
+                                        let detail = "Lang: \(item.lang.uppercased()) • Updated \(formatRunTimestamp(item.lastModified)) • Runs \(item.runDirCount)"
+                                        Text(detail)
+                                            .font(.footnote)
+                                            .foregroundColor(.secondary)
+                                        if let size = item.sizeBytes {
+                                            Text("Size: \(formatByteCount(size))")
+                                                .font(.footnote)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                }
+                                .toggleStyle(.checkbox)
+
+                                Spacer()
+
+                                Button("Open") {
+                                    openFolder(item.path)
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                            .padding(8)
+                            .background(theme.cardBackground)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(theme.border, lineWidth: 1)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button("Delete Selected (Everywhere)") {
+                    showCampaignManagerDeleteConfirm = true
+                }
+                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                .disabled(campaignManagerSelection.isEmpty)
+                .opacity(buttonOpacity(disabled: campaignManagerSelection.isEmpty))
+                .help("Delete campaign folder and associated ASTRA run dirs")
+
+                Spacer()
+            }
+        }
+        .padding(16)
+        .frame(minWidth: 860, minHeight: 520)
+        .background(theme.background)
+        .preferredColorScheme(theme.colorScheme)
+        .tint(theme.accent)
+        .alert("Delete selected campaigns?", isPresented: $showCampaignManagerDeleteConfirm) {
+            Button("Delete", role: .destructive) {
+                deleteSelectedCampaignsEverywhere()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes the campaign folders and their ASTRA run directories.")
+        }
+    }
+
+    private func campaignManagerSelectionBinding(for id: String) -> Binding<Bool> {
+        Binding<Bool>(
+            get: { campaignManagerSelection.contains(id) },
+            set: { isSelected in
+                if isSelected {
+                    campaignManagerSelection.insert(id)
+                } else {
+                    campaignManagerSelection.remove(id)
+                }
+            }
+        )
+    }
+
     private func revealLatestDeliverables() {
         guard let runDir = lastRunDir else { return }
-        let deliverablesDir = (runDir as NSString).appendingPathComponent("deliverables")
-        let reportPath = (deliverablesDir as NSString).appendingPathComponent("report.pdf")
-        if FileManager.default.fileExists(atPath: reportPath) {
-            revealFiles([reportPath])
-            return
-        }
-        if FileManager.default.fileExists(atPath: deliverablesDir) {
-            openFolder(deliverablesDir)
-            return
-        }
         openFolder(runDir)
     }
 
@@ -1363,6 +1537,364 @@ struct ContentView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    private func openCampaignSites(_ item: RecentCampaign) {
+        if FileManager.default.fileExists(atPath: item.sitesPath) {
+            openFolder(item.sitesPath)
+        } else {
+            openFolder(item.path)
+        }
+    }
+
+    private func confirmDeleteCampaign(_ name: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Delete campaign?"
+        alert.informativeText = "This will permanently delete \(name) and associated ASTRA run folders."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        let response = alert.runModal()
+        return response == .alertFirstButtonReturn
+    }
+
+    private func deleteCampaignEverywhere(_ item: RecentCampaign) {
+        guard confirmDeleteCampaign(item.campaign) else { return }
+        let fm = FileManager.default
+        let manifestPath = campaignManifestPath(campaignLangPath: item.path)
+        let manifest = readCampaignManifest(at: manifestPath)
+        let runDirs = Set(manifest?.urls.map { $0.run_dir } ?? [])
+
+        if fm.fileExists(atPath: item.path) {
+            try? fm.removeItem(atPath: item.path)
+        }
+
+        for runDir in runDirs {
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: runDir, isDirectory: &isDir), isDir.boolValue {
+                try? fm.removeItem(atPath: runDir)
+            }
+        }
+
+        if !runDirs.isEmpty {
+            let filtered = runHistory.filter { !runDirs.contains($0.runDir) }
+            runHistory = filtered
+            saveRunHistory(filtered)
+        }
+
+        refreshRecentCampaigns()
+    }
+
+    private func formatByteCount(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+
+    private func iso8601String(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        return formatter.string(from: date)
+    }
+
+    private func parseISO8601Date(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        return formatter.date(from: value)
+    }
+
+    private func directorySizeBytes(at path: String) -> Int64? {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(at: URL(fileURLWithPath: path), includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]) else {
+            return nil
+        }
+        var total: Int64 = 0
+        for case let url as URL in enumerator {
+            if let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
+               let size = values.fileSize {
+                total += Int64(size)
+            }
+        }
+        return total
+    }
+
+    private func readCampaignManifest(at path: String) -> CampaignManifest? {
+        let fm = FileManager.default
+        guard let data = fm.contents(atPath: path) else { return nil }
+        return try? JSONDecoder().decode(CampaignManifest.self, from: data)
+    }
+
+    private func writeCampaignManifestAtomic(_ manifest: CampaignManifest, to path: String) {
+        guard let data = try? JSONEncoder().encode(manifest) else { return }
+        let url = URL(fileURLWithPath: path)
+        let tmpURL = url.appendingPathExtension("tmp")
+        do {
+            try data.write(to: tmpURL, options: .atomic)
+            let fm = FileManager.default
+            if fm.fileExists(atPath: url.path) {
+                _ = try? fm.replaceItemAt(url, withItemAt: tmpURL)
+            } else {
+                try? fm.moveItem(at: tmpURL, to: url)
+            }
+            if fm.fileExists(atPath: tmpURL.path) {
+                try? fm.removeItem(at: tmpURL)
+            }
+        } catch {
+            return
+        }
+    }
+
+    private func ensureDirectory(_ path: String) {
+        if !FileManager.default.fileExists(atPath: path) {
+            try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        }
+    }
+
+    private func loadOrCreateCampaignManifest(campaignLangPath: String, campaignName: String, campaignFs: String, lang: String) -> CampaignManifest {
+        ensureDirectory(campaignLangPath)
+        let manifestPath = campaignManifestPath(campaignLangPath: campaignLangPath)
+        var needsSave = false
+
+        var manifest: CampaignManifest
+        if let decoded = readCampaignManifest(at: manifestPath) {
+            manifest = decoded
+        } else {
+            manifest = CampaignManifest(
+                campaign: campaignName,
+                campaign_fs: campaignFs,
+                lang: lang.uppercased(),
+                created_at: iso8601String(Date()),
+                updated_at: iso8601String(Date()),
+                astra_root: astraRootPath,
+                urls: []
+            )
+            needsSave = true
+        }
+
+        if manifest.campaign.isEmpty {
+            manifest.campaign = campaignName
+            needsSave = true
+        }
+        if manifest.campaign_fs.isEmpty {
+            manifest.campaign_fs = campaignFs
+            needsSave = true
+        }
+        if manifest.lang.isEmpty {
+            manifest.lang = lang.uppercased()
+            needsSave = true
+        }
+        if manifest.astra_root.isEmpty, !astraRootPath.isEmpty {
+            manifest.astra_root = astraRootPath
+            needsSave = true
+        }
+
+        if manifest.created_at.isEmpty {
+            manifest.created_at = iso8601String(Date())
+            needsSave = true
+        }
+        if manifest.updated_at.isEmpty {
+            manifest.updated_at = iso8601String(Date())
+            needsSave = true
+        }
+
+        if needsSave {
+            writeCampaignManifestAtomic(manifest, to: manifestPath)
+        }
+
+        return manifest
+    }
+
+    private func loadCampaignManagerItems() -> [CampaignManagerItem] {
+        let entries = listAllCampaigns()
+        let fm = FileManager.default
+        var items: [CampaignManagerItem] = []
+
+        for entry in entries {
+            let manifest = loadOrCreateCampaignManifest(
+                campaignLangPath: entry.path,
+                campaignName: entry.campaign,
+                campaignFs: entry.campaignFs,
+                lang: entry.lang
+            )
+            let attrs = (try? fm.attributesOfItem(atPath: entry.path)) ?? [:]
+            let lastModified = parseISO8601Date(manifest.updated_at) ?? (attrs[.modificationDate] as? Date) ?? Date()
+            let size = directorySizeBytes(at: entry.path)
+            let id = entry.path
+            let runDirs = Set(manifest.urls.map { $0.run_dir })
+            let item = CampaignManagerItem(
+                id: id,
+                campaign: entry.campaign,
+                lang: manifest.lang.isEmpty ? entry.lang : manifest.lang,
+                lastModified: lastModified,
+                runDirCount: runDirs.count,
+                sizeBytes: size,
+                path: entry.path,
+                manifest: manifest
+            )
+            items.append(item)
+        }
+
+        return items.sorted { $0.lastModified > $1.lastModified }
+    }
+
+    private func deleteSelectedCampaignsEverywhere() {
+        let selected = campaignManagerItems.filter { campaignManagerSelection.contains($0.id) }
+        guard !selected.isEmpty else { return }
+        let fm = FileManager.default
+        var deleted = 0
+        var runDirsToDelete: Set<String> = []
+
+        for item in selected {
+            runDirsToDelete.formUnion(item.manifest.urls.map { $0.run_dir })
+        }
+
+        for item in selected {
+            do {
+                try fm.removeItem(atPath: item.path)
+                deleted += 1
+            } catch {
+                continue
+            }
+        }
+
+        for runDir in runDirsToDelete {
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: runDir, isDirectory: &isDir), isDir.boolValue {
+                try? fm.removeItem(atPath: runDir)
+            }
+        }
+
+        if !runDirsToDelete.isEmpty {
+            let filtered = runHistory.filter { !runDirsToDelete.contains($0.runDir) }
+            runHistory = filtered
+            saveRunHistory(filtered)
+        }
+
+        campaignManagerStatus = "Deleted \(deleted) campaign(s)."
+        campaignManagerSelection = []
+        refreshRecentCampaigns()
+        campaignManagerItems = loadCampaignManagerItems()
+    }
+
+    private func updateCampaignManifest(
+        campaignName: String,
+        campaignFs: String,
+        lang: String,
+        url: String,
+        domain: String,
+        runDir: String,
+        deliveredDir: String,
+        verdict: String
+    ) {
+        guard let campaignLangPath = campaignFolderPath(campaignName: campaignName, lang: lang) else { return }
+        var manifest = loadOrCreateCampaignManifest(
+            campaignLangPath: campaignLangPath,
+            campaignName: campaignName,
+            campaignFs: campaignFs,
+            lang: lang
+        )
+
+        let timestamp = iso8601String(Date())
+        let normalizedDomain = domain.lowercased()
+        manifest.urls.removeAll { $0.domain.lowercased() == normalizedDomain }
+        manifest.urls.append(CampaignManifestURL(
+            url: url,
+            domain: normalizedDomain,
+            run_dir: runDir,
+            delivered_dir: deliveredDir,
+            verdict: verdict,
+            timestamp_utc: timestamp
+        ))
+        manifest.updated_at = timestamp
+        if manifest.astra_root.isEmpty, !astraRootPath.isEmpty {
+            manifest.astra_root = astraRootPath
+        }
+
+        let manifestPath = campaignManifestPath(campaignLangPath: campaignLangPath)
+        writeCampaignManifestAtomic(manifest, to: manifestPath)
+    }
+
+    private func readVerdict(from verdictPath: String) -> String {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: verdictPath)),
+              let obj = try? JSONSerialization.jsonObject(with: data),
+              let dict = obj as? [String: Any],
+              let verdict = dict["verdict"] as? String,
+              !verdict.isEmpty else {
+            return "NOT_AUDITABLE"
+        }
+        return verdict
+    }
+
+    private func deliverAstraRun(
+        runDir: String,
+        url: String,
+        campaignName: String,
+        lang: String
+    ) -> (campaignLangPath: String?, deliveredDir: String?, domain: String?, reportPath: String?, decisionBriefPdf: String?, decisionBriefTxt: String?, scopeLogPath: String?, verdict: String?, success: Bool) {
+        guard let domain = domainFromURLString(url) else {
+            return (nil, nil, nil, nil, nil, nil, nil, nil, false)
+        }
+        guard let campaignLangPath = campaignFolderPath(campaignName: campaignName, lang: lang) else {
+            return (nil, nil, domain, nil, nil, nil, nil, nil, false)
+        }
+
+        let fm = FileManager.default
+        let deliverablesSource = (runDir as NSString).appendingPathComponent("deliverables")
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: deliverablesSource, isDirectory: &isDir), isDir.boolValue else {
+            return (campaignLangPath, nil, domain, nil, nil, nil, nil, nil, false)
+        }
+
+        ensureDirectory(campaignLangPath)
+        let sitesRoot = sitesRootPath(campaignLangPath: campaignLangPath)
+        ensureDirectory(sitesRoot)
+        let domainFs = sanitizeDomainForFS(domain)
+        let deliveredDir = (sitesRoot as NSString).appendingPathComponent(domainFs)
+        if fm.fileExists(atPath: deliveredDir) {
+            try? fm.removeItem(atPath: deliveredDir)
+        }
+        ensureDirectory(deliveredDir)
+
+        let items = (try? fm.contentsOfDirectory(atPath: deliverablesSource)) ?? []
+        for item in items {
+            let src = (deliverablesSource as NSString).appendingPathComponent(item)
+            let dst = (deliveredDir as NSString).appendingPathComponent(item)
+            try? fm.copyItem(atPath: src, toPath: dst)
+        }
+
+        let reportPath = (deliveredDir as NSString).appendingPathComponent("report.pdf")
+        let verdictPath = (deliveredDir as NSString).appendingPathComponent("verdict.json")
+        let reportExists = fm.fileExists(atPath: reportPath)
+        let verdictExists = fm.fileExists(atPath: verdictPath)
+        guard reportExists && verdictExists else {
+            return (campaignLangPath, deliveredDir, domain, reportExists ? reportPath : nil, nil, nil, nil, nil, false)
+        }
+
+        let decisionBriefPdf = (deliveredDir as NSString).appendingPathComponent("Decision Brief - \(domain) - \(lang.uppercased()).pdf")
+        let decisionBriefTxt = (deliveredDir as NSString).appendingPathComponent("Decision Brief - \(domain) - \(lang.uppercased()).txt")
+        let scopeLogPath = (deliveredDir as NSString).appendingPathComponent("scope_run.log")
+        let verdict = readVerdict(from: verdictPath)
+
+        updateCampaignManifest(
+            campaignName: campaignName,
+            campaignFs: sanitizeForFilesystem(campaignName),
+            lang: lang.uppercased(),
+            url: url,
+            domain: domain,
+            runDir: runDir,
+            deliveredDir: deliveredDir,
+            verdict: verdict
+        )
+
+        return (
+            campaignLangPath,
+            deliveredDir,
+            domain,
+            reportPath,
+            fm.fileExists(atPath: decisionBriefPdf) ? decisionBriefPdf : nil,
+            fm.fileExists(atPath: decisionBriefTxt) ? decisionBriefTxt : nil,
+            fm.fileExists(atPath: scopeLogPath) ? scopeLogPath : nil,
+            verdict,
+            true
+        )
     }
 
     private func alert(title: String, message: String) {
@@ -1420,19 +1952,8 @@ struct ContentView: View {
     // MARK: - Finder actions
 
     private func openLogs() {
-        if let log = lastRunLogPath, FileManager.default.fileExists(atPath: log) {
-            revealAndOpenFile(log)
-            return
-        }
-        if let archived = result?.archivedLogFile, FileManager.default.fileExists(atPath: archived) {
-            revealAndOpenFile(archived)
-            return
-        }
-        if let log = result?.logFile, FileManager.default.fileExists(atPath: log) {
-            revealAndOpenFile(log)
-            return
-        }
-        openFolder((ScopeRepoLocator.appSupportDir as NSString).appendingPathComponent("logs"))
+        guard let log = scopeRunLogPath() else { return }
+        revealAndOpenFile(log)
     }
 
     private func openEvidence() {
@@ -1539,6 +2060,10 @@ struct ContentView: View {
             alert(title: "ASTRA folder missing", message: "Select ASTRA Folder to continue.")
             return
         }
+        guard campaignIsValid() else {
+            alert(title: "Enter Campaign", message: "Enter Campaign")
+            return
+        }
         guard let validLines = validateTargetsInput() else {
             return
         }
@@ -1554,9 +2079,9 @@ struct ContentView: View {
         cancelRequested = false
         lastRunDir = nil
         lastRunLogPath = nil
+        lastRunDomain = nil
 
-        let baseCampaign = campaign.trimmingCharacters(in: .whitespacesAndNewlines)
-        let camp = baseCampaign.isEmpty ? "Default" : baseCampaign
+        let camp = campaign.trimmingCharacters(in: .whitespacesAndNewlines)
 
         runRunner(selectedLang: lang, baseCampaign: camp, validLines: validLines)
     }
@@ -1592,6 +2117,7 @@ struct ContentView: View {
         demoDeliverablePath = nil
         lastRunDir = nil
         lastRunLogPath = nil
+        lastRunDomain = nil
         cancelRequested = false
 
         let demoURL = "https://example.com"
@@ -1734,26 +2260,42 @@ cd "$ASTRA_ROOT"
                     self.lastExitCode = code
                     if code != 0 { sawError = true }
 
-                    let runDir = self.parseAstraRunDirMarker(from: self.logOutput)
-                    self.lastRunDir = runDir
-                    if runDir == nil {
+                    let runDir = self.resolveAstraRunDir(from: self.logOutput, astraRoot: normalizedAstraRoot)
+                    var delivery = (
+                        campaignLangPath: String?,
+                        deliveredDir: String?,
+                        domain: String?,
+                        reportPath: String?,
+                        decisionBriefPdf: String?,
+                        decisionBriefTxt: String?,
+                        scopeLogPath: String?,
+                        verdict: String?,
+                        success: Bool
+                    )(nil, nil, nil, nil, nil, nil, nil, nil, false)
+                    if let runDir, let campaignName = self.lastRunCampaign {
+                        delivery = self.deliverAstraRun(runDir: runDir, url: spec.url, campaignName: campaignName, lang: spec.lang)
+                    }
+                    if runDir == nil || delivery.success == false {
                         sawError = true
                         self.runState = .error
                         self.readyToSend = false
                     }
-                    let deliverablesDir = runDir.map { ($0 as NSString).appendingPathComponent("deliverables") } ?? ""
-                    let reportPath = deliverablesDir.isEmpty ? nil : (deliverablesDir as NSString).appendingPathComponent("report.pdf")
-                    let reportExists = reportPath.map { fm.fileExists(atPath: $0) } ?? false
 
-                    var decisionBrief: String? = nil
-                    if !deliverablesDir.isEmpty {
-                        let candidate = (deliverablesDir as NSString).appendingPathComponent("decision_brief.pdf")
-                        if fm.fileExists(atPath: candidate) {
-                            decisionBrief = candidate
-                        }
+                    if let campaignLangPath = delivery.campaignLangPath {
+                        self.lastRunDir = campaignLangPath
+                    } else if let campaignName = self.lastRunCampaign,
+                              let fallbackCampaignPath = self.campaignFolderPath(campaignName: campaignName, lang: spec.lang) {
+                        self.lastRunDir = fallbackCampaignPath
                     }
+                    self.lastRunDomain = delivery.domain ?? self.domainFromURLString(spec.url)
+                    self.lastRunLogPath = delivery.scopeLogPath
 
-                    let status = cancelRequested ? "Canceled" : ((code == 0 && runDir != nil) ? "OK" : "FAILED")
+                    let deliverablesDir = delivery.deliveredDir ?? ""
+                    let reportPath = delivery.reportPath
+                    let reportExists = reportPath != nil
+                    let decisionBrief = delivery.decisionBriefPdf
+
+                    let status = cancelRequested ? "Canceled" : ((code == 0 && delivery.success) ? "OK" : "FAILED")
                     let entry = RunEntry(
                         id: UUID().uuidString,
                         timestamp: Date(),
@@ -1764,7 +2306,7 @@ cd "$ASTRA_ROOT"
                         deliverablesDir: deliverablesDir,
                         reportPdfPath: reportExists ? reportPath : nil,
                         decisionBriefPdfPath: decisionBrief,
-                        logPath: logPath
+                        logPath: delivery.scopeLogPath
                     )
                     self.runHistory.insert(entry, at: 0)
                     self.saveRunHistory(self.runHistory)
@@ -1772,16 +2314,16 @@ cd "$ASTRA_ROOT"
 
                     self.lastRunLang = spec.lang
                     self.lastRunStatus = status
-                    if let runDir {
+                    if let campaignLangPath = delivery.campaignLangPath {
                         if self.result == nil { self.result = ScopeResult() }
-                        self.result?.outDirByLang[spec.lang] = runDir
+                        self.result?.outDirByLang[spec.lang] = campaignLangPath
                     }
                     if reportExists, let reportPath {
                         self.selectedPDF = reportPath
                         if self.result == nil { self.result = ScopeResult() }
                         self.result?.pdfPaths = [reportPath]
                     }
-                    self.readyToSend = (status != "Canceled") && reportExists && runDir != nil
+                    self.readyToSend = (status != "Canceled") && reportExists
 
                     runNext()
                 }
@@ -1954,6 +2496,43 @@ cd "$ASTRA_ROOT"
         return nil
     }
 
+    private func resolveAstraRunDir(from output: String, astraRoot: String) -> String? {
+        if let marker = parseAstraRunDirMarker(from: output) {
+            return marker
+        }
+        return findLatestAstraRunDir(in: astraRoot)
+    }
+
+    private func findLatestAstraRunDir(in astraRoot: String) -> String? {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: URL(fileURLWithPath: astraRoot),
+            includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else { return nil }
+
+        var bestPath: String? = nil
+        var bestDate: Date = Date.distantPast
+
+        for case let url as URL in enumerator {
+            guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey]),
+                  values.isDirectory == true else { continue }
+            let deliverables = url.appendingPathComponent("deliverables")
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: deliverables.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            let reportPath = deliverables.appendingPathComponent("report.pdf")
+            let verdictPath = deliverables.appendingPathComponent("verdict.json")
+            guard fm.fileExists(atPath: reportPath.path) || fm.fileExists(atPath: verdictPath.path) else { continue }
+            let modified = values.contentModificationDate ?? Date.distantPast
+            if modified > bestDate {
+                bestDate = modified
+                bestPath = url.path
+            }
+        }
+
+        return bestPath
+    }
+
     private func makeAstraLogFilePath(url: String, lang: String) -> String {
         let logsDir = (ScopeRepoLocator.appSupportDir as NSString).appendingPathComponent("logs")
         if !FileManager.default.fileExists(atPath: logsDir) {
@@ -2042,11 +2621,15 @@ cd "$ASTRA_ROOT"
 
     private func outputFolderPath() -> String? {
         guard let runDir = lastRunDir else { return nil }
-        let deliverablesDir = (runDir as NSString).appendingPathComponent("deliverables")
-        if FileManager.default.fileExists(atPath: deliverablesDir) {
-            return deliverablesDir
-        }
-        return nil
+        return FileManager.default.fileExists(atPath: runDir) ? runDir : nil
+    }
+
+    private func scopeRunLogPath() -> String? {
+        guard let runDir = lastRunDir, let domain = lastRunDomain else { return nil }
+        let sitesDir = (runDir as NSString).appendingPathComponent("sites")
+        let domainDir = (sitesDir as NSString).appendingPathComponent(sanitizeDomainForFS(domain))
+        let logPath = (domainDir as NSString).appendingPathComponent("scope_run.log")
+        return FileManager.default.fileExists(atPath: logPath) ? logPath : nil
     }
 
     private func openOutputFolder() {
@@ -2063,41 +2646,6 @@ cd "$ASTRA_ROOT"
         let dateString = todayString()
         exportCampaign(campaign: campaign, dateString: dateString, allowOutFallback: true) { status in
             setExportStatus(status)
-        }
-    }
-
-    private func exportHistoryCampaign(_ item: RecentCampaign) {
-        guard let repo = resolvedRepoRoot() else { return }
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Select a destination folder for export"
-
-        panel.begin { resp in
-            guard resp == .OK, let destUrl = panel.url else { return }
-            let zips = self.findArchiveZips(repoRoot: repo, dateString: item.dateString, campaign: item.campaign)
-            guard !zips.isEmpty else {
-                DispatchQueue.main.async {
-                    self.setHistoryExportStatus("No ZIPs yet.", for: item.id)
-                }
-                return
-            }
-
-            let destFolder = destUrl.path
-            let copied = self.copyZipFiles(zips, toFolder: destFolder)
-            let folderName = (destFolder as NSString).lastPathComponent
-            DispatchQueue.main.async {
-                self.setHistoryExportStatus("Exported \(copied) file(s) to \(folderName).", for: item.id)
-            }
-        }
-    }
-
-    private func revealCampaignZips(_ item: RecentCampaign) {
-        if !item.zipPaths.isEmpty {
-            revealFiles(item.zipPaths)
-        } else {
-            openFolder(item.path)
         }
     }
 
@@ -2119,29 +2667,18 @@ cd "$ASTRA_ROOT"
     }
 
     private func openArchiveRoot() {
-        guard let repo = resolvedRepoRoot() else { return }
-        let archiveRoot = (repo as NSString).appendingPathComponent("deliverables/archive")
-        if FileManager.default.fileExists(atPath: archiveRoot) {
-            openFolder(archiveRoot)
-        } else {
-            openFolder(repo)
+        guard let campaignsRoot = campaignsRootPath() else { return }
+        if FileManager.default.fileExists(atPath: campaignsRoot) {
+            openFolder(campaignsRoot)
+            return
+        }
+        if let exportRoot = exportRootPath() {
+            openFolder(exportRoot)
         }
     }
 
     private func openTodaysArchive() {
-        guard let repo = resolvedRepoRoot() else { return }
-        let archiveRoot = (repo as NSString).appendingPathComponent("deliverables/archive")
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let today = formatter.string(from: Date())
-        let todayPath = (archiveRoot as NSString).appendingPathComponent(today)
-        if FileManager.default.fileExists(atPath: todayPath) {
-            openFolder(todayPath)
-        } else if FileManager.default.fileExists(atPath: archiveRoot) {
-            openFolder(archiveRoot)
-        } else {
-            openFolder(repo)
-        }
+        openArchiveRoot()
     }
 
     private func exportCampaign(campaign: String, dateString: String, allowOutFallback: Bool, statusHandler: @escaping (String) -> Void) {
@@ -2270,22 +2807,27 @@ cd "$ASTRA_ROOT"
 
     private struct RecentCampaign: Identifiable {
         let id: String
-        let dateString: String
-        let dateValue: Date
         let campaign: String
+        let campaignFs: String
+        let lang: String
         let path: String
-        let zipPaths: [String]
+        let sitesPath: String
+        let lastModified: Date
+        let runDirs: [String]
         let isHidden: Bool
-        let hasZips: Bool
+        let hasRuns: Bool
     }
 
     private struct CampaignEntry {
-        let dateString: String
-        let dateValue: Date
         let campaign: String
+        let campaignFs: String
+        let lang: String
         let path: String
+        let sitesPath: String
+        let lastModified: Date
+        let runDirs: [String]
         let isHidden: Bool
-        let hasZips: Bool
+        let hasRuns: Bool
     }
 
     private func refreshRecentCampaigns() {
@@ -2297,85 +2839,25 @@ cd "$ASTRA_ROOT"
     }
 
     private func loadRecentCampaigns(repoRoot: String) -> [RecentCampaign] {
-        let fm = FileManager.default
-        let archiveRoot = (repoRoot as NSString).appendingPathComponent("deliverables/archive")
-        guard fm.fileExists(atPath: archiveRoot) else { return [] }
-
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
-
-        guard let dateDirs = try? fm.contentsOfDirectory(atPath: archiveRoot) else { return [] }
-        var items: [RecentCampaign] = []
-
-        for dateName in dateDirs {
-            let datePath = (archiveRoot as NSString).appendingPathComponent(dateName)
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: datePath, isDirectory: &isDir), isDir.boolValue else { continue }
-            guard let dateValue = dateFormatter.date(from: dateName) else { continue }
-
-            guard let campaignDirs = try? fm.contentsOfDirectory(atPath: datePath) else { continue }
-            for campaignName in campaignDirs {
-                let campaignPath = (datePath as NSString).appendingPathComponent(campaignName)
-                var isCampaignDir: ObjCBool = false
-                guard fm.fileExists(atPath: campaignPath, isDirectory: &isCampaignDir), isCampaignDir.boolValue else { continue }
-
-                let hiddenPath = (campaignPath as NSString).appendingPathComponent(".hidden")
-                let isHidden = fm.fileExists(atPath: hiddenPath)
-                let zipPaths = findZipPaths(in: campaignPath)
-                let hasZips = hasAnyZip(in: campaignPath)
-                let id = "\(dateName)|\(campaignName)"
-                items.append(RecentCampaign(
-                    id: id,
-                    dateString: dateName,
-                    dateValue: dateValue,
-                    campaign: campaignName,
-                    path: campaignPath,
-                    zipPaths: zipPaths,
-                    isHidden: isHidden,
-                    hasZips: hasZips
-                ))
-            }
+        let items = listAllCampaigns().map { entry in
+            RecentCampaign(
+                id: "\(entry.campaignFs)|\(entry.lang)|\(entry.path)",
+                campaign: entry.campaign,
+                campaignFs: entry.campaignFs,
+                lang: entry.lang,
+                path: entry.path,
+                sitesPath: entry.sitesPath,
+                lastModified: entry.lastModified,
+                runDirs: entry.runDirs,
+                isHidden: entry.isHidden,
+                hasRuns: entry.hasRuns
+            )
         }
 
-        let sorted = items.sorted {
-            if $0.dateValue != $1.dateValue {
-                return $0.dateValue > $1.dateValue
-            }
-            return $0.campaign.localizedCompare($1.campaign) == .orderedAscending
-        }
+        let sorted = items.sorted { $0.lastModified > $1.lastModified }
         return Array(sorted.prefix(10))
     }
 
-    private func findZipPaths(in campaignPath: String) -> [String] {
-        let fm = FileManager.default
-        let langs = ["RO", "EN"]
-        var zips: [String] = []
-        for lang in langs {
-            let langPath = (campaignPath as NSString).appendingPathComponent(lang)
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: langPath, isDirectory: &isDir), isDir.boolValue else { continue }
-            let files = (try? fm.contentsOfDirectory(atPath: langPath)) ?? []
-            for f in files where f.lowercased().hasSuffix(".zip") {
-                zips.append((langPath as NSString).appendingPathComponent(f))
-            }
-        }
-        return zips.sorted()
-    }
-
-    private func hasAnyZip(in campaignPath: String) -> Bool {
-        let fm = FileManager.default
-        let langs = ["RO", "EN"]
-        for lang in langs {
-            let langPath = (campaignPath as NSString).appendingPathComponent(lang)
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: langPath, isDirectory: &isDir), isDir.boolValue else { continue }
-            let files: [String] = (try? fm.contentsOfDirectory(atPath: langPath)) ?? []
-            if files.contains(where: { $0.lowercased().hasSuffix(".zip") }) {
-                return true
-            }
-        }
-        return false
-    }
 
     private func prepareDeleteHidden() {
         deleteHiddenCount = countHiddenCampaigns()
@@ -2405,7 +2887,7 @@ cd "$ASTRA_ROOT"
     }
 
     private func deleteIncompleteCampaigns() {
-        let items = listAllCampaigns().filter { !$0.hasZips }
+        let items = listAllCampaigns().filter { !$0.hasRuns }
         let deleted = deleteCampaignEntries(items)
         historyCleanupStatus = "Deleted \(deleted) campaigns."
         showDeleteIncompleteConfirm = false
@@ -2427,7 +2909,7 @@ cd "$ASTRA_ROOT"
     }
 
     private func countIncompleteCampaigns() -> Int {
-        listAllCampaigns().filter { !$0.hasZips }.count
+        listAllCampaigns().filter { !$0.hasRuns }.count
     }
 
     private func countOlderCampaigns(days: Int) -> Int {
@@ -2436,40 +2918,57 @@ cd "$ASTRA_ROOT"
 
     private func listOlderCampaigns(days: Int) -> [CampaignEntry] {
         let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date()) ?? Date()
-        return listAllCampaigns().filter { $0.dateValue < cutoff }
+        return listAllCampaigns().filter { $0.lastModified < cutoff }
     }
 
     private func listAllCampaigns() -> [CampaignEntry] {
-        guard let archiveRoot = archiveRootPath() else { return [] }
+        guard let campaignsRoot = campaignsRootPath() else { return [] }
         let fm = FileManager.default
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
+        guard fm.fileExists(atPath: campaignsRoot) else { return [] }
 
-        guard let dateDirs = try? fm.contentsOfDirectory(atPath: archiveRoot) else { return [] }
+        guard let campaignDirs = try? fm.contentsOfDirectory(atPath: campaignsRoot) else { return [] }
         var items: [CampaignEntry] = []
 
-        for dateName in dateDirs {
-            let datePath = (archiveRoot as NSString).appendingPathComponent(dateName)
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: datePath, isDirectory: &isDir), isDir.boolValue else { continue }
-            guard let dateValue = dateFormatter.date(from: dateName) else { continue }
+        for campaignFs in campaignDirs {
+            let campaignRoot = (campaignsRoot as NSString).appendingPathComponent(campaignFs)
+            var isCampaignDir: ObjCBool = false
+            guard fm.fileExists(atPath: campaignRoot, isDirectory: &isCampaignDir), isCampaignDir.boolValue else { continue }
 
-            guard let campaignDirs = try? fm.contentsOfDirectory(atPath: datePath) else { continue }
-            for campaignName in campaignDirs {
-                let campaignPath = (datePath as NSString).appendingPathComponent(campaignName)
-                var isCampaignDir: ObjCBool = false
-                guard fm.fileExists(atPath: campaignPath, isDirectory: &isCampaignDir), isCampaignDir.boolValue else { continue }
+            guard let langDirs = try? fm.contentsOfDirectory(atPath: campaignRoot) else { continue }
+            for langDir in langDirs {
+                let campaignLangPath = (campaignRoot as NSString).appendingPathComponent(langDir)
+                var isLangDir: ObjCBool = false
+                guard fm.fileExists(atPath: campaignLangPath, isDirectory: &isLangDir), isLangDir.boolValue else { continue }
+                let lang = langDir.uppercased()
+                guard lang == "RO" || lang == "EN" else { continue }
 
-                let hiddenPath = (campaignPath as NSString).appendingPathComponent(".hidden")
+                let manifest = loadOrCreateCampaignManifest(
+                    campaignLangPath: campaignLangPath,
+                    campaignName: campaignFs,
+                    campaignFs: campaignFs,
+                    lang: lang
+                )
+                let name = manifest.campaign.isEmpty ? campaignFs : manifest.campaign
+                let attrs = (try? fm.attributesOfItem(atPath: campaignLangPath)) ?? [:]
+                let lastModified = parseISO8601Date(manifest.updated_at)
+                    ?? (attrs[.modificationDate] as? Date)
+                    ?? Date()
+                let runDirs = Array(Set(manifest.urls.map { $0.run_dir }))
+                let sitesPath = sitesRootPath(campaignLangPath: campaignLangPath)
+                let hiddenPath = (campaignLangPath as NSString).appendingPathComponent(".hidden")
                 let isHidden = fm.fileExists(atPath: hiddenPath)
-                let hasZips = hasAnyZip(in: campaignPath)
+                let hasRuns = !manifest.urls.isEmpty
+
                 items.append(CampaignEntry(
-                    dateString: dateName,
-                    dateValue: dateValue,
-                    campaign: campaignName,
-                    path: campaignPath,
+                    campaign: name,
+                    campaignFs: campaignFs,
+                    lang: lang,
+                    path: campaignLangPath,
+                    sitesPath: sitesPath,
+                    lastModified: lastModified,
+                    runDirs: runDirs,
                     isHidden: isHidden,
-                    hasZips: hasZips
+                    hasRuns: hasRuns
                 ))
             }
         }
@@ -2478,13 +2977,18 @@ cd "$ASTRA_ROOT"
     }
 
     private func deleteCampaignEntries(_ items: [CampaignEntry]) -> Int {
-        guard let archiveRoot = archiveRootPath() else { return 0 }
+        guard let campaignsRoot = campaignsRootPath() else { return 0 }
         let fm = FileManager.default
-        let root = (archiveRoot as NSString).standardizingPath
+        let root = (campaignsRoot as NSString).standardizingPath
         var deleted = 0
+        var runDirsToDelete: Set<String> = []
         for item in items {
             let path = (item.path as NSString).standardizingPath
             if path.hasPrefix(root + "/") {
+                let manifestPath = campaignManifestPath(campaignLangPath: item.path)
+                if let manifest = readCampaignManifest(at: manifestPath) {
+                    runDirsToDelete.formUnion(manifest.urls.map { $0.run_dir })
+                }
                 do {
                     try fm.removeItem(atPath: path)
                     deleted += 1
@@ -2492,6 +2996,17 @@ cd "$ASTRA_ROOT"
                     continue
                 }
             }
+        }
+        for runDir in runDirsToDelete {
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: runDir, isDirectory: &isDir), isDir.boolValue {
+                try? fm.removeItem(atPath: runDir)
+            }
+        }
+        if !runDirsToDelete.isEmpty {
+            let filtered = runHistory.filter { !runDirsToDelete.contains($0.runDir) }
+            runHistory = filtered
+            saveRunHistory(filtered)
         }
         return deleted
     }
@@ -2529,11 +3044,6 @@ cd "$ASTRA_ROOT"
         }
     }
 
-    private func archiveRootPath() -> String? {
-        guard let repo = resolvedRepoRoot() else { return nil }
-        return (repo as NSString).appendingPathComponent("deliverables/archive")
-    }
-
     private func filteredCampaigns() -> [RecentCampaign] {
         let query = campaignSearch.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         var items = recentCampaigns
@@ -2543,8 +3053,8 @@ cd "$ASTRA_ROOT"
             if !showHiddenCampaigns {
                 items = items.filter { !$0.isHidden }
             }
-        case .withZips:
-            items = items.filter { $0.hasZips }
+        case .withRuns:
+            items = items.filter { $0.hasRuns }
             if !showHiddenCampaigns {
                 items = items.filter { !$0.isHidden }
             }
@@ -2561,22 +3071,22 @@ cd "$ASTRA_ROOT"
 
     private enum CampaignFilter: String, CaseIterable, Identifiable {
         case all = "All"
-        case withZips = "With ZIPs"
+        case withRuns = "With Runs"
         case hidden = "Hidden"
 
         var id: String { rawValue }
     }
 
     private func statusBadge(for item: RecentCampaign) -> some View {
-        let text = item.hasZips ? "Ready" : "Incomplete"
-        let color: Color = item.hasZips ? .green : .secondary
+        let text = item.hasRuns ? "Ready" : "Incomplete"
+        let color: Color = item.hasRuns ? .green : .secondary
         return Text(text)
             .font(.caption)
             .foregroundColor(color)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(
-                Capsule().fill(color.opacity(item.hasZips ? 0.15 : 0.08))
+                Capsule().fill(color.opacity(item.hasRuns ? 0.15 : 0.08))
             )
     }
 
