@@ -46,4 +46,5 @@ struct CampaignSummary: Identifiable, Hashable {
     let campaignURL: URL
     let runCount: Int
     let runs: [CampaignRunItem]
+    let lastUpdated: Date
 }

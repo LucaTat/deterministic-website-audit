@@ -81,19 +81,13 @@ final class CampaignStore: ObservableObject {
         return campaign
     }
 
-    var selectedCampaign: Campaign {
-        guard let exportRoot = exportRootPath() else {
-            return ensureDefaultCampaign()
-        }
+    var selectedCampaign: Campaign? {
+        guard let exportRoot = exportRootPath() else { return nil }
         let campaigns = listCampaignsForPicker(exportRoot: exportRoot)
         if let id = selectedCampaignID, let match = campaigns.first(where: { $0.id == id }) {
             return match
         }
-        if let first = campaigns.first {
-            selectedCampaignID = first.id
-            return first
-        }
-        return ensureDefaultCampaign()
+        return nil
     }
 
     func createCampaign(name: String) -> Campaign? {
@@ -186,10 +180,11 @@ final class CampaignStore: ObservableObject {
                 .map { $0.lastPathComponent }
                 .sorted() ?? []
             let runs = listRuns(campaignURL: c)
+            let lastUpdated = mostRecentRunDate(campaignURL: c) ?? (try? c.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
             let runCount = runs.count
-            out.append(CampaignSummary(name: c.lastPathComponent, langs: langs, campaignURL: c, runCount: runCount, runs: runs))
+            out.append(CampaignSummary(name: c.lastPathComponent, langs: langs, campaignURL: c, runCount: runCount, runs: runs, lastUpdated: lastUpdated))
         }
-        return out.sorted { $0.name.lowercased() < $1.name.lowercased() }
+        return out.sorted { $0.lastUpdated > $1.lastUpdated }
     }
 
     private func listRuns(campaignURL: URL) -> [CampaignRunItem] {
@@ -213,7 +208,43 @@ final class CampaignStore: ObservableObject {
                 out.append(CampaignRunItem(id: runURL.path, runURL: runURL, run: info))
             }
         }
-        return out
+        return out.sorted { $0.run.timestamp > $1.run.timestamp }
+    }
+
+    func mostRecentRunURL(campaignURL: URL) -> URL? {
+        let runs = listRuns(campaignURL: campaignURL)
+        return runs.first?.runURL
+    }
+
+    private func mostRecentRunDate(campaignURL: URL) -> Date? {
+        let langs = (try? fm.contentsOfDirectory(at: campaignURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]))?.filter { $0.hasDirectoryPath } ?? []
+        var latest: Date? = nil
+        for langURL in langs {
+            let runDirs = (try? fm.contentsOfDirectory(at: langURL, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]))?.filter { $0.hasDirectoryPath } ?? []
+            for runURL in runDirs {
+                let date = (try? runURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+                if let date {
+                    if latest == nil || date > latest! {
+                        latest = date
+                    }
+                }
+            }
+        }
+        return latest
+    }
+
+    func deleteCampaignSafely(campaignURL: URL, exportRoot: String) -> Bool {
+        let root = campaignsRoot(exportRoot: exportRoot).standardizedFileURL
+        let target = campaignURL.standardizedFileURL
+        let rootComponents = root.pathComponents
+        let targetComponents = target.pathComponents
+        guard targetComponents.starts(with: rootComponents) else { return false }
+        do {
+            try fm.removeItem(at: target)
+            return true
+        } catch {
+            return false
+        }
     }
 
     func deleteCampaignFolder(_ campaignURL: URL) {

@@ -181,6 +181,11 @@ struct ContentView: View {
     @State private var campaignManagerSelection: Set<String> = []
     @State private var showCampaignManagerDeleteConfirm: Bool = false
     @State private var campaignManagerStatus: String? = nil
+    @State private var showManageCampaignsSheet: Bool = false
+    @State private var showManageCampaignDeleteConfirm: Bool = false
+    @State private var pendingManageDeleteCampaign: CampaignSummary? = nil
+    @State private var showNewCampaignSheet: Bool = false
+    @StateObject private var store = CampaignStore(repoRoot: "")
     @AppStorage("scopeTheme") private var themeRaw: String = Theme.light.rawValue
     @AppStorage("scope_use_ai") private var useAI: Bool = true
     @AppStorage("scope_analysis_mode") private var analysisModeRaw: String = "standard"
@@ -219,6 +224,46 @@ struct ContentView: View {
         .sheet(isPresented: $showCampaignManager) {
             campaignManagerSheet()
         }
+        .sheet(isPresented: $showManageCampaignsSheet) {
+            manageCampaignsSheet()
+        }
+        .sheet(isPresented: $showNewCampaignSheet) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("New Campaign")
+                        .font(.title3)
+                        .foregroundColor(.primary)
+                    Spacer()
+                }
+
+                TextField("Campaign name", text: $campaign)
+                    .textFieldStyle(.roundedBorder)
+
+                HStack {
+                    Button("Cancel") {
+                        showNewCampaignSheet = false
+                        campaign = ""
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("Create") {
+                        if let _ = store.createCampaign(name: campaign) {
+                            campaign = ""
+                            refreshCampaignsPanel()
+                            refreshRecentCampaigns()
+                        }
+                        showNewCampaignSheet = false
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(campaign.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .padding(16)
+            .frame(minWidth: 420)
+            .background(theme.background)
+            .preferredColorScheme(theme.colorScheme)
+            .tint(theme.accent)
+        }
         .alert("Delete campaign?", isPresented: $showDeleteCampaignConfirm) {
             Button("Delete", role: .destructive) {
                 if let campaign = pendingDeleteCampaign {
@@ -230,13 +275,26 @@ struct ContentView: View {
             let name = pendingDeleteCampaign?.name ?? ""
             Text("Delete campaign '\(name)'? This removes all runs and deliverables.")
         }
+        .alert("Delete campaign?", isPresented: $showManageCampaignDeleteConfirm) {
+            Button("Delete", role: .destructive) {
+                if let campaign = pendingManageDeleteCampaign {
+                    deleteManagedCampaign(campaign)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            let name = pendingManageDeleteCampaign?.name ?? ""
+            Text("Delete campaign '\(name)'? This permanently deletes all runs and deliverables.")
+        }
         .onAppear {
             repoRoot = resolvedRepoRoot()
+            if let repoRoot { store.repoRoot = repoRoot }
             refreshRecentCampaigns()
             runHistory = loadRunHistory()
             refreshCampaignsPanel()
         }
         .onChange(of: repoRoot) { _, _ in
+            if let repoRoot { store.repoRoot = repoRoot }
             refreshRecentCampaigns()
             refreshCampaignsPanel()
         }
@@ -298,10 +356,34 @@ struct ContentView: View {
                         HStack(spacing: 12) {
                             Text("Campaign")
                                 .frame(width: labelWidth, alignment: .leading)
-                            TextField("e.g. Client A / Outreach Jan", text: $campaign)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(maxWidth: 320)
-                                .help("Optional. Use a clear client name, e.g. Client ABC")
+                            let campaigns: [Campaign] = {
+                                guard let exportRoot = exportRootPath() else { return [] }
+                                return store.listCampaignsForPicker(exportRoot: exportRoot)
+                            }()
+                            Picker("", selection: Binding<String?>(
+                                get: { store.selectedCampaignID },
+                                set: { store.selectedCampaignID = $0 }
+                            )) {
+                                if campaigns.isEmpty {
+                                    Text("No campaign selected").tag(String?.none)
+                                }
+                                ForEach(campaigns) { item in
+                                    Text(item.name).tag(Optional(item.id))
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .frame(maxWidth: 240)
+                            .help("Select campaign")
+
+                            Button("New Campaign…") {
+                                showNewCampaignSheet = true
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button("Manage Campaigns") {
+                                showManageCampaignsSheet = true
+                            }
+                            .buttonStyle(.bordered)
 
                             Text("Language")
                                 .frame(width: labelWidth, alignment: .leading)
@@ -314,6 +396,12 @@ struct ContentView: View {
                             .pickerStyle(.segmented)
                             .frame(maxWidth: 300)
                             .help("Select delivery language")
+                        }
+                        if store.selectedCampaignID == nil {
+                            Text("No campaign selected")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                                .padding(.leading, labelWidth)
                         }
                         Text("RO + EN generates two ZIPs")
                             .font(.footnote)
@@ -424,7 +512,7 @@ struct ContentView: View {
                         .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                         .disabled(outputDisabled)
                         .opacity(buttonOpacity(disabled: outputDisabled))
-                        .help("Reveal the output folder for the last run")
+                        .help(outputHelpText())
 
                         let logsDisabled = isRunning || scopeRunLogPath() == nil
                         Button { openLogs() } label: {
@@ -827,7 +915,9 @@ struct ContentView: View {
                                         }
                                     )) {
                                         VStack(alignment: .leading, spacing: 8) {
-                                            ForEach(campaign.runs) { run in
+                                            let sortedRuns = campaign.runs.sorted { $0.run.timestamp > $1.run.timestamp }
+                                            let shownRuns = Array(sortedRuns.prefix(10))
+                                            ForEach(shownRuns) { run in
                                                 HStack(alignment: .top, spacing: 12) {
                                                     Text("\(formatCampaignRunTimestamp(run.run.timestamp)) • \(run.run.domain) • \(run.run.url)")
                                                         .font(.footnote)
@@ -843,6 +933,11 @@ struct ContentView: View {
                                                     }
                                                     .buttonStyle(.bordered)
                                                 }
+                                            }
+                                            if sortedRuns.count > 10 {
+                                                Text("Showing last 10 runs")
+                                                    .font(.footnote)
+                                                    .foregroundColor(.secondary)
                                             }
                                         }
                                         .padding(.top, 6)
@@ -1237,7 +1332,7 @@ struct ContentView: View {
     }
 
     private func campaignIsValid() -> Bool {
-        !campaign.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        store.selectedCampaignID != nil
     }
 
     private func runDisabledReason() -> String? {
@@ -1246,7 +1341,7 @@ struct ContentView: View {
         let astraTrimmed = astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
         if astraTrimmed.isEmpty { return "Select ASTRA Folder to continue." }
         if !FileManager.default.fileExists(atPath: astraTrimmed) { return "ASTRA folder not found. Select ASTRA Folder." }
-        if !campaignIsValid() { return "Enter Campaign" }
+        if !campaignIsValid() { return "Select Campaign" }
         if !hasAtLeastOneValidURL() { return "Run disabled: Add at least 1 valid URL" }
         return nil
     }
@@ -1320,6 +1415,9 @@ struct ContentView: View {
     }
 
     private func outputHelpText() -> String {
+        if store.selectedCampaignID == nil {
+            return "Select a campaign to reveal output."
+        }
         if outputFolderPath() == nil {
             return "Open campaign folder. Available after run."
         }
@@ -1397,7 +1495,10 @@ struct ContentView: View {
 
     private func campaignStore() -> CampaignStore? {
         guard let repo = resolvedRepoRoot() else { return nil }
-        return CampaignStore(repoRoot: repo)
+        if store.repoRoot != repo {
+            store.repoRoot = repo
+        }
+        return store
     }
 
     private func campaignsRootPath() -> String? {
@@ -1458,7 +1559,17 @@ struct ContentView: View {
     }
 
     private func deleteCampaign(_ campaign: CampaignSummary) {
-        campaignStore()?.deleteCampaignFolder(campaign.campaignURL)
+        if let exportRoot = exportRootPath() {
+            _ = store.deleteCampaignSafely(campaignURL: campaign.campaignURL, exportRoot: exportRoot)
+            if store.selectedCampaignID == campaign.campaignURL.path {
+                let remaining = store.listCampaigns(exportRoot: exportRoot)
+                if let next = remaining.first {
+                    store.selectedCampaignID = next.campaignURL.path
+                } else {
+                    store.selectedCampaignID = nil
+                }
+            }
+        }
         pendingDeleteCampaign = nil
         refreshCampaignsPanel()
     }
@@ -1559,6 +1670,93 @@ struct ContentView: View {
         } message: {
             Text("This permanently deletes the campaign folders and their ASTRA run directories.")
         }
+    }
+
+    @ViewBuilder
+    private func manageCampaignsSheet() -> some View {
+        let items = manageCampaignsList()
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Manage Campaigns")
+                    .font(.title3)
+                    .foregroundColor(.primary)
+                Spacer()
+                Button("Close") {
+                    showManageCampaignsSheet = false
+                }
+                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+            }
+
+            if items.isEmpty {
+                Text("No campaigns found.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(items) { item in
+                            HStack(alignment: .center, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(item.name)
+                                        .font(.headline)
+                                        .foregroundColor(.primary)
+                                    Text("Updated \(formatRunTimestamp(item.lastUpdated)) • Runs \(item.runCount)")
+                                        .font(.footnote)
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                Button("Reveal") {
+                                    openFolder(item.campaignURL.path)
+                                }
+                                .buttonStyle(.bordered)
+
+                                Button("Delete") {
+                                    pendingManageDeleteCampaign = item
+                                    showManageCampaignDeleteConfirm = true
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.red)
+                            }
+                            .padding(8)
+                            .background(theme.cardBackground)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(theme.border, lineWidth: 1)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(minWidth: 720, minHeight: 480)
+        .background(theme.background)
+        .preferredColorScheme(theme.colorScheme)
+        .tint(theme.accent)
+    }
+
+    private func manageCampaignsList() -> [CampaignSummary] {
+        guard let exportRoot = exportRootPath() else { return [] }
+        return store.listCampaigns(exportRoot: exportRoot)
+    }
+
+    private func deleteManagedCampaign(_ campaign: CampaignSummary) {
+        guard let exportRoot = exportRootPath() else { return }
+        let deleted = store.deleteCampaignSafely(campaignURL: campaign.campaignURL, exportRoot: exportRoot)
+        if deleted {
+            refreshCampaignsPanel()
+            refreshRecentCampaigns()
+            if store.selectedCampaignID == campaign.campaignURL.path {
+                let remaining = store.listCampaigns(exportRoot: exportRoot)
+                if let next = remaining.first {
+                    store.selectedCampaignID = next.campaignURL.path
+                } else {
+                    store.selectedCampaignID = nil
+                }
+            }
+        }
+        pendingManageDeleteCampaign = nil
     }
 
     private func campaignManagerSelectionBinding(for id: String) -> Binding<Bool> {
@@ -2018,7 +2216,7 @@ struct ContentView: View {
             return
         }
         guard campaignIsValid() else {
-            alert(title: "Enter Campaign", message: "Enter Campaign")
+            alert(title: "Select Campaign", message: "Select Campaign")
             return
         }
         guard let validLines = validateTargetsInput() else {
@@ -2038,9 +2236,8 @@ struct ContentView: View {
         lastRunLogPath = nil
         lastRunDomain = nil
 
-        let camp = campaign.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        runRunner(selectedLang: lang, baseCampaign: camp, validLines: validLines)
+        guard let store = campaignStore(), let selected = store.selectedCampaign else { return }
+        runRunner(selectedLang: lang, baseCampaign: selected.name, validLines: validLines)
     }
 
     private func runDemo() {
@@ -2602,13 +2799,12 @@ cd "$ASTRA_ROOT"
     }
 
     private func outputFolderPath() -> String? {
-        if let runDir = lastRunDir, FileManager.default.fileExists(atPath: runDir) {
-            return runDir
+        guard let selected = store.selectedCampaign else { return nil }
+        if let runURL = store.mostRecentRunURL(campaignURL: selected.campaignURL),
+           FileManager.default.fileExists(atPath: runURL.path) {
+            return runURL.path
         }
-        if let latest = runHistory.first, FileManager.default.fileExists(atPath: latest.deliverablesDir) {
-            return latest.deliverablesDir
-        }
-        return nil
+        return FileManager.default.fileExists(atPath: selected.campaignURL.path) ? selected.campaignURL.path : nil
     }
 
     private func scopeRunLogPath() -> String? {
