@@ -28,6 +28,40 @@ struct CampaignRunInfo: Codable, Hashable {
     let campaign: String
 }
 
+struct RunEntry: Identifiable, Codable {
+    let id: String
+    let timestamp: Date
+    let url: String
+    let lang: String
+    let status: String
+    let runDir: String
+    let deliverablesDir: String
+    let reportPdfPath: String?
+    let decisionBriefPdfPath: String?
+    let logPath: String?
+}
+
+struct RunRecord: Identifiable, Hashable {
+    let id: String
+    let runDir: String
+    let deliverablesDir: String
+    let logPath: String?
+
+    init(entry: RunEntry) {
+        self.id = entry.id
+        self.runDir = entry.runDir
+        self.deliverablesDir = entry.deliverablesDir
+        self.logPath = entry.logPath
+    }
+
+    init(id: String, runDir: String, deliverablesDir: String, logPath: String?) {
+        self.id = id
+        self.runDir = runDir
+        self.deliverablesDir = deliverablesDir
+        self.logPath = logPath
+    }
+}
+
 struct CampaignRunItem: Identifiable, Hashable {
     let id: String
     let runURL: URL

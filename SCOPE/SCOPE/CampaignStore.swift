@@ -11,6 +11,7 @@ final class CampaignStore: ObservableObject {
     var repoRoot: String
     private let fm = FileManager.default
     private let selectedCampaignKey = "scope.selectedCampaignID"
+    private let runHistoryKey = "astraRunHistory"
 
     @Published var selectedCampaignID: String? {
         didSet {
@@ -253,5 +254,85 @@ final class CampaignStore: ObservableObject {
 
     func deleteRunFolder(_ runURL: URL) {
         try? fm.removeItem(at: runURL)
+    }
+
+    func deleteCampaign(_ campaign: Campaign, alsoDeleteAstra: Bool) throws {
+        guard let exportRoot = exportRootPath() else {
+            throw NSError(domain: "SCOPE.Delete", code: 1, userInfo: [NSLocalizedDescriptionKey: "Export root not available."])
+        }
+        let deleted = deleteCampaignSafely(campaignURL: campaign.campaignURL, exportRoot: exportRoot)
+        if !deleted {
+            throw NSError(domain: "SCOPE.Delete", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to delete campaign folder."])
+        }
+        let history = loadRunHistory()
+        let campaignPath = campaign.campaignURL.standardizedFileURL.path
+        var filtered: [RunEntry] = []
+        for entry in history {
+            let deliverables = entry.deliverablesDir
+            let runDir = entry.runDir
+            let logPath = entry.logPath ?? ""
+            let isCampaignRun = deliverables.hasPrefix(campaignPath) || runDir.hasPrefix(campaignPath) || logPath.hasPrefix(campaignPath)
+            if isCampaignRun {
+                if alsoDeleteAstra, !runDir.isEmpty, fm.fileExists(atPath: runDir) {
+                    try? fm.removeItem(atPath: runDir)
+                }
+                continue
+            }
+            filtered.append(entry)
+        }
+        saveRunHistory(filtered)
+    }
+
+    func deleteRun(_ run: RunRecord, alsoDeleteAstra: Bool) throws {
+        guard let exportRoot = exportRootPath() else {
+            throw NSError(domain: "SCOPE.Delete", code: 3, userInfo: [NSLocalizedDescriptionKey: "Export root not available."])
+        }
+        let campaignsRootURL = campaignsRoot(exportRoot: exportRoot).standardizedFileURL
+        if !run.deliverablesDir.isEmpty {
+            let deliverablesURL = URL(fileURLWithPath: run.deliverablesDir).standardizedFileURL
+            let rootComponents = campaignsRootURL.pathComponents
+            let targetComponents = deliverablesURL.pathComponents
+            if !targetComponents.starts(with: rootComponents) {
+                throw NSError(domain: "SCOPE.Delete", code: 4, userInfo: [NSLocalizedDescriptionKey: "Refusing to delete outside campaigns root."])
+            }
+            if fm.fileExists(atPath: deliverablesURL.path) {
+                try fm.removeItem(at: deliverablesURL)
+            }
+        }
+        if let logPath = run.logPath, !logPath.isEmpty {
+            let logURL = URL(fileURLWithPath: logPath)
+            if fm.fileExists(atPath: logURL.path) {
+                try? fm.removeItem(at: logURL)
+            }
+        }
+        if alsoDeleteAstra, !run.runDir.isEmpty, fm.fileExists(atPath: run.runDir) {
+            try? fm.removeItem(atPath: run.runDir)
+        }
+        let filtered = loadRunHistory().filter { entry in
+            if entry.id == run.id { return false }
+            if !run.deliverablesDir.isEmpty, entry.deliverablesDir == run.deliverablesDir { return false }
+            if !run.runDir.isEmpty, entry.runDir == run.runDir { return false }
+            return true
+        }
+        saveRunHistory(filtered)
+    }
+
+    func loadRunHistory() -> [RunEntry] {
+        guard let data = UserDefaults.standard.data(forKey: runHistoryKey) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        if let decoded = try? decoder.decode([RunEntry].self, from: data) {
+            return decoded.sorted { $0.timestamp > $1.timestamp }
+        }
+        return []
+    }
+
+    func saveRunHistory(_ entries: [RunEntry]) {
+        let trimmed = Array(entries.prefix(200))
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        if let data = try? encoder.encode(trimmed) {
+            UserDefaults.standard.set(data, forKey: runHistoryKey)
+        }
     }
 }

@@ -90,19 +90,6 @@ struct ScopeResult {
     var archivedLogFile: String? = nil
 }
 
-struct RunEntry: Identifiable, Codable {
-    let id: String
-    let timestamp: Date
-    let url: String
-    let lang: String
-    let status: String
-    let runDir: String
-    let deliverablesDir: String
-    let reportPdfPath: String?
-    let decisionBriefPdfPath: String?
-    let logPath: String?
-}
-
 struct CampaignManagerItem: Identifiable {
     let id: String
     let campaign: String
@@ -181,6 +168,11 @@ struct ContentView: View {
     @State private var campaignManagerSelection: Set<String> = []
     @State private var showCampaignManagerDeleteConfirm: Bool = false
     @State private var campaignManagerStatus: String? = nil
+    @State private var showAllRunsSheet: Bool = false
+    @State private var showDeleteRunConfirm: Bool = false
+    @State private var pendingDeleteRun: RunRecord? = nil
+    @State private var showDeleteCampaignRunConfirm: Bool = false
+    @State private var pendingDeleteCampaignRun: RunRecord? = nil
     @State private var showManageCampaignsSheet: Bool = false
     @State private var showManageCampaignDeleteConfirm: Bool = false
     @State private var pendingManageDeleteCampaign: CampaignSummary? = nil
@@ -226,6 +218,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showManageCampaignsSheet) {
             manageCampaignsSheet()
+        }
+        .sheet(isPresented: $showAllRunsSheet) {
+            allRunsSheet()
         }
         .sheet(isPresented: $showNewCampaignSheet) {
             VStack(alignment: .leading, spacing: 12) {
@@ -285,6 +280,26 @@ struct ContentView: View {
         } message: {
             let name = pendingManageDeleteCampaign?.name ?? ""
             Text("Delete campaign '\(name)'? This permanently deletes all runs and deliverables.")
+        }
+        .alert("Delete run?", isPresented: $showDeleteRunConfirm) {
+            Button("Delete", role: .destructive) {
+                if let run = pendingDeleteRun {
+                    deleteRunRecord(run)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes the run and its artifacts.")
+        }
+        .alert("Delete run?", isPresented: $showDeleteCampaignRunConfirm) {
+            Button("Delete", role: .destructive) {
+                if let run = pendingDeleteCampaignRun {
+                    deleteRunRecord(run)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes the run and its artifacts.")
         }
         .onAppear {
             repoRoot = resolvedRepoRoot()
@@ -708,8 +723,17 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 20) {
             GroupBox(label: Text("History").font(.headline)) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Recent runs (ASTRA)")
-                        .font(.headline)
+                    HStack {
+                        Text("Recent runs (ASTRA)")
+                            .font(.headline)
+                        Spacer()
+                        if runHistory.count > 10 {
+                            Button("View all…") {
+                                showAllRunsSheet = true
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
 
                     if runHistory.isEmpty {
                         Text("No runs yet.")
@@ -717,7 +741,7 @@ struct ContentView: View {
                             .foregroundColor(.secondary)
                     } else {
                         VStack(alignment: .leading, spacing: 8) {
-                            ForEach(runHistory.prefix(12)) { entry in
+                            ForEach(runHistory.prefix(10)) { entry in
                                 VStack(alignment: .leading, spacing: 6) {
                                     HStack {
                                         Text("\(formatRunTimestamp(entry.timestamp)) • \(entry.lang.uppercased()) • \(entry.url)")
@@ -756,6 +780,12 @@ struct ContentView: View {
                                         .buttonStyle(.bordered)
                                         .disabled(logDisabled)
                                         .opacity(buttonOpacity(disabled: logDisabled))
+
+                                        Button("Delete Run") {
+                                            pendingDeleteRun = RunRecord(entry: entry)
+                                            showDeleteRunConfirm = true
+                                        }
+                                        .buttonStyle(.bordered)
                                     }
                                 }
                                 Divider()
@@ -783,15 +813,6 @@ struct ContentView: View {
                         .opacity(buttonOpacity(disabled: !repoAvailable))
                         .help(repoAvailable ? "Open deliverables/campaigns" : "Select a repo to enable")
 
-                        Button {
-                            openCampaignManager()
-                        } label: {
-                            Text("Manage Campaigns…")
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(!repoAvailable)
-                        .opacity(buttonOpacity(disabled: !repoAvailable))
-                        .help(repoAvailable ? "Review and delete campaign artifacts" : "Select a repo to enable")
                     }
 
                     Text("Recent campaigns")
@@ -929,7 +950,14 @@ struct ContentView: View {
                                                     .buttonStyle(.bordered)
 
                                                     Button("Delete Run") {
-                                                        deleteCampaignRun(run)
+                                                        let record = RunRecord(
+                                                            id: run.id,
+                                                            runDir: "",
+                                                            deliverablesDir: run.runURL.path,
+                                                            logPath: nil
+                                                        )
+                                                        pendingDeleteCampaignRun = record
+                                                        showDeleteCampaignRunConfirm = true
                                                     }
                                                     .buttonStyle(.bordered)
                                                 }
@@ -1560,14 +1588,20 @@ struct ContentView: View {
 
     private func deleteCampaign(_ campaign: CampaignSummary) {
         if let exportRoot = exportRootPath() {
-            _ = store.deleteCampaignSafely(campaignURL: campaign.campaignURL, exportRoot: exportRoot)
-            if store.selectedCampaignID == campaign.campaignURL.path {
-                let remaining = store.listCampaigns(exportRoot: exportRoot)
-                if let next = remaining.first {
-                    store.selectedCampaignID = next.campaignURL.path
-                } else {
-                    store.selectedCampaignID = nil
+            let target = Campaign(id: campaign.campaignURL.path, name: campaign.name, campaignURL: campaign.campaignURL)
+            do {
+                try store.deleteCampaign(target, alsoDeleteAstra: true)
+                runHistory = store.loadRunHistory()
+                if store.selectedCampaignID == campaign.campaignURL.path {
+                    let remaining = store.listCampaigns(exportRoot: exportRoot)
+                    if let next = remaining.first {
+                        store.selectedCampaignID = next.campaignURL.path
+                    } else {
+                        store.selectedCampaignID = nil
+                    }
                 }
+            } catch {
+                alert(title: "Delete failed", message: error.localizedDescription)
             }
         }
         pendingDeleteCampaign = nil
@@ -1575,8 +1609,8 @@ struct ContentView: View {
     }
 
     private func deleteCampaignRun(_ run: CampaignRunItem) {
-        campaignStore()?.deleteRunFolder(run.runURL)
-        refreshCampaignsPanel()
+        let record = RunRecord(id: run.id, runDir: "", deliverablesDir: run.runURL.path, logPath: nil)
+        deleteRunRecord(record)
     }
 
     @ViewBuilder
@@ -1736,6 +1770,87 @@ struct ContentView: View {
         .tint(theme.accent)
     }
 
+    @ViewBuilder
+    private func allRunsSheet() -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("All runs (ASTRA)")
+                    .font(.title3)
+                    .foregroundColor(.primary)
+                Spacer()
+                Button("Close") {
+                    showAllRunsSheet = false
+                }
+                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+            }
+
+            if runHistory.isEmpty {
+                Text("No runs yet.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(runHistory) { entry in
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text("\(formatRunTimestamp(entry.timestamp)) • \(entry.lang.uppercased()) • \(entry.url)")
+                                        .font(.subheadline)
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                    Text(entry.status)
+                                        .font(.caption)
+                                        .foregroundColor(entry.status == "OK" ? .green : .orange)
+                                }
+                                HStack(spacing: 8) {
+                                    let outDisabled = isRunning || entry.deliverablesDir.isEmpty || !FileManager.default.fileExists(atPath: entry.deliverablesDir)
+                                    Button { openFolder(entry.deliverablesDir) } label: {
+                                        Text("Open Output")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(outDisabled)
+                                    .opacity(buttonOpacity(disabled: outDisabled))
+
+                                    let reportDisabled = isRunning || (entry.reportPdfPath == nil)
+                                    Button {
+                                        if let path = entry.reportPdfPath { revealAndOpenFile(path) }
+                                    } label: {
+                                        Text("Open Report")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(reportDisabled)
+                                    .opacity(buttonOpacity(disabled: reportDisabled))
+
+                                    let logDisabled = isRunning || (entry.logPath == nil)
+                                    Button {
+                                        if let path = entry.logPath { revealAndOpenFile(path) }
+                                    } label: {
+                                        Text("Open Log")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(logDisabled)
+                                    .opacity(buttonOpacity(disabled: logDisabled))
+
+                                    Button("Delete Run") {
+                                        pendingDeleteRun = RunRecord(entry: entry)
+                                        showDeleteRunConfirm = true
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                            }
+                            Divider()
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(minWidth: 860, minHeight: 520)
+        .background(theme.background)
+        .preferredColorScheme(theme.colorScheme)
+        .tint(theme.accent)
+    }
+
     private func manageCampaignsList() -> [CampaignSummary] {
         guard let exportRoot = exportRootPath() else { return [] }
         return store.listCampaigns(exportRoot: exportRoot)
@@ -1743,10 +1858,12 @@ struct ContentView: View {
 
     private func deleteManagedCampaign(_ campaign: CampaignSummary) {
         guard let exportRoot = exportRootPath() else { return }
-        let deleted = store.deleteCampaignSafely(campaignURL: campaign.campaignURL, exportRoot: exportRoot)
-        if deleted {
+        let target = Campaign(id: campaign.campaignURL.path, name: campaign.name, campaignURL: campaign.campaignURL)
+        do {
+            try store.deleteCampaign(target, alsoDeleteAstra: true)
             refreshCampaignsPanel()
             refreshRecentCampaigns()
+            runHistory = store.loadRunHistory()
             if store.selectedCampaignID == campaign.campaignURL.path {
                 let remaining = store.listCampaigns(exportRoot: exportRoot)
                 if let next = remaining.first {
@@ -1755,8 +1872,22 @@ struct ContentView: View {
                     store.selectedCampaignID = nil
                 }
             }
+        } catch {
+            alert(title: "Delete failed", message: error.localizedDescription)
         }
         pendingManageDeleteCampaign = nil
+    }
+
+    private func deleteRunRecord(_ record: RunRecord) {
+        do {
+            try store.deleteRun(record, alsoDeleteAstra: true)
+            runHistory = store.loadRunHistory()
+            refreshCampaignsPanel()
+        } catch {
+            alert(title: "Delete failed", message: error.localizedDescription)
+        }
+        pendingDeleteRun = nil
+        pendingDeleteCampaignRun = nil
     }
 
     private func campaignManagerSelectionBinding(for id: String) -> Binding<Bool> {
@@ -1817,16 +1948,25 @@ struct ContentView: View {
 
     private func deleteCampaignEverywhere(_ item: RecentCampaign) {
         guard confirmDeleteCampaign(item.campaign) else { return }
-        let fm = FileManager.default
-
-        if fm.fileExists(atPath: item.path) {
-            try? fm.removeItem(atPath: item.path)
+        guard let exportRoot = exportRootPath() else { return }
+        let campaignURL = URL(fileURLWithPath: item.path)
+        let target = Campaign(id: campaignURL.path, name: item.campaign, campaignURL: campaignURL)
+        do {
+            try store.deleteCampaign(target, alsoDeleteAstra: true)
+            runHistory = store.loadRunHistory()
+            refreshRecentCampaigns()
+            refreshCampaignsPanel()
+            if store.selectedCampaignID == campaignURL.path {
+                let remaining = store.listCampaigns(exportRoot: exportRoot)
+                if let next = remaining.first {
+                    store.selectedCampaignID = next.campaignURL.path
+                } else {
+                    store.selectedCampaignID = nil
+                }
+            }
+        } catch {
+            alert(title: "Delete failed", message: error.localizedDescription)
         }
-        let filtered = runHistory.filter { !$0.deliverablesDir.hasPrefix(item.path) }
-        runHistory = filtered
-        saveRunHistory(filtered)
-
-        refreshRecentCampaigns()
     }
 
     private func formatByteCount(_ bytes: Int64) -> String {
@@ -1940,27 +2080,30 @@ struct ContentView: View {
     private func deleteSelectedCampaignsEverywhere() {
         let selected = campaignManagerItems.filter { campaignManagerSelection.contains($0.id) }
         guard !selected.isEmpty else { return }
-        let fm = FileManager.default
         var deleted = 0
+        var failed = 0
 
         for item in selected {
+            let campaignURL = URL(fileURLWithPath: item.path)
+            let target = Campaign(id: campaignURL.path, name: item.campaign, campaignURL: campaignURL)
             do {
-                try fm.removeItem(atPath: item.path)
+                try store.deleteCampaign(target, alsoDeleteAstra: true)
                 deleted += 1
             } catch {
-                continue
+                failed += 1
             }
         }
-        let deletedRoots = selected.map { $0.path }
-        let filtered = runHistory.filter { entry in
-            !deletedRoots.contains(where: { entry.deliverablesDir.hasPrefix($0) })
-        }
-        runHistory = filtered
-        saveRunHistory(filtered)
+        runHistory = store.loadRunHistory()
 
-        campaignManagerStatus = "Deleted \(deleted) campaign(s)."
+        if failed > 0 {
+            campaignManagerStatus = "Deleted \(deleted) campaign(s). \(failed) failed."
+            alert(title: "Delete failed", message: "\(failed) campaign(s) could not be deleted.")
+        } else {
+            campaignManagerStatus = "Deleted \(deleted) campaign(s)."
+        }
         campaignManagerSelection = []
         refreshRecentCampaigns()
+        refreshCampaignsPanel()
         campaignManagerItems = loadCampaignManagerItems()
     }
 
@@ -3158,26 +3301,22 @@ cd "$ASTRA_ROOT"
 
     private func deleteCampaignEntries(_ items: [CampaignEntry]) -> Int {
         guard let campaignsRoot = campaignsRootPath() else { return 0 }
-        let fm = FileManager.default
-        let root = (campaignsRoot as NSString).standardizingPath
         var deleted = 0
+        var failed = 0
         for item in items {
-            let path = (item.path as NSString).standardizingPath
-            if path.hasPrefix(root + "/") {
-                do {
-                    try fm.removeItem(atPath: path)
-                    deleted += 1
-                } catch {
-                    continue
-                }
+            let campaignURL = URL(fileURLWithPath: item.path)
+            let target = Campaign(id: campaignURL.path, name: item.campaign, campaignURL: campaignURL)
+            do {
+                try store.deleteCampaign(target, alsoDeleteAstra: true)
+                deleted += 1
+            } catch {
+                failed += 1
             }
         }
-        let deletedRoots = items.map { $0.path }
-        let filtered = runHistory.filter { entry in
-            !deletedRoots.contains(where: { entry.deliverablesDir.hasPrefix($0) })
+        runHistory = store.loadRunHistory()
+        if failed > 0 {
+            historyCleanupStatus = "Deleted \(deleted) campaigns. \(failed) failed."
         }
-        runHistory = filtered
-        saveRunHistory(filtered)
         return deleted
     }
 
