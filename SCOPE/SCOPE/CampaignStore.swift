@@ -12,6 +12,10 @@ final class CampaignStore: ObservableObject {
     private let fm = FileManager.default
     private let selectedCampaignKey = "scope.selectedCampaignID"
     private let runHistoryKey = "astraRunHistory"
+    private let lastExportRootKey = "scope.lastExportRootPath"
+    private let lastExportRootBookmarkKey = "scope.lastExportRootBookmark"
+    private let lastExportZipKey = "scope.lastExportZipPath"
+    private let lastExportRoDeliverablesKey = "scope.lastExportRoDeliverablesPath"
 
     @Published var selectedCampaignID: String? {
         didSet {
@@ -19,9 +23,84 @@ final class CampaignStore: ObservableObject {
         }
     }
 
+    @Published var lastExportRootPath: String? {
+        didSet {
+            persistPath(lastExportRootPath, key: lastExportRootKey)
+        }
+    }
+
+    @Published var lastExportZipPath: String? {
+        didSet {
+            persistPath(lastExportZipPath, key: lastExportZipKey)
+        }
+    }
+
+    @Published var lastExportRoDeliverablesPath: String? {
+        didSet {
+            persistPath(lastExportRoDeliverablesPath, key: lastExportRoDeliverablesKey)
+        }
+    }
+
     init(repoRoot: String) {
         self.repoRoot = repoRoot
         self.selectedCampaignID = UserDefaults.standard.string(forKey: selectedCampaignKey)
+        self.lastExportRootPath = UserDefaults.standard.string(forKey: lastExportRootKey)
+        self.lastExportZipPath = UserDefaults.standard.string(forKey: lastExportZipKey)
+        self.lastExportRoDeliverablesPath = UserDefaults.standard.string(forKey: lastExportRoDeliverablesKey)
+    }
+
+    var isAppSandboxed: Bool {
+        ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil
+    }
+
+    private func persistPath(_ value: String?, key: String) {
+        let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            UserDefaults.standard.removeObject(forKey: key)
+        } else {
+            UserDefaults.standard.set(trimmed, forKey: key)
+        }
+    }
+
+    func saveExportRootURL(_ url: URL) {
+        lastExportRootPath = url.path
+        guard isAppSandboxed else { return }
+        if let data = try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil) {
+            UserDefaults.standard.set(data, forKey: lastExportRootBookmarkKey)
+        }
+    }
+
+    func resolveExportRootURL() -> URL? {
+        if isAppSandboxed, let data = UserDefaults.standard.data(forKey: lastExportRootBookmarkKey) {
+            var stale = false
+            if let url = try? URL(
+                resolvingBookmarkData: data,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            ) {
+                if stale, let refreshed = try? url.bookmarkData(
+                    options: [.withSecurityScope],
+                    includingResourceValuesForKeys: nil,
+                    relativeTo: nil
+                ) {
+                    UserDefaults.standard.set(refreshed, forKey: lastExportRootBookmarkKey)
+                }
+                return url
+            }
+        }
+        guard let path = lastExportRootPath, !path.isEmpty else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+
+    func recordLastExport(exportRootURL: URL, zipPath: String?, roDeliverablesPath: String?) {
+        saveExportRootURL(exportRootURL)
+        if let zipPath, !zipPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            lastExportZipPath = zipPath
+        }
+        if let roDeliverablesPath, !roDeliverablesPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            lastExportRoDeliverablesPath = roDeliverablesPath
+        }
     }
 
     func ensureDirectory(_ path: String) {
@@ -214,6 +293,15 @@ final class CampaignStore: ObservableObject {
         return runs.first?.runURL
     }
 
+    func mostRecentRunURL(campaignURL: URL, lang: String) -> URL? {
+        let target = lang.lowercased()
+        let runs = listRuns(campaignURL: campaignURL)
+        for item in runs where item.run.lang.lowercased() == target {
+            return item.runURL
+        }
+        return nil
+    }
+
     private func mostRecentRunDate(campaignURL: URL) -> Date? {
         let runsRoot = campaignURL.appendingPathComponent("runs")
         let runDirs = (try? fm.contentsOfDirectory(at: runsRoot, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]))?.filter { $0.hasDirectoryPath } ?? []
@@ -229,18 +317,18 @@ final class CampaignStore: ObservableObject {
         return latest
     }
 
-    func deleteCampaignSafely(campaignURL: URL, exportRoot: String) -> Bool {
+    private func resolveCampaignFolderURL(campaign: Campaign, exportRoot: String) -> URL {
         let root = campaignsRoot(exportRoot: exportRoot).standardizedFileURL
-        let target = campaignURL.standardizedFileURL
-        let rootComponents = root.pathComponents
-        let targetComponents = target.pathComponents
-        guard targetComponents.starts(with: rootComponents) else { return false }
-        do {
-            try fm.removeItem(at: target)
-            return true
-        } catch {
-            return false
+        let trimmed = campaign.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let folderName: String
+        if trimmed.isEmpty {
+            folderName = campaignFolderName(for: campaign.name)
+        } else if trimmed.contains("/") {
+            folderName = URL(fileURLWithPath: trimmed).lastPathComponent
+        } else {
+            folderName = trimmed
         }
+        return root.appendingPathComponent(folderName).standardizedFileURL
     }
 
     func deleteCampaignFolder(_ campaignURL: URL) {
@@ -360,12 +448,23 @@ final class CampaignStore: ObservableObject {
         guard let exportRoot = exportRootPath() else {
             throw NSError(domain: "SCOPE.Delete", code: 1, userInfo: [NSLocalizedDescriptionKey: "Export root not available."])
         }
-        let deleted = deleteCampaignSafely(campaignURL: campaign.campaignURL, exportRoot: exportRoot)
-        if !deleted {
+        let root = campaignsRoot(exportRoot: exportRoot).standardizedFileURL
+        let target = resolveCampaignFolderURL(campaign: campaign, exportRoot: exportRoot)
+        print("Delete campaign resolved path: \(target.path)")
+        print("Delete campaign campaignsRoot: \(root.path)")
+        guard target.path.hasPrefix(root.path) else {
+            throw NSError(domain: "SCOPE.Delete", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to delete campaign folder."])
+        }
+        guard fm.fileExists(atPath: target.path) else {
+            throw NSError(domain: "SCOPE.Delete", code: 5, userInfo: [NSLocalizedDescriptionKey: "Campaign folder not found at expected path"])
+        }
+        do {
+            try fm.removeItem(at: target)
+        } catch {
             throw NSError(domain: "SCOPE.Delete", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to delete campaign folder."])
         }
         let history = loadRunHistory()
-        let campaignPath = campaign.campaignURL.standardizedFileURL.path
+        let campaignPath = target.path
         let campaignsRootURL = campaignsRoot(exportRoot: exportRoot).standardizedFileURL
         let rootComponents = campaignsRootURL.pathComponents
         var filtered: [RunEntry] = []

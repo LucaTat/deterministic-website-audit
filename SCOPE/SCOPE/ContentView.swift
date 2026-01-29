@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Darwin
 
 // MARK: - Repo locator
 
@@ -599,25 +600,49 @@ struct ContentView: View {
                             HStack(spacing: 6) {
                                 let shipRoDisabled = isRunning || shipDirPath(forLang: "ro") == nil
                                 Button { openShipFolder(forLang: "ro") } label: {
-                                    Label("Open RO", systemImage: "shippingbox.fill")
+                                    Label("Decision Brief RO", systemImage: "doc.richtext")
                                 }
                                 .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                                 .disabled(shipRoDisabled)
                                 .opacity(buttonOpacity(disabled: shipRoDisabled))
-                                .help(shipHelpText(forLang: "ro"))
-                                InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
+                                .help("Open Decision Brief (RO)")
+                                InfoButton(text: "Opens the Decision Brief PDF for this campaign/language.")
                             }
 
                             HStack(spacing: 6) {
                                 let shipEnDisabled = isRunning || shipDirPath(forLang: "en") == nil
                                 Button { openShipFolder(forLang: "en") } label: {
-                                    Label("Open EN", systemImage: "shippingbox.fill")
+                                    Label("Decision Brief EN", systemImage: "doc.richtext")
                                 }
                                 .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                                 .disabled(shipEnDisabled)
                                 .opacity(buttonOpacity(disabled: shipEnDisabled))
-                                .help(shipHelpText(forLang: "en"))
-                                InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
+                                .help("Open Decision Brief (EN)")
+                                InfoButton(text: "Opens the Decision Brief PDF for this campaign/language.")
+                            }
+
+                            HStack(spacing: 6) {
+                                let appendixRoDisabled = isRunning || appendixPath(forLang: "ro") == nil
+                                Button { openAppendix(forLang: "ro") } label: {
+                                    Label("Evidence Appendix RO", systemImage: "doc.append")
+                                }
+                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                                .disabled(appendixRoDisabled)
+                                .opacity(buttonOpacity(disabled: appendixRoDisabled))
+                                .help("Open Evidence Appendix (RO)")
+                                InfoButton(text: "Opens the Evidence Appendix PDF for this campaign/language.")
+                            }
+
+                            HStack(spacing: 6) {
+                                let appendixEnDisabled = isRunning || appendixPath(forLang: "en") == nil
+                                Button { openAppendix(forLang: "en") } label: {
+                                    Label("Evidence Appendix EN", systemImage: "doc.append")
+                                }
+                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                                .disabled(appendixEnDisabled)
+                                .opacity(buttonOpacity(disabled: appendixEnDisabled))
+                                .help("Open Evidence Appendix (EN)")
+                                InfoButton(text: "Opens the Evidence Appendix PDF for this campaign/language.")
                             }
 
                             HStack(spacing: 6) {
@@ -647,13 +672,25 @@ struct ContentView: View {
                             HStack(spacing: 6) {
                                 let shipSingleDisabled = isRunning || shipDirPath(forLang: lang) == nil
                                 Button { openShipFolder(forLang: lang) } label: {
-                                    Label(lang == "ro" ? "Open RO" : "Open EN", systemImage: "shippingbox.fill")
+                                    Label(lang == "ro" ? "Decision Brief RO" : "Decision Brief EN", systemImage: "doc.richtext")
                                 }
                                 .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                                 .disabled(shipSingleDisabled)
                                 .opacity(buttonOpacity(disabled: shipSingleDisabled))
-                                .help(shipHelpText(forLang: lang))
-                                InfoButton(text: "Opens the final delivery folder in archive for this campaign/language.")
+                                .help("Open Decision Brief")
+                                InfoButton(text: "Opens the Decision Brief PDF for this campaign/language.")
+                            }
+
+                            HStack(spacing: 6) {
+                                let appendixSingleDisabled = isRunning || appendixPath(forLang: lang) == nil
+                                Button { openAppendix(forLang: lang) } label: {
+                                    Label(lang == "ro" ? "Evidence Appendix RO" : "Evidence Appendix EN", systemImage: "doc.append")
+                                }
+                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                                .disabled(appendixSingleDisabled)
+                                .opacity(buttonOpacity(disabled: appendixSingleDisabled))
+                                .help("Open Evidence Appendix")
+                                InfoButton(text: "Opens the Evidence Appendix PDF for this campaign/language.")
                             }
 
                             HStack(spacing: 6) {
@@ -701,7 +738,7 @@ struct ContentView: View {
                             .foregroundColor(.secondary)
                     }
 
-                    if readyToSend && (lastExitCode == 0 || lastExitCode == 1) {
+                    if readyToSend && (lastRunStatus == "SUCCESS" || lastRunStatus == "WARNING") {
                         Text("All deliverables are client-safe.")
                             .font(.footnote)
                             .foregroundColor(.secondary)
@@ -752,7 +789,7 @@ struct ContentView: View {
                                         Spacer()
                                         Text(entry.status)
                                             .font(.caption)
-                                            .foregroundColor(entry.status == "OK" ? .green : .orange)
+                                            .foregroundColor(isSuccessStatus(entry.status) ? .green : .orange)
                                     }
                                     HStack(spacing: 8) {
                                         let outDisabled = isRunning || entry.deliverablesDir.isEmpty || !FileManager.default.fileExists(atPath: entry.deliverablesDir)
@@ -1235,6 +1272,28 @@ struct ContentView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(Capsule().fill(Color.gray.opacity(0.15)))
+        } else if let status = lastRunStatus {
+            let (text, color): (String, Color) = {
+                switch status {
+                case "SUCCESS": return ("Ready to send", .green)
+                case "WARNING": return ("Ready to send (warnings)", .orange)
+                case "FAILED": return ("Run failed", .red)
+                case "Canceled": return ("Canceled", .secondary)
+                default: return ("Run finished", .secondary)
+                }
+            }()
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(text)
+                    .font(.headline)
+                    .foregroundColor(color)
+                Text(statusBadgeSubline(for: status))
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(color.opacity(0.12)))
         } else if let code = lastExitCode {
             let (text, color): (String, Color) = {
                 switch code {
@@ -1249,7 +1308,7 @@ struct ContentView: View {
                 Text(text)
                     .font(.headline)
                     .foregroundColor(color)
-                Text(statusBadgeSubline(for: code))
+                Text(statusBadgeSubline(for: statusLabel(for: code)))
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
@@ -1266,6 +1325,10 @@ struct ContentView: View {
         if code == 1 { return "BROKEN" }
         if code == 2 { return "FATAL" }
         return "CODE \(code)"
+    }
+
+    private func isSuccessStatus(_ status: String) -> Bool {
+        status == "OK" || status == "SUCCESS"
     }
 
     private func resetForNextClient() {
@@ -1592,6 +1655,7 @@ struct ContentView: View {
             do {
                 try store.deleteCampaign(target, alsoDeleteAstra: true)
                 runHistory = store.loadRunHistory()
+                refreshRecentCampaigns()
                 if store.selectedCampaignID == campaign.campaignURL.path {
                     let remaining = store.listCampaigns(exportRoot: exportRoot)
                     if let next = remaining.first {
@@ -1799,9 +1863,9 @@ struct ContentView: View {
                                         .font(.subheadline)
                                         .foregroundColor(.primary)
                                     Spacer()
-                                    Text(entry.status)
-                                        .font(.caption)
-                                        .foregroundColor(entry.status == "OK" ? .green : .orange)
+                                        Text(entry.status)
+                                            .font(.caption)
+                                            .foregroundColor(isSuccessStatus(entry.status) ? .green : .orange)
                                 }
                                 HStack(spacing: 8) {
                                     let outDisabled = isRunning || entry.deliverablesDir.isEmpty || !FileManager.default.fileExists(atPath: entry.deliverablesDir)
@@ -1928,6 +1992,81 @@ struct ContentView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    private func alertMissingPath(title: String, reason: String, path: String?) {
+        let trimmed = (path ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolved = trimmed.isEmpty ? "(none)" : trimmed
+        alert(title: title, message: "\(reason)\nResolved path: \(resolved)")
+    }
+
+    private func withExportRootAccess(_ action: () -> Void) {
+        if store.isAppSandboxed, let rootURL = store.resolveExportRootURL() {
+            let granted = rootURL.startAccessingSecurityScopedResource()
+            defer {
+                if granted {
+                    rootURL.stopAccessingSecurityScopedResource()
+                }
+            }
+            action()
+            return
+        }
+        action()
+    }
+
+    private func openRoDeliverables() {
+        let fm = FileManager.default
+        guard let path = shipDirPath(forLang: "ro") else {
+            alertMissingPath(title: "RO deliverables missing", reason: "No RO deliverables path recorded yet.", path: nil)
+            openExportRootFallback()
+            return
+        }
+        let baseURL = URL(fileURLWithPath: path)
+        guard fm.fileExists(atPath: baseURL.path) else {
+            alertMissingPath(title: "RO deliverables missing", reason: "RO deliverables not found on disk.", path: baseURL.path)
+            openExportRootFallback()
+            return
+        }
+        if baseURL.pathExtension.lowercased() == "pdf" {
+            withExportRootAccess {
+                NSWorkspace.shared.open(baseURL)
+            }
+            return
+        }
+        var isDir: ObjCBool = false
+        let isDirectory = fm.fileExists(atPath: baseURL.path, isDirectory: &isDir) && isDir.boolValue
+        if isDirectory {
+            for candidate in roReportCandidates(for: baseURL) {
+                if fm.fileExists(atPath: candidate.path) {
+                    withExportRootAccess {
+                        NSWorkspace.shared.open(candidate)
+                    }
+                    return
+                }
+            }
+            withExportRootAccess {
+                NSWorkspace.shared.open(baseURL)
+            }
+            return
+        }
+        withExportRootAccess {
+            NSWorkspace.shared.open(baseURL)
+        }
+    }
+
+    private func roReportCandidates(for baseURL: URL) -> [URL] {
+        [
+            baseURL.appendingPathComponent("Decision_Brief_RO.pdf"),
+            baseURL.appendingPathComponent("deliverables").appendingPathComponent("Decision_Brief_RO.pdf"),
+            baseURL.appendingPathComponent("astra").appendingPathComponent("deliverables").appendingPathComponent("Decision_Brief_RO.pdf")
+        ]
+    }
+
+    private func openExportRootFallback() {
+        guard let path = shipRootPath() else { return }
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private func openCampaignSites(_ item: RecentCampaign) {
@@ -2114,12 +2253,12 @@ struct ContentView: View {
         url: String,
         campaignName: String,
         lang: String
-    ) -> (campaignLangPath: String?, deliveredDir: String?, runFolderPath: String?, domain: String?, reportPath: String?, scopeLogPath: String?, success: Bool) {
+    ) -> (campaignLangPath: String?, deliveredDir: String?, runFolderPath: String?, domain: String?, reportPath: String?, scopeLogPath: String?, verdictPath: String?, success: Bool) {
         guard let domain = domainFromURLString(url) else {
-            return (nil, nil, nil, nil, nil, nil, false)
+            return (nil, nil, nil, nil, nil, nil, nil, false)
         }
         guard let store = campaignStore(), let exportRoot = exportRootPath() else {
-            return (nil, nil, nil, domain, nil, nil, false)
+            return (nil, nil, nil, domain, nil, nil, nil, false)
         }
 
         let fm = FileManager.default
@@ -2131,7 +2270,7 @@ struct ContentView: View {
         var isDir: ObjCBool = false
         let deliverablesSource = (runDir as NSString).appendingPathComponent("deliverables")
         guard fm.fileExists(atPath: deliverablesSource, isDirectory: &isDir), isDir.boolValue else {
-            return (campaignLangURL.path, nil, nil, domain, nil, nil, false)
+            return (campaignLangURL.path, nil, nil, domain, nil, nil, nil, false)
         }
 
         let runFolderURL = store.runFolderURL(
@@ -2170,14 +2309,16 @@ struct ContentView: View {
             try? fm.copyItem(atPath: verdictSourceAtRoot, toPath: verdictDest.path)
         }
 
-        let reportPath = astraDest.appendingPathComponent("deliverables").appendingPathComponent("report.pdf").path
-        let verdictPath = astraDest.appendingPathComponent("deliverables").appendingPathComponent("verdict.json").path
+        let deliverablesDest = astraDest.appendingPathComponent("deliverables")
+        let decisionBriefName = (lang.lowercased() == "ro") ? "Decision_Brief_RO.pdf" : "Decision_Brief_EN.pdf"
+        let reportPath = deliverablesDest.appendingPathComponent(decisionBriefName).path
+        let verdictPath = deliverablesDest.appendingPathComponent("verdict.json").path
         let reportExists = fm.fileExists(atPath: reportPath)
-        let verdictExists = fm.fileExists(atPath: verdictPath) || fm.fileExists(atPath: verdictDest.path)
-        let success = reportExists && verdictExists
+        let verdictExists = fm.fileExists(atPath: verdictPath)
+        let success = verdictExists
         if !success {
             try? fm.removeItem(at: runFolderURL)
-            return (campaignLangURL.path, nil, nil, domain, reportExists ? reportPath : nil, nil, false)
+            return (campaignLangURL.path, nil, nil, domain, reportExists ? reportPath : nil, nil, verdictExists ? verdictPath : nil, false)
         }
 
         store.appendRun(
@@ -2188,13 +2329,18 @@ struct ContentView: View {
             isoNow: { iso8601String(Date()) }
         )
 
+        let scopeLogPath = fm.fileExists(atPath: scopeLogSource)
+            ? scopeLogSource
+            : (fm.fileExists(atPath: scopeLogDest.path) ? scopeLogDest.path : nil)
+
         return (
             campaignLangURL.path,
             runFolderURL.path,
             runFolderURL.path,
             domain,
             reportExists ? reportPath : nil,
-            fm.fileExists(atPath: scopeLogDest.path) ? scopeLogDest.path : nil,
+            scopeLogPath,
+            verdictExists ? verdictPath : nil,
             success
         )
     }
@@ -2276,13 +2422,22 @@ struct ContentView: View {
     }
 
     private func openZIPIfAny() {
-        guard let zipPath = shipZipPath(forLang: lang) else { return }
-        revealAndOpenFile(zipPath)
+        openZIP(forLang: lang)
     }
 
     private func openZIP(forLang lang: String) {
-        guard let zipPath = shipZipPath(forLang: lang) else { return }
-        revealAndOpenFile(zipPath)
+        guard let zipPath = shipZipPath(forLang: lang) else {
+            alertMissingPath(title: "ZIP missing", reason: "No ZIP recorded yet.", path: nil)
+            return
+        }
+        let url = URL(fileURLWithPath: zipPath)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            alertMissingPath(title: "ZIP missing", reason: "ZIP file not found on disk.", path: url.path)
+            return
+        }
+        withExportRootAccess {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
     }
 
     // MARK: - Repo chooser
@@ -2471,11 +2626,21 @@ struct ContentView: View {
         let fm = FileManager.default
         var index = 0
         var sawError = false
+        var endAccessCalled = false
+        let timeoutQueue = DispatchQueue(label: "scope.timeout")
+        var timedOutTokens: Set<UUID> = []
 
         func shellEscape(_ value: String) -> String {
             value
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "\"", with: "\\\"")
+        }
+
+        func endAccessIfNeeded() {
+            if !endAccessCalled {
+                endAccessCalled = true
+                endEngineAccess(engineURL)
+            }
         }
 
         func runNext() {
@@ -2485,13 +2650,13 @@ struct ContentView: View {
                 cancelRequested = false
                 currentTask = nil
                 isRunning = false
-                endEngineAccess(engineURL)
+                endAccessIfNeeded()
                 return
             }
             if index >= specs.count {
                 runState = sawError ? .error : .done
                 isRunning = false
-                endEngineAccess(engineURL)
+                endAccessIfNeeded()
                 refreshRecentCampaigns()
                 return
             }
@@ -2529,12 +2694,18 @@ cd "$ASTRA_ROOT"
             environment["SCOPE_ANALYSIS_MODE"] = analysisMode
             task.environment = environment
 
-            let pipe = Pipe()
+            let outPipe = Pipe()
+            let errPipe = Pipe()
             var logHandle = FileHandle(forWritingAtPath: logPath)
-            task.standardOutput = pipe
-            task.standardError = pipe
+            task.standardOutput = outPipe
+            task.standardError = errPipe
 
-            pipe.fileHandleForReading.readabilityHandler = { handle in
+            let runToken = UUID()
+            timeoutQueue.async {
+                timedOutTokens.remove(runToken)
+            }
+
+            let readHandler: (FileHandle) -> Void = { handle in
                 let data = handle.availableData
                 if let str = String(data: data, encoding: .utf8), !str.isEmpty {
                     DispatchQueue.main.async {
@@ -2548,20 +2719,30 @@ cd "$ASTRA_ROOT"
                 }
             }
 
+            outPipe.fileHandleForReading.readabilityHandler = readHandler
+            errPipe.fileHandleForReading.readabilityHandler = readHandler
+
             task.terminationHandler = { p in
-                pipe.fileHandleForReading.readabilityHandler = nil
+                outPipe.fileHandleForReading.readabilityHandler = nil
+                errPipe.fileHandleForReading.readabilityHandler = nil
                 self.logQueue.async {
                     logHandle?.closeFile()
                     logHandle = nil
                 }
+                let code = p.terminationStatus
+                let wasCanceled = self.cancelRequested
                 DispatchQueue.main.async {
-                    self.currentTask = nil
+                    let logSnapshot = self.logOutput
+                    let wasTimedOut = timeoutQueue.sync {
+                        let had = timedOutTokens.contains(runToken)
+                        if had {
+                            timedOutTokens.remove(runToken)
+                        }
+                        return had
+                    }
 
-                    let code = p.terminationStatus
-                    self.lastExitCode = code
-                    if code != 0 { sawError = true }
-
-                    let runDir = self.resolveAstraRunDir(from: self.logOutput, astraRoot: normalizedAstraRoot)
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let runDir = self.resolveAstraRunDir(from: logSnapshot, astraRoot: normalizedAstraRoot)
                     var delivery = (
                         campaignLangPath: String?,
                         deliveredDir: String?,
@@ -2569,34 +2750,47 @@ cd "$ASTRA_ROOT"
                         domain: String?,
                         reportPath: String?,
                         scopeLogPath: String?,
+                        verdictPath: String?,
                         success: Bool
-                    )(nil, nil, nil, nil, nil, nil, false)
+                    )(nil, nil, nil, nil, nil, nil, nil, false)
                     if let runDir, let campaignName = self.lastRunCampaign {
                         delivery = self.deliverAstraRun(runDir: runDir, url: spec.url, campaignName: campaignName, lang: spec.lang)
                     }
-                    if runDir == nil || delivery.success == false {
-                        sawError = true
-                        self.runState = .error
-                        self.readyToSend = false
-                    }
 
-                    if let campaignLangPath = delivery.campaignLangPath {
-                        self.lastRunDir = campaignLangPath
-                    } else if let campaignName = self.lastRunCampaign,
-                              let fallbackCampaignPath = self.campaignFolderPath(campaignName: campaignName, lang: spec.lang) {
-                        self.lastRunDir = fallbackCampaignPath
+                    let deliverablesPath = runDir == nil ? "" : (runDir! as NSString).appendingPathComponent("deliverables")
+                    let verdictPath = deliverablesPath.isEmpty ? "" : (deliverablesPath as NSString).appendingPathComponent("verdict.json")
+                    let verdictExists = !verdictPath.isEmpty && FileManager.default.fileExists(atPath: verdictPath)
+                    let briefName = (spec.lang.lowercased() == "en") ? "Decision_Brief_EN.pdf" : "Decision_Brief_RO.pdf"
+                    let appendixName = (spec.lang.lowercased() == "en") ? "Evidence_Appendix_EN.pdf" : "Evidence_Appendix_RO.pdf"
+                    let decisionBriefPath = deliverablesPath.isEmpty ? nil : (deliverablesPath as NSString).appendingPathComponent(briefName)
+                        _ = deliverablesPath.isEmpty ? nil : (deliverablesPath as NSString).appendingPathComponent(appendixName)
+                    let scopeLogPath = runDir == nil ? nil : (runDir! as NSString).appendingPathComponent("scope_run.log")
+                    let scopeLogExists = scopeLogPath != nil && FileManager.default.fileExists(atPath: scopeLogPath ?? "")
+
+                    let status: String
+                    if wasCanceled {
+                        status = "Canceled"
+                    } else if wasTimedOut {
+                        status = "FAILED"
+                    } else if verdictExists {
+                        status = (code == 0) ? "SUCCESS" : "WARNING"
+                    } else {
+                        status = "FAILED"
                     }
-                    self.lastRunDomain = delivery.domain ?? self.domainFromURLString(spec.url)
-                    self.lastRunLogPath = delivery.scopeLogPath
 
                     let deliverablesDir = delivery.runFolderPath ?? delivery.deliveredDir ?? ""
                     let astraRunDir = deliverablesDir.isEmpty
                         ? (runDir ?? "")
                         : (deliverablesDir as NSString).appendingPathComponent("astra")
-                    let reportPath = delivery.reportPath
+                    let reportPath = (decisionBriefPath != nil && FileManager.default.fileExists(atPath: decisionBriefPath ?? "")) ? decisionBriefPath : nil
                     let reportExists = reportPath != nil
+                    let resolvedLogPath = scopeLogExists ? scopeLogPath : delivery.scopeLogPath
 
-                    let status = cancelRequested ? "Canceled" : ((code == 0 && delivery.success) ? "OK" : "FAILED")
+                    let campaignsSnapshot: [CampaignSummary] = {
+                        guard let exportRoot = self.exportRootPath() else { return [] }
+                        return self.campaignStore()?.listCampaigns(exportRoot: exportRoot) ?? []
+                    }()
+
                     let entry = RunEntry(
                         id: UUID().uuidString,
                         timestamp: Date(),
@@ -2606,40 +2800,80 @@ cd "$ASTRA_ROOT"
                         runDir: astraRunDir,
                         deliverablesDir: deliverablesDir,
                         reportPdfPath: reportExists ? reportPath : nil,
-                        decisionBriefPdfPath: nil,
-                        logPath: delivery.scopeLogPath
+                        decisionBriefPdfPath: reportExists ? reportPath : nil,
+                        logPath: resolvedLogPath
                     )
-                    self.runHistory.insert(entry, at: 0)
-                    self.saveRunHistory(self.runHistory)
-                    onRunRecorded?(entry)
-                    self.refreshCampaignsPanel()
 
-                    self.lastRunLang = spec.lang
-                    self.lastRunStatus = status
-                    if let campaignLangPath = delivery.campaignLangPath {
-                        if self.result == nil { self.result = ScopeResult() }
-                        self.result?.outDirByLang[spec.lang] = campaignLangPath
-                    }
-                    if reportExists, let reportPath {
-                        self.selectedPDF = reportPath
-                        if self.result == nil { self.result = ScopeResult() }
-                        self.result?.pdfPaths = [reportPath]
-                    }
-                    self.readyToSend = (status != "Canceled") && reportExists
+                        DispatchQueue.main.async {
+                        self.currentTask = nil
+                        self.lastExitCode = code
 
-                    runNext()
+                        if status == "FAILED" {
+                            sawError = true
+                            self.runState = .error
+                        }
+
+                        self.lastRunDomain = delivery.domain ?? self.domainFromURLString(spec.url)
+                        self.lastRunLogPath = resolvedLogPath
+                        if let runDir {
+                            self.lastRunDir = runDir
+                        } else if !astraRunDir.isEmpty {
+                            self.lastRunDir = astraRunDir
+                        } else if let campaignLangPath = delivery.campaignLangPath {
+                            self.lastRunDir = campaignLangPath
+                        } else if let campaignName = self.lastRunCampaign,
+                                  let fallbackCampaignPath = self.campaignFolderPath(campaignName: campaignName, lang: spec.lang) {
+                            self.lastRunDir = fallbackCampaignPath
+                        }
+
+                        self.runHistory.insert(entry, at: 0)
+                        self.saveRunHistory(self.runHistory)
+                        onRunRecorded?(entry)
+                        self.campaignsPanel = campaignsSnapshot
+
+                        self.lastRunLang = spec.lang
+                        self.lastRunStatus = status
+                        if let campaignLangPath = delivery.campaignLangPath {
+                            if self.result == nil { self.result = ScopeResult() }
+                            self.result?.outDirByLang[spec.lang] = campaignLangPath
+                        }
+                        if reportExists, let reportPath {
+                            self.selectedPDF = reportPath
+                            if self.result == nil { self.result = ScopeResult() }
+                            self.result?.pdfPaths = [reportPath]
+                        }
+                        self.readyToSend = (status == "SUCCESS" || status == "WARNING")
+
+                        if wasCanceled {
+                            self.cancelRequested = false
+                            self.runState = .error
+                            self.isRunning = false
+                            endAccessIfNeeded()
+                            return
+                        }
+
+                        runNext()
+                        }
+                    }
                 }
             }
 
             do {
                 try task.run()
+                DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 8 * 60) {
+                    guard self.currentTask === task, task.isRunning else { return }
+                    timeoutQueue.async {
+                        timedOutTokens.insert(runToken)
+                    }
+                    self.terminateProcess(task)
+                }
             } catch {
                 DispatchQueue.main.async {
                     self.currentTask = nil
                     self.lastRunStatus = "FAILED"
                     self.runState = .error
                     self.isRunning = false
-                    self.endEngineAccess(engineURL)
+                    endAccessIfNeeded()
                     self.alert(title: "Run failed", message: "Nu am putut porni ASTRA.")
                 }
             }
@@ -2648,11 +2882,29 @@ cd "$ASTRA_ROOT"
         runNext()
     }
 
+    private func terminateProcess(_ task: Process) {
+        guard task.isRunning else { return }
+        task.terminate()
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 1.0) {
+            if task.isRunning {
+                task.interrupt()
+            }
+        }
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 2.0) {
+            if task.isRunning {
+                let pid = task.processIdentifier
+                if pid > 0 {
+                    kill(pid, SIGKILL)
+                }
+            }
+        }
+    }
+
     private func cancelRun() {
         guard isRunning else { return }
         cancelRequested = true
         if let task = currentTask, task.isRunning {
-            task.interrupt()
+            terminateProcess(task)
         }
     }
 
@@ -2679,11 +2931,11 @@ cd "$ASTRA_ROOT"
             return "No run yet."
         }
         switch status {
-        case "OK":
+        case "SUCCESS":
             return "Success: audit completed."
-        case "BROKEN":
-            return "Completed with issues found."
-        case "FATAL":
+        case "WARNING":
+            return "Completed with warnings."
+        case "FAILED":
             return "Failed: audit did not complete."
         case "Canceled":
             return "Canceled by operator."
@@ -2822,9 +3074,13 @@ cd "$ASTRA_ROOT"
             let deliverables = url.appendingPathComponent("deliverables")
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: deliverables.path, isDirectory: &isDir), isDir.boolValue else { continue }
-            let reportPath = deliverables.appendingPathComponent("report.pdf")
+            let reportRo = deliverables.appendingPathComponent("Decision_Brief_RO.pdf")
+            let reportEn = deliverables.appendingPathComponent("Decision_Brief_EN.pdf")
             let verdictPath = deliverables.appendingPathComponent("verdict.json")
-            guard fm.fileExists(atPath: reportPath.path) || fm.fileExists(atPath: verdictPath.path) else { continue }
+            guard fm.fileExists(atPath: reportRo.path)
+                || fm.fileExists(atPath: reportEn.path)
+                || fm.fileExists(atPath: verdictPath.path)
+            else { continue }
             let modified = values.contentModificationDate ?? Date.distantPast
             if modified > bestDate {
                 bestDate = modified
@@ -2871,30 +3127,115 @@ cd "$ASTRA_ROOT"
     }
 
     private func shipZipPath(forLang lang: String) -> String? {
-        guard let zips = result?.shipZipByLang, !zips.isEmpty else { return nil }
-        guard let path = zips[lang], FileManager.default.fileExists(atPath: path) else { return nil }
-        return path
+        if let zips = result?.shipZipByLang, let path = zips[lang], !path.isEmpty {
+            return path
+        }
+        if let last = store.lastExportZipPath, !last.isEmpty {
+            return last
+        }
+        return nil
     }
 
     private func shipRootPath() -> String? {
-        guard let root = result?.shipRoot, !root.isEmpty else { return nil }
-        return FileManager.default.fileExists(atPath: root) ? root : nil
+        return lastRunDeliverablesPath()
     }
 
     private func shipDirPath(forLang lang: String) -> String? {
-        guard let dirs = result?.shipDirByLang, !dirs.isEmpty else { return nil }
-        guard let path = dirs[lang], FileManager.default.fileExists(atPath: path) else { return nil }
-        return path
+        return decisionBriefPath(forLang: lang)
+    }
+
+    private func lastRunAstraDirPath() -> String? {
+        if let dir = lastRunDir, !dir.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return dir
+        }
+        if let logPath = lastRunLogPath {
+            let parent = URL(fileURLWithPath: logPath).deletingLastPathComponent().path
+            return parent.isEmpty ? nil : parent
+        }
+        return nil
+    }
+
+    private func lastRunDeliverablesPath() -> String? {
+        guard let astraDir = lastRunAstraDirPath() else { return nil }
+        let deliverables = (astraDir as NSString).appendingPathComponent("deliverables")
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: deliverables, isDirectory: &isDir), isDir.boolValue {
+            return deliverables
+        }
+        return nil
+    }
+
+    private func decisionBriefPath(forLang lang: String) -> String? {
+        guard let deliverables = lastRunDeliverablesPath() else { return nil }
+        let fileName = (lang.lowercased() == "ro") ? "Decision_Brief_RO.pdf" : "Decision_Brief_EN.pdf"
+        let path = (deliverables as NSString).appendingPathComponent(fileName)
+        return FileManager.default.fileExists(atPath: path) ? path : nil
+    }
+
+    private func appendixPath(forLang lang: String) -> String? {
+        guard let deliverables = lastRunDeliverablesPath() else { return nil }
+        let fileName = (lang.lowercased() == "ro") ? "Evidence_Appendix_RO.pdf" : "Evidence_Appendix_EN.pdf"
+        let path = (deliverables as NSString).appendingPathComponent(fileName)
+        return FileManager.default.fileExists(atPath: path) ? path : nil
+    }
+
+    private func resolveRoDeliverablesPath(campaignURL: URL) -> String? {
+        let fm = FileManager.default
+        guard let runURL = store.mostRecentRunURL(campaignURL: campaignURL, lang: "ro") else { return nil }
+        let reportURL = runURL
+            .appendingPathComponent("astra")
+            .appendingPathComponent("deliverables")
+            .appendingPathComponent("Decision_Brief_RO.pdf")
+        if fm.fileExists(atPath: reportURL.path) {
+            return reportURL.path
+        }
+        if fm.fileExists(atPath: runURL.path) {
+            return runURL.path
+        }
+        return nil
     }
 
     private func openShipFolder(forLang lang: String) {
-        guard let path = shipDirPath(forLang: lang) else { return }
-        openFolder(path)
+        if lang.lowercased() == "ro" {
+            openRoDeliverables()
+            return
+        }
+        guard let path = shipDirPath(forLang: lang) else {
+            alertMissingPath(title: "Decision Brief missing", reason: "No Decision Brief found yet.", path: nil)
+            return
+        }
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            alertMissingPath(title: "Decision Brief missing", reason: "Decision Brief not found on disk.", path: url.path)
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func openAppendix(forLang lang: String) {
+        guard let path = appendixPath(forLang: lang) else {
+            alertMissingPath(title: "Evidence Appendix missing", reason: "No Evidence Appendix found yet.", path: nil)
+            return
+        }
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            alertMissingPath(title: "Evidence Appendix missing", reason: "Evidence Appendix not found on disk.", path: url.path)
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     private func openShipRoot() {
-        guard let path = shipRootPath() else { return }
-        openFolder(path)
+        guard let path = shipRootPath() else {
+            alertMissingPath(title: "Export root missing", reason: "No export root recorded yet.", path: nil)
+            return
+        }
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            alertMissingPath(title: "Export root missing", reason: "Export root folder not found on disk.", path: url.path)
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     private func resolvedEngineURL() -> URL? {
@@ -2958,8 +3299,9 @@ cd "$ASTRA_ROOT"
     }
 
     private func scopeRunLogPath() -> String? {
-        guard let logPath = lastRunLogPath else { return nil }
-        return FileManager.default.fileExists(atPath: logPath) ? logPath : nil
+        guard let runDir = lastRunAstraDirPath() else { return nil }
+        let path = (runDir as NSString).appendingPathComponent("scope_run.log")
+        return FileManager.default.fileExists(atPath: path) ? path : nil
     }
 
     private func openOutputFolder() {
@@ -3046,6 +3388,9 @@ cd "$ASTRA_ROOT"
             let store = self.campaignStore()
             var exported = 0
             var missing = 0
+            var exportedZips: [String: String] = [:]
+            var lastZipPath: String? = nil
+            var lastRoDeliverablesPath: String? = nil
 
             for lang in langs {
                 guard let store else { continue }
@@ -3062,6 +3407,11 @@ cd "$ASTRA_ROOT"
                 do {
                     try zipFolderWithDitto(sourceFolder: campaignURL, zipPath: zipPath)
                     exported += 1
+                    exportedZips[lang.lowercased()] = zipPath
+                    lastZipPath = zipPath
+                    if lang.lowercased() == "ro", lastRoDeliverablesPath == nil {
+                        lastRoDeliverablesPath = resolveRoDeliverablesPath(campaignURL: campaignURL)
+                    }
                 } catch {
                     continue
                 }
@@ -3069,6 +3419,12 @@ cd "$ASTRA_ROOT"
 
             DispatchQueue.main.async {
                 if exported > 0 {
+                    if self.result == nil { self.result = ScopeResult() }
+                    self.result?.shipRoot = destFolder
+                    for (lang, path) in exportedZips {
+                        self.result?.shipZipByLang[lang] = path
+                    }
+                    self.store.recordLastExport(exportRootURL: destUrl, zipPath: lastZipPath, roDeliverablesPath: lastRoDeliverablesPath)
                     statusHandler("Exported \(exported) ZIP(s).")
                 } else if missing > 0 {
                     statusHandler("Campaign folder not found.")
@@ -3167,7 +3523,12 @@ cd "$ASTRA_ROOT"
             recentCampaigns = []
             return
         }
-        recentCampaigns = loadRecentCampaigns(repoRoot: repo)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let items = loadRecentCampaigns(repoRoot: repo)
+            DispatchQueue.main.async {
+                self.recentCampaigns = items
+            }
+        }
     }
 
     private func loadRecentCampaigns(repoRoot: String) -> [RecentCampaign] {
@@ -3186,7 +3547,8 @@ cd "$ASTRA_ROOT"
             )
         }
 
-        let sorted = items.sorted { $0.lastModified > $1.lastModified }
+        let existing = items.filter { FileManager.default.fileExists(atPath: $0.path) }
+        let sorted = existing.sorted { $0.lastModified > $1.lastModified }
         return Array(sorted.prefix(10))
     }
 
@@ -3319,7 +3681,7 @@ cd "$ASTRA_ROOT"
     }
 
     private func deleteCampaignEntries(_ items: [CampaignEntry]) -> Int {
-        guard let campaignsRoot = campaignsRootPath() else { return 0 }
+        guard campaignsRootPath() != nil else { return 0 }
         var deleted = 0
         var failed = 0
         for item in items {
@@ -3419,24 +3781,30 @@ cd "$ASTRA_ROOT"
     }
 
     private func readyToSendHint() -> String? {
-        guard !isRunning, let code = lastExitCode else { return nil }
-        if code == 0 {
+        guard !isRunning, let status = lastRunStatus else { return nil }
+        if status == "SUCCESS" {
             return "Send the ZIP files to the client. Start with Open Export/Delivery Root."
         }
-        if code == 1 {
-            return "Issues found. Send the ZIP files after reviewing. Start with Open Export/Delivery Root."
+        if status == "WARNING" {
+            return "Warnings found. Send the ZIP files after reviewing. Start with Open Export/Delivery Root."
         }
-        if code == 2 {
+        if status == "FAILED" {
             return "Run failed. Check Advanced logs."
         }
         return nil
     }
 
-    private func statusBadgeSubline(for code: Int32) -> String {
-        if code == 0 { return "Last run OK" }
-        if code == 1 { return "Last run: issues found" }
-        if code == 2 { return "Last run failed" }
-        return "Last run unknown"
+    private func statusBadgeSubline(for status: String) -> String {
+        switch status {
+        case "SUCCESS": return "Last run OK"
+        case "WARNING": return "Last run: warnings"
+        case "FAILED": return "Last run failed"
+        case "Canceled": return "Last run canceled"
+        case "OK": return "Last run OK"
+        case "BROKEN": return "Last run: issues found"
+        case "FATAL": return "Last run failed"
+        default: return "Last run unknown"
+        }
     }
 
     private func lastRunSummary() -> String? {
