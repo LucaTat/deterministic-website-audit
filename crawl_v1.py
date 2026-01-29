@@ -393,22 +393,77 @@ def discover_urls(site_root: str) -> list[str]:
     return urls
 
 
-def select_urls(discovered_urls: list[str], max_pages: int, caps: dict | None = None) -> list[str]:
+def select_urls(
+    discovered_urls: list[str],
+    max_pages: int,
+    caps: dict | None = None,
+    site_root: str | None = None,
+) -> list[str]:
     caps = caps or {}
     hard_cap_analyzed = int(caps.get("hard_cap_analyzed", HARD_CAP_ANALYZED))
     max_pages = int(max_pages or TARGET_ANALYZED)
-    filtered = [u for u in discovered_urls if "/cdn-cgi/" not in u]
-    if len(filtered) <= hard_cap_analyzed:
-        return filtered[:hard_cap_analyzed]
     max_pages = min(max_pages, hard_cap_analyzed)
-    if not filtered:
+    if max_pages <= 0:
         return []
-    selected = [filtered[0]]
-    for url in filtered[1:]:
+
+    def is_analyzable(url: str) -> bool:
+        if not url or "/cdn-cgi/" in url:
+            return False
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        if not parsed.netloc:
+            return False
+        if parsed.fragment:
+            return False
+        if not _is_html_candidate(url):
+            return False
+        return True
+
+    def canonical_homepage(value: str | None) -> str:
+        if not value:
+            return ""
+        parsed = urlparse(value)
+        if parsed.scheme not in ("http", "https"):
+            return ""
+        if not parsed.netloc:
+            return ""
+        return f"{parsed.scheme}://{parsed.netloc}/"
+
+    def canonicalize_for_dedupe(url: str) -> str:
+        parsed = urlparse(url)
+        scheme = (parsed.scheme or "").lower()
+        host = (parsed.netloc or "").lower()
+        path = parsed.path or "/"
+        if path != "/":
+            path = path.rstrip("/")
+            if not path:
+                path = "/"
+        query = parsed.query or ""
+        return f"{scheme}://{host}{path}?{query}"
+
+    selected: list[str] = []
+    seen_keys: set[str] = set()
+
+    def add_url(url: str) -> None:
+        if not is_analyzable(url):
+            return
+        key = canonicalize_for_dedupe(url)
+        if key in seen_keys:
+            return
+        seen_keys.add(key)
+        selected.append(url)
+
+    homepage = canonical_homepage(site_root)
+    if homepage:
+        add_url(homepage)
+
+    for url in discovered_urls:
         if len(selected) >= max_pages:
             break
-        selected.append(url)
-    return selected
+        add_url(url)
+
+    return selected[:max_pages]
 
 
 def fetch_pages(urls: list[str], robots_policy: dict | None = None) -> list[dict]:
@@ -677,6 +732,7 @@ def crawl_site(site_root: str, max_pages: int = TARGET_ANALYZED, analysis_mode: 
         discovered_urls,
         max_pages=max_pages,
         caps={"hard_cap_analyzed": HARD_CAP_ANALYZED},
+        site_root=site_root,
     )
     pages = fetch_pages(analyzed_urls, robots_policy=robots_policy)
     analyzed_html_count = _count_analyzed_html(pages)
@@ -750,6 +806,7 @@ def crawl_site(site_root: str, max_pages: int = TARGET_ANALYZED, analysis_mode: 
                 discovered_urls,
                 max_pages=max_pages,
                 caps={"hard_cap_analyzed": HARD_CAP_ANALYZED},
+                site_root=site_root,
             )
             existing_urls = {p.get("url") for p in pages if isinstance(p, dict)}
             additional_urls = [u for u in analyzed_urls if u not in existing_urls]
