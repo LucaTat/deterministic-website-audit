@@ -3146,7 +3146,9 @@ cd "$ASTRA_ROOT"
     }
 
     private func runTool2(for run: RunEntry) {
-        guard let baseRunDir = runDirForRun(run) else { return }
+        let baseRunDir = run.runDir
+        guard !baseRunDir.isEmpty else { return }
+        toolLogOutput += "TOOL_RUN_DIR=\(baseRunDir)\n"
         let outputDir = URL(fileURLWithPath: baseRunDir).appendingPathComponent("action_scope")
         try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
         let lang = run.lang.lowercased() == "en" ? "EN" : "RO"
@@ -3156,8 +3158,15 @@ cd "$ASTRA_ROOT"
                 let actionScopeDir = URL(fileURLWithPath: baseRunDir).appendingPathComponent("action_scope")
                 try? FileManager.default.createDirectory(at: actionScopeDir, withIntermediateDirectories: true)
                 let src = URL(fileURLWithPath: baseRunDir).appendingPathComponent("deliverables")
-                self.copyDirectoryContents(src: src, dst: actionScopeDir)
-                self.toolStatus = "Tool 2 completed (action_scope ready)"
+                let copied = self.copyMatchingFiles(
+                    srcDir: src,
+                    dstDir: actionScopeDir,
+                    prefix: "Action_Scope_",
+                    suffix: ".pdf"
+                )
+                self.toolStatus = copied > 0
+                    ? "Tool 2 completed (action_scope ready)"
+                    : "Tool 2 completed (no Action Scope PDF found)"
             } else {
                 self.toolStatus = "Tool 2 failed."
             }
@@ -3169,9 +3178,11 @@ cd "$ASTRA_ROOT"
         if before.id == after.id {
             toolStatus = "Tool 3: no previous run found; using current run as baseline."
         }
-        guard let beforeDir = runDirForRun(before),
-              let afterDir = runDirForRun(after),
-              let baseRunDir = runDirForRun(baseline) else { return }
+        let beforeDir = before.runDir
+        let afterDir = after.runDir
+        let baseRunDir = baseline.runDir
+        guard !beforeDir.isEmpty, !afterDir.isEmpty, !baseRunDir.isEmpty else { return }
+        toolLogOutput += "TOOL_RUN_DIR=\(baseRunDir)\n"
         let outputDir = URL(fileURLWithPath: baseRunDir).appendingPathComponent("proof_pack")
         try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
         let lang = baseline.lang.lowercased() == "en" ? "EN" : "RO"
@@ -3179,8 +3190,15 @@ cd "$ASTRA_ROOT"
         runToolCommand(toolLabel: "Tool 3", module: "astra.tool3.run", args: args) { _, success in
             if success {
                 let src = URL(fileURLWithPath: baseRunDir).appendingPathComponent("deliverables")
-                self.copyDirectoryContents(src: src, dst: outputDir)
-                self.toolStatus = "Tool 3 completed (proof_pack ready)"
+                let copied = self.copyMatchingFiles(
+                    srcDir: src,
+                    dstDir: outputDir,
+                    prefix: "Implementation_Proof_",
+                    suffix: ".pdf"
+                )
+                self.toolStatus = copied > 0
+                    ? "Tool 3 completed (proof_pack ready)"
+                    : "Tool 3 completed (no proof PDF found)"
             } else {
                 self.toolStatus = "Tool 3 failed."
             }
@@ -3189,7 +3207,9 @@ cd "$ASTRA_ROOT"
     }
 
     private func runTool4(baseline: RunEntry) {
-        guard let baseRunDir = runDirForRun(baseline) else { return }
+        let baseRunDir = baseline.runDir
+        guard !baseRunDir.isEmpty else { return }
+        toolLogOutput += "TOOL_RUN_DIR=\(baseRunDir)\n"
         let tempRoot = toolTmpRootURL()
         let lang = baseline.lang.lowercased() == "en" ? "EN" : "RO"
         let args = "--baseline \(shellEscapeValue(baseRunDir)) --url \(shellEscapeValue(baseline.url)) --lang \(lang) --out-root \(shellEscapeValue(tempRoot.path))"
@@ -3452,6 +3472,29 @@ cd "$ASTRA_ROOT"
         }
     }
 
+    private func copyMatchingFiles(srcDir: URL, dstDir: URL, prefix: String, suffix: String) -> Int {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: srcDir.path, isDirectory: &isDir), isDir.boolValue else { return 0 }
+        guard let items = try? fm.contentsOfDirectory(at: srcDir, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else {
+            return 0
+        }
+        try? fm.createDirectory(at: dstDir, withIntermediateDirectories: true)
+        var copied = 0
+        for item in items {
+            let isRegular = (try? item.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false
+            if !isRegular { continue }
+            let name = item.lastPathComponent
+            if !name.hasPrefix(prefix) || !name.hasSuffix(suffix) { continue }
+            let target = dstDir.appendingPathComponent(name)
+            try? fm.removeItem(at: target)
+            if (try? fm.copyItem(at: item, to: target)) != nil {
+                copied += 1
+            }
+        }
+        return copied
+    }
+
     private func normalizedHostFromRunDirName(_ name: String) -> String? {
         let parts = name.split(separator: "_")
         guard let last = parts.last else { return nil }
@@ -3482,7 +3525,9 @@ cd "$ASTRA_ROOT"
     }
 
     private func runFinalDecision(for run: RunEntry) {
-        guard let baseRunDir = runDirForRun(run) else { return }
+        let baseRunDir = run.runDir
+        guard !baseRunDir.isEmpty else { return }
+        toolLogOutput += "TOOL_RUN_DIR=\(baseRunDir)\n"
         let lang = run.lang.lowercased() == "en" ? "EN" : "RO"
         let args = "\(shellEscapeValue(baseRunDir)) --lang \(lang)"
         runToolCommand(toolLabel: "Final Decision", module: "astra.final_decision.run", args: args) { _, success in
