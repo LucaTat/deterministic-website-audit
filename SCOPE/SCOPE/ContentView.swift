@@ -3169,7 +3169,13 @@ cd "$ASTRA_ROOT"
         let lang = baseline.lang.lowercased() == "en" ? "EN" : "RO"
         let args = "--before \(shellEscapeValue(beforeDir)) --after \(shellEscapeValue(afterDir)) --lang \(lang)"
         runToolCommand(toolLabel: "Tool 3", module: "astra.tool3.run", args: args) { _, success in
-            self.toolStatus = success ? "Tool 3 complete." : "Tool 3 failed."
+            if success {
+                let src = URL(fileURLWithPath: baseRunDir).appendingPathComponent("deliverables")
+                self.copyDirectoryContents(src: src, dst: outputDir)
+                self.toolStatus = "Tool 3 completed (proof_pack ready)"
+            } else {
+                self.toolStatus = "Tool 3 failed."
+            }
             self.bumpUIRefresh()
         }
     }
