@@ -3001,8 +3001,20 @@ cd "$ASTRA_ROOT"
                             self.lastRunDir = fallbackCampaignPath
                         }
 
-                        self.runHistory.insert(entry, at: 0)
-                        self.saveRunHistory(self.runHistory)
+                        if let campaignName = self.lastRunCampaign,
+                           let exportRoot = self.exportRootPath() {
+                            let campaignURL = self.store.campaignURL(forName: campaignName, exportRoot: exportRoot)
+                            let campaign = Campaign(id: campaignURL.path, name: campaignName, campaignURL: campaignURL)
+                            do {
+                                self.runHistory = try self.store.upsertRun(entry, in: campaign)
+                            } catch {
+                                self.alert(title: "Overwrite failed", message: error.localizedDescription)
+                                return
+                            }
+                        } else {
+                            self.runHistory.insert(entry, at: 0)
+                            self.saveRunHistory(self.runHistory)
+                        }
                         onRunRecorded?(entry)
                         self.campaignsPanel = campaignsSnapshot
 
