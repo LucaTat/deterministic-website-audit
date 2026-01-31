@@ -182,6 +182,7 @@ struct ContentView: View {
     @State private var toolStatus: String? = nil
     @State private var toolTask: Process? = nil
     @State private var toolLogOutput: String = ""
+    @State private var lastFinalDecisionPDFPath: String? = nil
     @State private var uiRefreshTick: Int = 0
     @State private var showNewCampaignSheet: Bool = false
     @StateObject private var store = CampaignStore(repoRoot: "")
@@ -2011,13 +2012,14 @@ struct ContentView: View {
 
                 HStack(spacing: 8) {
                     Button("Run Tool 3") {
-                        if let beforeRun, let activeRun {
-                            runTool3(before: beforeRun, after: activeRun, baseline: activeRun)
+                        if let activeRun {
+                            let resolvedBefore = beforeRun ?? activeRun
+                            runTool3(before: resolvedBefore, after: activeRun, baseline: activeRun)
                         }
                     }
                     .buttonStyle(.bordered)
-                    .disabled(toolRunning || activeRun == nil || beforeRun == nil)
-                    .opacity(buttonOpacity(disabled: toolRunning || activeRun == nil || beforeRun == nil))
+                    .disabled(toolRunning || activeRun == nil)
+                    .opacity(buttonOpacity(disabled: toolRunning || activeRun == nil))
 
                     Button("Open Tool 3") {
                         if let dir = toolFolderPath(for: activeRun, toolName: "proof_pack") { openFolder(dir) }
@@ -2044,8 +2046,9 @@ struct ContentView: View {
                 }
 
                 HStack(spacing: 8) {
-                    let finalDir = activeRun.flatMap { finalDecisionFolderPath(for: $0) }
-                    let finalDisabled = toolRunning || finalDir == nil
+                    let finalPath = lastFinalDecisionPDFPath
+                    let finalExists = finalPath != nil && FileManager.default.fileExists(atPath: finalPath!)
+                    let finalDisabled = toolRunning || !finalExists
                     Button("Generate Final Decision") {
                         if let activeRun { runFinalDecision(for: activeRun) }
                     }
@@ -2054,7 +2057,11 @@ struct ContentView: View {
                     .opacity(buttonOpacity(disabled: toolRunning || activeRun == nil))
 
                     Button("Open Final Decision") {
-                        if let dir = finalDir { openFolder(dir) }
+                        if let p = finalPath, FileManager.default.fileExists(atPath: p) {
+                            openFolder((p as NSString).deletingLastPathComponent)
+                        } else {
+                            toolStatus = "Final Decision not found. Generate first."
+                        }
                     }
                     .buttonStyle(.bordered)
                     .disabled(finalDisabled)
@@ -3151,6 +3158,9 @@ cd "$ASTRA_ROOT"
     }
 
     private func runTool3(before: RunEntry, after: RunEntry, baseline: RunEntry) {
+        if before.id == after.id {
+            toolStatus = "Tool 3: no previous run found; using current run as baseline."
+        }
         guard let beforeDir = runDirForRun(before),
               let afterDir = runDirForRun(after),
               let baseRunDir = runDirForRun(baseline) else { return }
@@ -3466,19 +3476,18 @@ cd "$ASTRA_ROOT"
                 self.toolStatus = "Final Decision failed."
                 return
             }
-            guard let marker = self.parseFinalDecisionMarker(from: self.toolLogOutput) else {
-                self.toolStatus = "Final Decision ran, but output path was not detected."
-                return
+            if let marker = self.parseFinalDecisionMarker(from: self.toolLogOutput) {
+                let trimmed = marker.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.lastFinalDecisionPDFPath = trimmed.isEmpty ? nil : trimmed
+            } else {
+                self.lastFinalDecisionPDFPath = nil
             }
-            let src = URL(fileURLWithPath: marker)
-            let dstDir = URL(fileURLWithPath: baseRunDir).appendingPathComponent("final_decision")
-            try? FileManager.default.createDirectory(at: dstDir, withIntermediateDirectories: true)
-            let dst = dstDir.appendingPathComponent(src.lastPathComponent)
-            if FileManager.default.fileExists(atPath: src.path) {
-                try? FileManager.default.removeItem(at: dst)
-                try? FileManager.default.copyItem(at: src, to: dst)
+            if let path = self.lastFinalDecisionPDFPath,
+               FileManager.default.fileExists(atPath: path) {
+                self.toolStatus = "Final Decision generated."
+            } else {
+                self.toolStatus = "Final Decision generated (path missing)."
             }
-            self.toolStatus = "Final Decision generated."
         }
     }
 
