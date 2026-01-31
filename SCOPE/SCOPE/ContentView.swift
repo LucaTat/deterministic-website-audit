@@ -3152,7 +3152,15 @@ cd "$ASTRA_ROOT"
         let lang = run.lang.lowercased() == "en" ? "EN" : "RO"
         let args = "\(shellEscapeValue(baseRunDir)) --lang \(lang)"
         runToolCommand(toolLabel: "Tool 2", module: "astra.tool2.run", args: args) { _, success in
-            self.toolStatus = success ? "Tool 2 complete." : "Tool 2 failed."
+            if success {
+                let actionScopeDir = URL(fileURLWithPath: baseRunDir).appendingPathComponent("action_scope")
+                try? FileManager.default.createDirectory(at: actionScopeDir, withIntermediateDirectories: true)
+                let src = URL(fileURLWithPath: baseRunDir).appendingPathComponent("deliverables")
+                self.copyDirectoryContents(src: src, dst: actionScopeDir)
+                self.toolStatus = "Tool 2 completed (action_scope ready)"
+            } else {
+                self.toolStatus = "Tool 2 failed."
+            }
             self.bumpUIRefresh()
         }
     }
