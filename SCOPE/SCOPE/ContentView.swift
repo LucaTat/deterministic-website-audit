@@ -826,9 +826,16 @@ struct ContentView: View {
                                             .font(.subheadline)
                                             .foregroundColor(.primary)
                                         Spacer()
-                                        Text(entry.status)
+                                        let runDir = runRootPath(for: entry) ?? ""
+                                        let exportedZip = runDir.isEmpty ? "" : (runDir as NSString).appendingPathComponent("final/client_safe_bundle.zip")
+                                        let hasExport = !exportedZip.isEmpty && FileManager.default.fileExists(atPath: exportedZip)
+                                        let showExporting = exportIsRunning && runExportRunID == entry.id
+                                        let showFailed = (!exportStatusText.isEmpty && exportStatusText.hasPrefix("ERROR:") && runExportRunID == entry.id)
+                                        let badgeText = showExporting ? "EXPORTING" : (showFailed ? "FAILED" : (hasExport ? "EXPORTED" : "NOT EXPORTED"))
+                                        let badgeColor: Color = showExporting ? .blue : (showFailed ? .red : (hasExport ? .green : .secondary))
+                                        Text(badgeText)
                                             .font(.caption)
-                                            .foregroundColor(isSuccessStatus(entry.status) ? .green : .orange)
+                                            .foregroundColor(badgeColor)
                                     }
                                     HStack(spacing: 8) {
                                         let outDisabled = isRunning || entry.deliverablesDir.isEmpty || !FileManager.default.fileExists(atPath: entry.deliverablesDir)
