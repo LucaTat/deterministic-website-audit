@@ -74,6 +74,12 @@ include_dir "regression"
 if [[ -f "$RUN_DIR/final/master.pdf" ]]; then
   FILES+=("$RUN_DIR/final/master.pdf")
 fi
+if [[ -f "$RUN_DIR/final/manifest.json" ]]; then
+  FILES+=("$RUN_DIR/final/manifest.json")
+fi
+if [[ -f "$RUN_DIR/final/checksums.sha256" ]]; then
+  FILES+=("$RUN_DIR/final/checksums.sha256")
+fi
 
 if [[ -d "$RUN_DIR/astra/deliverables" ]]; then
   while IFS= read -r -d '' f; do

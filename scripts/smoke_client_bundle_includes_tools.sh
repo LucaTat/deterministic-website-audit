@@ -33,6 +33,9 @@ with open(os.path.join(run_dir, "astra", "pipeline.log"), "w", encoding="utf-8")
     f.write("should not ship")
 PY
 
+echo '{"version":"v1"}' > "$RUN_DIR/final/manifest.json"
+echo "deadbeef  master.pdf" > "$RUN_DIR/final/checksums.sha256"
+
 bash "$ROOT/scripts/package_run_client_safe_zip.sh" "$RUN_DIR"
 ZIP_PATH="$RUN_DIR/final/client_safe_bundle.zip"
 python3 "$ROOT/scripts/verify_client_safe_zip.py" "$ZIP_PATH" >/dev/null
@@ -48,6 +51,8 @@ required = [
     "proof_pack/",
     "regression/",
     "final/master.pdf",
+    "final/manifest.json",
+    "final/checksums.sha256",
     "astra/deliverables/Decision_Brief_RO.pdf",
 ]
 with zipfile.ZipFile(zip_path, "r") as zf:

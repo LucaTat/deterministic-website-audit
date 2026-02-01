@@ -22,6 +22,11 @@ if ! bash scripts/build_master_pdf.sh "$RUN_DIR" >/dev/null; then
   exit 2
 fi
 
+if ! .venv/bin/python3 scripts/write_final_manifest.py "$RUN_DIR" >/dev/null; then
+  echo "ERROR write manifest"
+  exit 2
+fi
+
 if ! bash scripts/package_run_client_safe_zip.sh "$RUN_DIR" >/dev/null; then
   echo "ERROR package client zip"
   exit 2
@@ -29,6 +34,11 @@ fi
 
 if [[ ! -f "$DEST_ZIP" ]]; then
   echo "ERROR package client zip"
+  exit 2
+fi
+
+if ! bash scripts/write_final_checksums.sh "$RUN_DIR" >/dev/null; then
+  echo "ERROR write checksums"
   exit 2
 fi
 
