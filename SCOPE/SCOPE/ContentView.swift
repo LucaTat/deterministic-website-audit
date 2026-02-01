@@ -843,153 +843,210 @@ struct ContentView: View {
                                             .font(.caption)
                                             .foregroundColor(badgeColor)
                                     }
-                                    HStack(spacing: 8) {
-                                        let outDisabled = isRunning || entry.deliverablesDir.isEmpty || !FileManager.default.fileExists(atPath: entry.deliverablesDir)
-                                        Button { openFolder(entry.deliverablesDir) } label: {
-                                            Text("Open Output")
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .disabled(outDisabled)
-                                        .opacity(buttonOpacity(disabled: outDisabled))
-
-                                        let reportDisabled = isRunning || (entry.reportPdfPath == nil)
-                                        Button {
-                                            if let path = entry.reportPdfPath { revealAndOpenFile(path) }
-                                        } label: {
-                                            Text("Open Report")
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .disabled(reportDisabled)
-                                        .opacity(buttonOpacity(disabled: reportDisabled))
-
-                                        let logDisabled = isRunning || (entry.logPath == nil)
-                                        Button {
-                                            if let path = entry.logPath { revealAndOpenFile(path) }
-                                        } label: {
-                                            Text("Open Log")
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .disabled(logDisabled)
-                                        .opacity(buttonOpacity(disabled: logDisabled))
-
-                                        let exportDisabled = isRunning || exportIsRunning
-                                        let runDirForExport = runRootPath(for: entry) ?? ""
-                                        let bundlePath = runDirForExport.isEmpty ? "" : (runDirForExport as NSString).appendingPathComponent("final/client_safe_bundle.zip")
-                                        let hasBundle = !bundlePath.isEmpty && FileManager.default.fileExists(atPath: bundlePath)
-                                        let isExportingThis = exportIsRunning && runExportRunID == entry.id
-                                        let isFailedThis = (!exportStatusText.isEmpty && exportStatusText.hasPrefix("ERROR:") && runExportRunID == entry.id)
-                                        let exportButtonLabel = isExportingThis ? "Exporting…" : (hasBundle ? "Exported ✓" : (isFailedThis ? "Retry Export" : "Export Client Bundle"))
-                                        Button(exportButtonLabel) {
-                                            runExportClientBundle(for: entry)
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .disabled(exportDisabled)
-                                        .opacity(buttonOpacity(disabled: exportDisabled))
-
-                                        let openBundleDisabled = isRunning || exportIsRunning || !hasBundle
-                                        Button("Open Bundle") {
-                                            if !bundlePath.isEmpty {
-                                                revealAndOpenFile(bundlePath)
-                                            }
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .disabled(openBundleDisabled)
-                                        .opacity(buttonOpacity(disabled: openBundleDisabled))
-
-                                        if exportIsRunning && runExportRunID == entry.id {
-                                            Button("Cancel Export") {
-                                                cancelRunExport()
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(spacing: 8) {
+                                            let exportDisabled = isRunning || exportIsRunning
+                                            let runDirForExport = runRootPath(for: entry) ?? ""
+                                            let bundlePath = runDirForExport.isEmpty ? "" : (runDirForExport as NSString).appendingPathComponent("final/client_safe_bundle.zip")
+                                            let hasBundle = !bundlePath.isEmpty && FileManager.default.fileExists(atPath: bundlePath)
+                                            let isExportingThis = exportIsRunning && runExportRunID == entry.id
+                                            let isFailedThis = (!exportStatusText.isEmpty && exportStatusText.hasPrefix("ERROR:") && runExportRunID == entry.id)
+                                            let exportButtonLabel = isExportingThis ? "Exporting…" : (hasBundle ? "Exported ✓" : (isFailedThis ? "Retry Export" : "Export Client Bundle"))
+                                            Button(exportButtonLabel) {
+                                                runExportClientBundle(for: entry)
                                             }
                                             .buttonStyle(.bordered)
-                                        }
+                                            .disabled(exportDisabled)
+                                            .opacity(buttonOpacity(disabled: exportDisabled))
+                                            .fixedSize(horizontal: true, vertical: false)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .frame(minWidth: 140, alignment: .center)
 
-                                        let toolDisabled = isRunning || exportIsRunning || toolRunning
-                                        let tool2OutputPath = toolPDFPath(for: entry, tool: "tool2") ?? ""
-                                        let tool2Exists = !tool2OutputPath.isEmpty && FileManager.default.fileExists(atPath: tool2OutputPath)
-                                        let tool3OutputPath = toolPDFPath(for: entry, tool: "tool3") ?? ""
-                                        let tool3Exists = !tool3OutputPath.isEmpty && FileManager.default.fileExists(atPath: tool3OutputPath)
-                                        Button("Run Tool 2 — Action Scope") {
-                                            guard let repoRoot = resolvedRepoRoot() else {
-                                                toolStatus = "Export failed: Tool 2"
-                                                return
+                                            let openBundleDisabled = isRunning || exportIsRunning || !hasBundle
+                                            Button("Open Bundle") {
+                                                if !bundlePath.isEmpty {
+                                                    revealAndOpenFile(bundlePath)
+                                                }
                                             }
-                                            let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool2_action_scope.sh")
-                                            runTool(stepName: "Tool 2", scriptPath: scriptPath, entry: entry, expectedFolder: "action_scope")
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .disabled(toolDisabled)
-                                        .opacity(buttonOpacity(disabled: toolDisabled))
+                                            .buttonStyle(.bordered)
+                                            .disabled(openBundleDisabled)
+                                            .opacity(buttonOpacity(disabled: openBundleDisabled))
+                                            .fixedSize(horizontal: true, vertical: false)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .frame(minWidth: 100, alignment: .center)
 
-                                        Button("Run Tool 3 — Implementation Proof") {
-                                            guard let repoRoot = resolvedRepoRoot() else {
-                                                toolStatus = "Export failed: Tool 3"
-                                                return
+                                            if exportIsRunning && runExportRunID == entry.id {
+                                                Button("Cancel Export") {
+                                                    cancelRunExport()
+                                                }
+                                                .buttonStyle(.bordered)
+                                                .fixedSize(horizontal: true, vertical: false)
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+                                                .frame(minWidth: 100, alignment: .center)
                                             }
-                                            let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool3_proof_pack.sh")
-                                            runTool(stepName: "Tool 3", scriptPath: scriptPath, entry: entry, expectedFolder: "proof_pack")
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .disabled(toolDisabled || !tool2Exists)
-                                        .opacity(buttonOpacity(disabled: toolDisabled || !tool2Exists))
 
-                                        Button("Run Tool 4 — Regression Guard") {
-                                            guard let repoRoot = resolvedRepoRoot() else {
-                                                toolStatus = "Export failed: Tool 4"
-                                                return
+                                            let outDisabled = isRunning || entry.deliverablesDir.isEmpty || !FileManager.default.fileExists(atPath: entry.deliverablesDir)
+                                            Button { openFolder(entry.deliverablesDir) } label: {
+                                                Text("Open Output")
                                             }
-                                            let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool4_regression.sh")
-                                            runTool(stepName: "Tool 4", scriptPath: scriptPath, entry: entry, expectedFolder: "regression")
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .disabled(toolDisabled || !tool3Exists)
-                                        .opacity(buttonOpacity(disabled: toolDisabled || !tool3Exists))
+                                            .buttonStyle(.bordered)
+                                            .disabled(outDisabled)
+                                            .opacity(buttonOpacity(disabled: outDisabled))
+                                            .fixedSize(horizontal: true, vertical: false)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .frame(minWidth: 100, alignment: .center)
 
-                                        let tool2Path = toolPDFPath(for: entry, tool: "tool2") ?? ""
-                                        let tool2Disabled = toolDisabled || tool2Path.isEmpty || !FileManager.default.fileExists(atPath: tool2Path)
-                                        Button("Open Tool2 Output") {
-                                            openToolOutput(for: entry, tool: "tool2")
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .disabled(tool2Disabled)
-                                        .opacity(buttonOpacity(disabled: tool2Disabled))
+                                            let reportDisabled = isRunning || (entry.reportPdfPath == nil)
+                                            Button {
+                                                if let path = entry.reportPdfPath { revealAndOpenFile(path) }
+                                            } label: {
+                                                Text("Open Report")
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .disabled(reportDisabled)
+                                            .opacity(buttonOpacity(disabled: reportDisabled))
+                                            .fixedSize(horizontal: true, vertical: false)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .frame(minWidth: 100, alignment: .center)
 
-                                        let tool3Path = toolPDFPath(for: entry, tool: "tool3") ?? ""
-                                        let tool3Disabled = toolDisabled || tool3Path.isEmpty || !FileManager.default.fileExists(atPath: tool3Path)
-                                        Button("Open Tool3 Output") {
-                                            openToolOutput(for: entry, tool: "tool3")
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .disabled(tool3Disabled)
-                                        .opacity(buttonOpacity(disabled: tool3Disabled))
+                                            let logDisabled = isRunning || (entry.logPath == nil)
+                                            Button {
+                                                if let path = entry.logPath { revealAndOpenFile(path) }
+                                            } label: {
+                                                Text("Open Log")
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .disabled(logDisabled)
+                                            .opacity(buttonOpacity(disabled: logDisabled))
+                                            .fixedSize(horizontal: true, vertical: false)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .frame(minWidth: 100, alignment: .center)
 
-                                        let tool4Path = toolPDFPath(for: entry, tool: "tool4") ?? ""
-                                        let tool4Disabled = toolDisabled || tool4Path.isEmpty || !FileManager.default.fileExists(atPath: tool4Path)
-                                        Button("Open Tool4 Output") {
-                                            openToolOutput(for: entry, tool: "tool4")
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .disabled(tool4Disabled)
-                                        .opacity(buttonOpacity(disabled: tool4Disabled))
+                                            let toolDisabled = isRunning || exportIsRunning || toolRunning
+                                            let tool2OutputPath = toolPDFPath(for: entry, tool: "tool2") ?? ""
+                                            let tool2Exists = !tool2OutputPath.isEmpty && FileManager.default.fileExists(atPath: tool2OutputPath)
+                                            let tool3OutputPath = toolPDFPath(for: entry, tool: "tool3") ?? ""
+                                            let tool3Exists = !tool3OutputPath.isEmpty && FileManager.default.fileExists(atPath: tool3OutputPath)
+                                            Button("Run Tool 2 — Action Scope") {
+                                                guard let repoRoot = resolvedRepoRoot() else {
+                                                    toolStatus = "Export failed: Tool 2"
+                                                    return
+                                                }
+                                                let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool2_action_scope.sh")
+                                                runTool(stepName: "Tool 2", scriptPath: scriptPath, entry: entry, expectedFolder: "action_scope")
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .disabled(toolDisabled)
+                                            .opacity(buttonOpacity(disabled: toolDisabled))
+                                            .fixedSize(horizontal: true, vertical: false)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .frame(minWidth: 110, alignment: .center)
 
-                                        Button("Delete Run") {
-                                            pendingDeleteRun = RunRecord(entry: entry)
-                                            showDeleteRunConfirm = true
+                                            Button("Run Tool 3 — Implementation Proof") {
+                                                guard let repoRoot = resolvedRepoRoot() else {
+                                                    toolStatus = "Export failed: Tool 3"
+                                                    return
+                                                }
+                                                let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool3_proof_pack.sh")
+                                                runTool(stepName: "Tool 3", scriptPath: scriptPath, entry: entry, expectedFolder: "proof_pack")
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .disabled(toolDisabled || !tool2Exists)
+                                            .opacity(buttonOpacity(disabled: toolDisabled || !tool2Exists))
+                                            .fixedSize(horizontal: true, vertical: false)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .frame(minWidth: 110, alignment: .center)
+
+                                            Button("Run Tool 4 — Regression Guard") {
+                                                guard let repoRoot = resolvedRepoRoot() else {
+                                                    toolStatus = "Export failed: Tool 4"
+                                                    return
+                                                }
+                                                let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool4_regression.sh")
+                                                runTool(stepName: "Tool 4", scriptPath: scriptPath, entry: entry, expectedFolder: "regression")
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .disabled(toolDisabled || !tool3Exists)
+                                            .opacity(buttonOpacity(disabled: toolDisabled || !tool3Exists))
+                                            .fixedSize(horizontal: true, vertical: false)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .frame(minWidth: 110, alignment: .center)
+
+                                            let tool2Path = toolPDFPath(for: entry, tool: "tool2") ?? ""
+                                            let tool2Disabled = toolDisabled || tool2Path.isEmpty || !FileManager.default.fileExists(atPath: tool2Path)
+                                            Button("Open Tool2 Output") {
+                                                openToolOutput(for: entry, tool: "tool2")
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .disabled(tool2Disabled)
+                                            .opacity(buttonOpacity(disabled: tool2Disabled))
+                                            .fixedSize(horizontal: true, vertical: false)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .frame(minWidth: 100, alignment: .center)
+
+                                            let tool3Path = toolPDFPath(for: entry, tool: "tool3") ?? ""
+                                            let tool3Disabled = toolDisabled || tool3Path.isEmpty || !FileManager.default.fileExists(atPath: tool3Path)
+                                            Button("Open Tool3 Output") {
+                                                openToolOutput(for: entry, tool: "tool3")
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .disabled(tool3Disabled)
+                                            .opacity(buttonOpacity(disabled: tool3Disabled))
+                                            .fixedSize(horizontal: true, vertical: false)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .frame(minWidth: 100, alignment: .center)
+
+                                            let tool4Path = toolPDFPath(for: entry, tool: "tool4") ?? ""
+                                            let tool4Disabled = toolDisabled || tool4Path.isEmpty || !FileManager.default.fileExists(atPath: tool4Path)
+                                            Button("Open Tool4 Output") {
+                                                openToolOutput(for: entry, tool: "tool4")
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .disabled(tool4Disabled)
+                                            .opacity(buttonOpacity(disabled: tool4Disabled))
+                                            .fixedSize(horizontal: true, vertical: false)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .frame(minWidth: 100, alignment: .center)
+
+                                            Button("Delete Run") {
+                                                pendingDeleteRun = RunRecord(entry: entry)
+                                                showDeleteRunConfirm = true
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .fixedSize(horizontal: true, vertical: false)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .frame(minWidth: 100, alignment: .center)
                                         }
-                                        .buttonStyle(.bordered)
                                     }
                                     Text(exportStatusLabel(for: entry))
                                         .font(.footnote)
                                         .foregroundColor(.secondary)
-                                    if runExportRunID == entry.id {
+                                    if runExportRunID == entry.id && !exportIsRunning {
                                         if let metrics = exportMetricsText {
                                             Text(metrics)
-                                                .font(.footnote)
+                                                .font(.system(.caption, design: .monospaced))
                                                 .foregroundColor(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                                .padding(.top, 4)
                                         }
                                         if let sizes = exportSizesText {
                                             Text(sizes)
-                                                .font(.footnote)
+                                                .font(.system(.caption, design: .monospaced))
                                                 .foregroundColor(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
                                         }
                                     }
                                     if toolRunID == entry.id, let status = toolStatus {
