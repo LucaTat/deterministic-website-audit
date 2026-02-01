@@ -12,10 +12,44 @@ if [[ ! -d "$RUN_DIR" ]]; then
   exit 2
 fi
 
+RUN_BASE="$(basename "$RUN_DIR")"
+LANG=""
+case "$RUN_BASE" in
+  *_ro|*_RO) LANG="RO";;
+  *_en|*_EN) LANG="EN";;
+esac
+
+if [[ -z "$LANG" ]]; then
+  echo "FATAL: unable to determine LANG from run dir" >&2
+  exit 1
+fi
+
 DEST_DIR="$RUN_DIR/final"
 DEST_ZIP="$DEST_DIR/client_safe_bundle.zip"
 
 mkdir -p "$DEST_DIR" >/dev/null 2>&1 || true
+
+ASTRA_PY="$HOME/Desktop/astra/.venv/bin/python3"
+if [[ ! -x "$ASTRA_PY" ]]; then
+  echo "FATAL: ASTRA venv python missing: $ASTRA_PY" >&2
+  exit 1
+fi
+
+if ! "$ASTRA_PY" -m astra.run_full_pipeline --det-run-dir "$RUN_DIR" --lang "$LANG" --force >/dev/null; then
+  echo "FATAL: ASTRA pipeline failed" >&2
+  exit 1
+fi
+
+ASTRA_BRIEF="$RUN_DIR/astra/deliverables/Decision_Brief_${LANG}.pdf"
+ASTRA_VERDICT="$RUN_DIR/astra/deliverables/verdict.json"
+if [[ ! -f "$ASTRA_BRIEF" ]]; then
+  echo "FATAL: ASTRA decision brief missing: $ASTRA_BRIEF" >&2
+  exit 1
+fi
+if [[ ! -f "$ASTRA_VERDICT" ]]; then
+  echo "FATAL: ASTRA verdict missing: $ASTRA_VERDICT" >&2
+  exit 1
+fi
 
 if ! bash scripts/build_master_pdf.sh "$RUN_DIR" >/dev/null; then
   echo "ERROR build master pdf"
