@@ -250,6 +250,14 @@ done
 if [[ -f "${README_CLIENT}" ]]; then
   echo "${README_CLIENT}" >> "${ZIP_LIST}"
 fi
+# --- Client-safe ZIP exclusions (never ship internal run metadata/logs) ---
+ZIP_LIST_FILTERED="$(mktemp "${OUT_DIR}/zip_list.filtered.XXXXXX")"
+ZIP_LIST_COUNT_BEFORE="$(wc -l < "${ZIP_LIST}" | tr -d " ")"
+rg -v '(^|/)\.run_state\.json$|(^|/)pipeline\.log$|(^|/)version\.json$|\.log$' "${ZIP_LIST}" > "${ZIP_LIST_FILTERED}" || true
+mv -f "${ZIP_LIST_FILTERED}" "${ZIP_LIST}"
+ZIP_LIST_COUNT_AFTER="$(wc -l < "${ZIP_LIST}" | tr -d " ")"
+echo "ZIP list filtered: ${ZIP_LIST_COUNT_BEFORE} -> ${ZIP_LIST_COUNT_AFTER} entries"
+# --- end exclusions ---
 if [[ ! -s "${ZIP_LIST}" ]]; then
   echo "FATAL: ZIP packaging failed (no files to zip)"
   exit 2
