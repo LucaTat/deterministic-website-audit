@@ -176,13 +176,7 @@ struct ContentView: View {
     @State private var showManageCampaignsSheet: Bool = false
     @State private var showManageCampaignDeleteConfirm: Bool = false
     @State private var pendingManageDeleteCampaign: CampaignSummary? = nil
-    @State private var showToolsSheet: Bool = false
-    @State private var selectedRunForToolsID: String? = nil
-    @State private var toolRunning: Bool = false
-    @State private var toolStatus: String? = nil
-    @State private var toolTask: Process? = nil
-    @State private var toolLogOutput: String = ""
-    @State private var lastFinalDecisionPDFPath: String? = nil
+    
     @State private var uiRefreshTick: Int = 0
     @State private var showNewCampaignSheet: Bool = false
     @StateObject private var store = CampaignStore(repoRoot: "")
@@ -218,9 +212,6 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showAllRunsSheet) {
             allRunsSheet()
-        }
-        .sheet(isPresented: $showToolsSheet) {
-            toolsSheet()
         }
         .sheet(isPresented: $showNewCampaignSheet) {
             VStack(alignment: .leading, spacing: 12) {
@@ -308,6 +299,7 @@ struct ContentView: View {
             runHistory = loadRunHistory()
             migrateLegacyRunsIfNeeded()
             refreshCampaignsPanel()
+            runOverwriteURLTests()
         }
         .onChange(of: repoRoot) { _, _ in
             if let repoRoot { store.repoRoot = repoRoot }
@@ -520,16 +512,6 @@ struct ContentView: View {
                         .opacity(buttonOpacity(disabled: demoDisabled))
                         .help("Run a deterministic demo using example.com")
 
-                        let toolsDisabled = isRunning || runHistory.isEmpty
-                        Button("Tools") {
-                            selectedRunForToolsID = runHistory.first?.id
-                            showToolsSheet = true
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(toolsDisabled)
-                        .opacity(buttonOpacity(disabled: toolsDisabled))
-                        .help("Open Tools 2/3/4 for the selected run")
-
                         Spacer()
 
                         statusBadge
@@ -572,6 +554,19 @@ struct ContentView: View {
                         .disabled(logsDisabled)
                         .opacity(buttonOpacity(disabled: logsDisabled))
                         .help(logsHelpText())
+
+                        let runFolderDisabled = isRunning || lastRunDir == nil
+                        Button {
+                            if let path = lastRunDir {
+                                openFolder(path)
+                            }
+                        } label: {
+                            Label("Open Run Folder", systemImage: "folder.fill")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(runFolderDisabled)
+                        .opacity(buttonOpacity(disabled: runFolderDisabled))
+                        .help("Open the latest run folder")
                     }
 
                     if demoDeliverablePath != nil {
@@ -1644,19 +1639,31 @@ struct ContentView: View {
         return host.lowercased()
     }
 
-    private func activeRunForTools() -> RunEntry? {
-        if let id = selectedRunForToolsID {
-            if let match = runHistory.first(where: { $0.id == id }) { return match }
+    private func normalizeURLForOverwrite(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "" }
+        var working = trimmed
+        if !working.contains("://") { working = "https://" + working }
+        guard var comps = URLComponents(string: working) else { return trimmed }
+        comps.fragment = nil
+        comps.query = nil
+        if let scheme = comps.scheme { comps.scheme = scheme.lowercased() }
+        if let host = comps.host { comps.host = host.lowercased() }
+        let path = comps.path.isEmpty ? "/" : comps.path
+        if path.count > 1 && path.hasSuffix("/") {
+            comps.path = String(path.dropLast())
+        } else {
+            comps.path = path
         }
-        return runHistory.first
+        return comps.string ?? trimmed
     }
 
-    private func previousRun(for run: RunEntry) -> RunEntry? {
-        guard let host = domainFromURLString(run.url) else { return nil }
-        return runHistory
-            .filter { $0.id != run.id && domainFromURLString($0.url) == host && $0.timestamp < run.timestamp }
-            .sorted { $0.timestamp > $1.timestamp }
-            .first
+    private func runOverwriteURLTests() {
+#if DEBUG
+        assert(normalizeURLForOverwrite("https://magic-gym.ro") == normalizeURLForOverwrite("https://magic-gym.ro/"))
+        assert(normalizeURLForOverwrite("https://example.com/path") == normalizeURLForOverwrite("https://example.com/path/"))
+        assert(normalizeURLForOverwrite("https://example.com/path?x=1") == normalizeURLForOverwrite("https://example.com/path?x=2"))
+#endif
     }
 
     private func openCampaignManager() {
@@ -1964,132 +1971,6 @@ struct ContentView: View {
         .tint(theme.accent)
     }
 
-    @ViewBuilder
-    private func toolsSheet() -> some View {
-        let activeRun = activeRunForTools()
-        let beforeRun = activeRun.flatMap { previousRun(for: $0) }
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Tools")
-                    .font(.title3)
-                    .foregroundColor(.primary)
-                Spacer()
-                if toolRunning {
-                    Button("Cancel") { cancelTool() }
-                        .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                }
-                Button("Close") { showToolsSheet = false }
-                    .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                    .keyboardShortcut(.cancelAction)
-            }
-
-            if let activeRun {
-                Text("\(formatRunTimestamp(activeRun.timestamp)) • \(activeRun.lang.uppercased()) • \(activeRun.url)")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-            } else {
-                Text("No run selected. Select a run in History.")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Button("Run Tool 2") {
-                        if let activeRun { runTool2(for: activeRun) }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(toolRunning || activeRun == nil)
-                    .opacity(buttonOpacity(disabled: toolRunning || activeRun == nil))
-
-                    Button("Open Tool 2") {
-                        if let dir = toolFolderPath(for: activeRun, toolName: "action_scope") { openFolder(dir) }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(toolRunning || toolFolderPath(for: activeRun, toolName: "action_scope") == nil)
-                    .opacity(buttonOpacity(disabled: toolRunning || toolFolderPath(for: activeRun, toolName: "action_scope") == nil))
-                }
-
-                HStack(spacing: 8) {
-                    Button("Run Tool 3") {
-                        if let activeRun {
-                            let resolvedBefore = beforeRun ?? activeRun
-                            runTool3(before: resolvedBefore, after: activeRun, baseline: activeRun)
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(toolRunning || activeRun == nil)
-                    .opacity(buttonOpacity(disabled: toolRunning || activeRun == nil))
-
-                    Button("Open Tool 3") {
-                        if let dir = toolFolderPath(for: activeRun, toolName: "proof_pack") { openFolder(dir) }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(toolRunning || toolFolderPath(for: activeRun, toolName: "proof_pack") == nil)
-                    .opacity(buttonOpacity(disabled: toolRunning || toolFolderPath(for: activeRun, toolName: "proof_pack") == nil))
-                }
-
-                HStack(spacing: 8) {
-                    Button("Run Tool 4") {
-                        if let activeRun { runTool4(baseline: activeRun) }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(toolRunning || activeRun == nil)
-                    .opacity(buttonOpacity(disabled: toolRunning || activeRun == nil))
-
-                    Button("Open Tool 4") {
-                        if let dir = toolFolderPath(for: activeRun, toolName: "regression") { openFolder(dir) }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(toolRunning || toolFolderPath(for: activeRun, toolName: "regression") == nil)
-                    .opacity(buttonOpacity(disabled: toolRunning || toolFolderPath(for: activeRun, toolName: "regression") == nil))
-                }
-
-                HStack(spacing: 8) {
-                    let finalPath = lastFinalDecisionPDFPath
-                    let finalExists = finalPath != nil && FileManager.default.fileExists(atPath: finalPath!)
-                    let finalDisabled = toolRunning || !finalExists
-                    Button("Generate Final Decision") {
-                        if let activeRun { runFinalDecision(for: activeRun) }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(toolRunning || activeRun == nil)
-                    .opacity(buttonOpacity(disabled: toolRunning || activeRun == nil))
-
-                    Button("Open Final Decision") {
-                        if let p = finalPath, FileManager.default.fileExists(atPath: p) {
-                            openFolder((p as NSString).deletingLastPathComponent)
-                        } else {
-                            toolStatus = "Final Decision not found. Generate first."
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(finalDisabled)
-                    .opacity(buttonOpacity(disabled: finalDisabled))
-                }
-            }
-
-            if !toolLogOutput.isEmpty {
-                Text("Tool Log")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-                TextEditor(text: $toolLogOutput)
-                    .font(.caption)
-                    .frame(minHeight: 140)
-            }
-
-            if let toolStatus {
-                Text(toolStatus)
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding(16)
-        .frame(minWidth: 680, minHeight: 360)
-        .background(theme.background)
-        .preferredColorScheme(theme.colorScheme)
-        .tint(theme.accent)
-    }
 
     private func manageCampaignsList() -> [CampaignSummary] {
         guard let exportRoot = exportRootPath() else { return [] }
@@ -3004,13 +2885,30 @@ cd "$ASTRA_ROOT"
                         if let campaignName = self.lastRunCampaign,
                            let exportRoot = self.exportRootPath() {
                             let campaignURL = self.store.campaignURL(forName: campaignName, exportRoot: exportRoot)
-                            let campaign = Campaign(id: campaignURL.path, name: campaignName, campaignURL: campaignURL)
-                            do {
-                                self.runHistory = try self.store.upsertRun(entry, in: campaign)
-                            } catch {
-                                self.alert(title: "Overwrite failed", message: error.localizedDescription)
-                                return
+                            let runsRoot = campaignURL.appendingPathComponent("runs").path
+                            let newCanonical = self.normalizeURLForOverwrite(entry.url)
+                            if !newCanonical.isEmpty {
+                                let matches = self.runHistory.filter { existing in
+                                    self.normalizeURLForOverwrite(existing.url) == newCanonical
+                                        && (existing.deliverablesDir.hasPrefix(runsRoot) || existing.runDir.hasPrefix(runsRoot))
+                                }
+                                for match in matches {
+                                    let oldPath = !match.deliverablesDir.isEmpty ? match.deliverablesDir : match.runDir
+                                    guard oldPath.hasPrefix(runsRoot) else { continue }
+                                    if FileManager.default.fileExists(atPath: oldPath) {
+                                        do {
+                                            try FileManager.default.removeItem(atPath: oldPath)
+                                            self.logOutput += "\nOVERWRITE_URL: \(newCanonical) old=\(match.id) new=\(entry.id)"
+                                        } catch {
+                                            self.logOutput += "\nOverwrite failed for \(newCanonical): \(error.localizedDescription)"
+                                            return
+                                        }
+                                    }
+                                    self.runHistory.removeAll { $0.id == match.id }
+                                }
                             }
+                            self.runHistory.insert(entry, at: 0)
+                            self.saveRunHistory(self.runHistory)
                         } else {
                             self.runHistory.insert(entry, at: 0)
                             self.saveRunHistory(self.runHistory)
@@ -3067,198 +2965,6 @@ cd "$ASTRA_ROOT"
         }
 
         runNext()
-    }
-
-    private func shellEscapeValue(_ value: String) -> String {
-        let escaped = value
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        return "\"\(escaped)\""
-    }
-
-    private func runToolCommand(
-        toolLabel: String,
-        module: String,
-        args: String,
-        onComplete: @escaping (_ exitCode: Int32, _ success: Bool) -> Void
-    ) {
-        guard !toolRunning else { return }
-        let astraRoot = astraRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !astraRoot.isEmpty, FileManager.default.fileExists(atPath: astraRoot) else {
-            toolStatus = "ASTRA folder missing."
-            return
-        }
-
-        toolRunning = true
-        toolStatus = "\(toolLabel) running…"
-        toolLogOutput = ""
-
-        let escapedAstraRoot = shellEscapeValue(astraRoot)
-        let escapedRepo = resolvedRepoRoot().map { shellEscapeValue($0) }
-        let command = """
-set -e
-ASTRA_ROOT=\(escapedAstraRoot)
-if [[ -x "$ASTRA_ROOT/.venv/bin/python" ]]; then
-  PYTHON="$ASTRA_ROOT/.venv/bin/python"
-else
-  PYTHON="python3"
-fi
-\(escapedRepo == nil ? "" : "export SCOPE_REPO=\(escapedRepo!)")
-cd "$ASTRA_ROOT"
-"$PYTHON" -m \(module) \(args)
-"""
-
-        let task = Process()
-        toolTask = task
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        task.arguments = ["bash", "-lc", command]
-
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        task.standardOutput = outPipe
-        task.standardError = errPipe
-
-        let readHandler: (FileHandle) -> Void = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty, let str = String(data: data, encoding: .utf8) else { return }
-            DispatchQueue.main.async {
-                self.toolLogOutput += str
-            }
-        }
-
-        outPipe.fileHandleForReading.readabilityHandler = readHandler
-        errPipe.fileHandleForReading.readabilityHandler = readHandler
-
-        task.terminationHandler = { p in
-            outPipe.fileHandleForReading.readabilityHandler = nil
-            errPipe.fileHandleForReading.readabilityHandler = nil
-            let code = p.terminationStatus
-            DispatchQueue.main.async {
-                self.toolTask = nil
-                self.toolRunning = false
-                onComplete(code, code == 0)
-            }
-        }
-
-        do {
-            try task.run()
-        } catch {
-            toolTask = nil
-            toolRunning = false
-            toolStatus = "\(toolLabel) failed to start."
-        }
-    }
-
-    private func cancelTool() {
-        guard let task = toolTask else { return }
-        terminateProcess(task)
-        toolTask = nil
-        toolRunning = false
-        toolStatus = "Canceled."
-    }
-
-    private func runTool2(for run: RunEntry) {
-        let baseRunDir = run.runDir
-        guard !baseRunDir.isEmpty else { return }
-        toolLogOutput += "TOOL_RUN_DIR=\(baseRunDir)\n"
-        let outputDir = URL(fileURLWithPath: baseRunDir).appendingPathComponent("action_scope")
-        try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-        let lang = run.lang.lowercased() == "en" ? "EN" : "RO"
-        let args = "\(shellEscapeValue(baseRunDir)) --lang \(lang)"
-        runToolCommand(toolLabel: "Tool 2", module: "astra.tool2.run", args: args) { _, success in
-            if success {
-                let actionScopeDir = URL(fileURLWithPath: baseRunDir).appendingPathComponent("action_scope")
-                try? FileManager.default.createDirectory(at: actionScopeDir, withIntermediateDirectories: true)
-                let src = URL(fileURLWithPath: baseRunDir).appendingPathComponent("deliverables")
-                let copied = self.copyMatchingFiles(
-                    srcDir: src,
-                    dstDir: actionScopeDir,
-                    prefix: "Action_Scope_",
-                    suffix: ".pdf"
-                )
-                self.toolStatus = copied > 0
-                    ? "Tool 2 completed (action_scope ready)"
-                    : "Tool 2 completed (no Action Scope PDF found)"
-            } else {
-                self.toolStatus = "Tool 2 failed."
-            }
-            self.bumpUIRefresh()
-        }
-    }
-
-    private func runTool3(before: RunEntry, after: RunEntry, baseline: RunEntry) {
-        if before.id == after.id {
-            toolStatus = "Tool 3: no previous run found; using current run as baseline."
-        }
-        let beforeDir = before.runDir
-        let afterDir = after.runDir
-        let baseRunDir = baseline.runDir
-        guard !beforeDir.isEmpty, !afterDir.isEmpty, !baseRunDir.isEmpty else { return }
-        toolLogOutput += "TOOL_RUN_DIR=\(baseRunDir)\n"
-        let outputDir = URL(fileURLWithPath: baseRunDir).appendingPathComponent("proof_pack")
-        try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-        let lang = baseline.lang.lowercased() == "en" ? "EN" : "RO"
-        let args = "--before \(shellEscapeValue(beforeDir)) --after \(shellEscapeValue(afterDir)) --lang \(lang)"
-        runToolCommand(toolLabel: "Tool 3", module: "astra.tool3.run", args: args) { _, success in
-            if success {
-                let src = URL(fileURLWithPath: baseRunDir).appendingPathComponent("deliverables")
-                let copied = self.copyMatchingFiles(
-                    srcDir: src,
-                    dstDir: outputDir,
-                    prefix: "Implementation_Proof_",
-                    suffix: ".pdf"
-                )
-                self.toolStatus = copied > 0
-                    ? "Tool 3 completed (proof_pack ready)"
-                    : "Tool 3 completed (no proof PDF found)"
-            } else {
-                self.toolStatus = "Tool 3 failed."
-            }
-            self.bumpUIRefresh()
-        }
-    }
-
-    private func runTool4(baseline: RunEntry) {
-        let baseRunDir = baseline.runDir
-        guard !baseRunDir.isEmpty else { return }
-        toolLogOutput += "TOOL_RUN_DIR=\(baseRunDir)\n"
-        let tempRoot = toolTmpRootURL()
-        let lang = baseline.lang.lowercased() == "en" ? "EN" : "RO"
-        let args = "--baseline \(shellEscapeValue(baseRunDir)) --url \(shellEscapeValue(baseline.url)) --lang \(lang) --out-root \(shellEscapeValue(tempRoot.path))"
-        runToolCommand(toolLabel: "Tool 4", module: "astra.tool4.run", args: args) { _, success in
-            if success {
-                let marker = self.parseAstraRunDirMarker(from: self.toolLogOutput)
-                guard let marker else {
-                    self.toolStatus = "Regression Guard ran, but ASTRA_RUN_DIR was not detected. Open Tools output for logs."
-                    self.showToolsSheet = true
-                    return
-                }
-                let runDirURL = URL(fileURLWithPath: marker)
-                let src = runDirURL.appendingPathComponent("deliverables")
-                let dst = URL(fileURLWithPath: baseRunDir).appendingPathComponent("regression")
-                var isDir: ObjCBool = false
-                if !FileManager.default.fileExists(atPath: src.path, isDirectory: &isDir) || !isDir.boolValue {
-                    self.toolStatus = "Regression Guard ran, but deliverables folder was not found in ASTRA run output."
-                    self.showToolsSheet = true
-                    if FileManager.default.fileExists(atPath: runDirURL.path) {
-                        try? FileManager.default.removeItem(at: runDirURL)
-                    }
-                    return
-                }
-                self.copyDirectoryContents(src: src, dst: dst)
-                try? FileManager.default.removeItem(at: runDirURL)
-                if let remaining = try? FileManager.default.contentsOfDirectory(at: tempRoot, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]),
-                   remaining.isEmpty {
-                    try? FileManager.default.removeItem(at: tempRoot)
-                }
-                self.toolStatus = "Tool 4 complete."
-                self.runFinalDecision(for: baseline)
-            } else {
-                self.toolStatus = "Tool 4 failed."
-            }
-            self.refreshCampaignsPanel()
-            self.bumpUIRefresh()
-        }
     }
 
     private func terminateProcess(_ task: Process) {
@@ -3426,140 +3132,6 @@ cd "$ASTRA_ROOT"
             }
         }
         return nil
-    }
-
-    private func parseFinalDecisionMarker(from output: String) -> String? {
-        for lineSub in output.split(separator: "\n").reversed() {
-            let line = lineSub.trimmingCharacters(in: .whitespacesAndNewlines)
-            if line.hasPrefix("ASTRA_FINAL_DECISION_PDF=") {
-                var path = String(line.dropFirst("ASTRA_FINAL_DECISION_PDF=".count)).trimmingCharacters(in: .whitespacesAndNewlines)
-                if (path.hasPrefix("\"") && path.hasSuffix("\"")) || (path.hasPrefix("'") && path.hasSuffix("'")) {
-                    path = String(path.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-                return path.isEmpty ? nil : path
-            }
-        }
-        return nil
-    }
-
-    private func runDirForRun(_ entry: RunEntry) -> String? {
-        let fm = FileManager.default
-        if !entry.deliverablesDir.isEmpty, fm.fileExists(atPath: entry.deliverablesDir) { return entry.deliverablesDir }
-        if !entry.runDir.isEmpty, fm.fileExists(atPath: entry.runDir) { return entry.runDir }
-        return nil
-    }
-
-    private func toolFolderPath(for entry: RunEntry?, toolName: String) -> String? {
-        guard let entry, let base = runDirForRun(entry) else { return nil }
-        let path = (base as NSString).appendingPathComponent(toolName)
-        return FileManager.default.fileExists(atPath: path) ? path : nil
-    }
-
-    private func finalDecisionFolderPath(for run: RunEntry) -> String? {
-        guard let base = runDirForRun(run) else { return nil }
-        let path = (base as NSString).appendingPathComponent("final_decision")
-        return FileManager.default.fileExists(atPath: path) ? path : nil
-    }
-
-    private func toolTmpRootURL() -> URL {
-        let base = URL(fileURLWithPath: ScopeRepoLocator.appSupportDir)
-            .appendingPathComponent("tmp", isDirectory: true)
-        let dir = base.appendingPathComponent("ToolRunsTmp", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }
-
-    private func copyDirectoryContents(src: URL, dst: URL) {
-        let fm = FileManager.default
-        var isDir: ObjCBool = false
-        guard fm.fileExists(atPath: src.path, isDirectory: &isDir), isDir.boolValue else { return }
-        guard let items = try? fm.contentsOfDirectory(at: src, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else { return }
-        try? fm.createDirectory(at: dst, withIntermediateDirectories: true)
-        for item in items {
-            let isRegular = (try? item.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false
-            if !isRegular { continue }
-            let target = dst.appendingPathComponent(item.lastPathComponent)
-            try? fm.removeItem(at: target)
-            try? fm.copyItem(at: item, to: target)
-        }
-    }
-
-    private func copyMatchingFiles(srcDir: URL, dstDir: URL, prefix: String, suffix: String) -> Int {
-        let fm = FileManager.default
-        var isDir: ObjCBool = false
-        guard fm.fileExists(atPath: srcDir.path, isDirectory: &isDir), isDir.boolValue else { return 0 }
-        guard let items = try? fm.contentsOfDirectory(at: srcDir, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else {
-            return 0
-        }
-        try? fm.createDirectory(at: dstDir, withIntermediateDirectories: true)
-        var copied = 0
-        for item in items {
-            let isRegular = (try? item.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false
-            if !isRegular { continue }
-            let name = item.lastPathComponent
-            if !name.hasPrefix(prefix) || !name.hasSuffix(suffix) { continue }
-            let target = dstDir.appendingPathComponent(name)
-            try? fm.removeItem(at: target)
-            if (try? fm.copyItem(at: item, to: target)) != nil {
-                copied += 1
-            }
-        }
-        return copied
-    }
-
-    private func normalizedHostFromRunDirName(_ name: String) -> String? {
-        let parts = name.split(separator: "_")
-        guard let last = parts.last else { return nil }
-        let host = String(last).lowercased()
-        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-    }
-
-    private func newestRunDir(in root: URL, host: String?) -> URL? {
-        let fm = FileManager.default
-        guard let items = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]) else { return nil }
-        let normalizedHost = host.map { h -> String in
-            let lower = h.lowercased()
-            return lower.hasPrefix("www.") ? String(lower.dropFirst(4)) : lower
-        }
-        var best: URL? = nil
-        var bestDate: Date = Date.distantPast
-        for url in items where url.hasDirectoryPath {
-            if let normalizedHost, let runHost = normalizedHostFromRunDirName(url.lastPathComponent), runHost != normalizedHost {
-                continue
-            }
-            let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date.distantPast
-            if date > bestDate {
-                bestDate = date
-                best = url
-            }
-        }
-        return best
-    }
-
-    private func runFinalDecision(for run: RunEntry) {
-        let baseRunDir = run.runDir
-        guard !baseRunDir.isEmpty else { return }
-        toolLogOutput += "TOOL_RUN_DIR=\(baseRunDir)\n"
-        let lang = run.lang.lowercased() == "en" ? "EN" : "RO"
-        let args = "\(shellEscapeValue(baseRunDir)) --lang \(lang)"
-        runToolCommand(toolLabel: "Final Decision", module: "astra.final_decision.run", args: args) { _, success in
-            guard success else {
-                self.toolStatus = "Final Decision failed."
-                return
-            }
-            if let marker = self.parseFinalDecisionMarker(from: self.toolLogOutput) {
-                let trimmed = marker.trimmingCharacters(in: .whitespacesAndNewlines)
-                self.lastFinalDecisionPDFPath = trimmed.isEmpty ? nil : trimmed
-            } else {
-                self.lastFinalDecisionPDFPath = nil
-            }
-            if let path = self.lastFinalDecisionPDFPath,
-               FileManager.default.fileExists(atPath: path) {
-                self.toolStatus = "Final Decision generated."
-            } else {
-                self.toolStatus = "Final Decision generated (path missing)."
-            }
-        }
     }
 
     private func resolveAstraRunDir(from output: String, astraRoot: String) -> String? {
