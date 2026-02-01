@@ -789,6 +789,32 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
 
 
 
+def _sanitize_verdict_value(value):
+    if isinstance(value, str):
+        if value.startswith("scope_repo="):
+            return "scope_repo=[REDACTED_LOCAL_PATH]"
+        if value.startswith("scope_evidence_dir="):
+            return "scope_evidence_dir=[REDACTED_LOCAL_PATH]"
+        if "/Users/" in value or "/Desktop/" in value or "C:\\" in value:
+            return "[REDACTED_LOCAL_PATH]"
+        return value
+    if isinstance(value, list):
+        return [_sanitize_verdict_value(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _sanitize_verdict_value(v) for k, v in value.items()}
+    return value
+
+
+def _assert_client_safe_json(path: str) -> None:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = f.read()
+    except OSError:
+        return
+    if "/Users/" in data or "/Desktop/" in data or "C:\\" in data:
+        raise AssertionError("Client-unsafe local path found in verdict JSON.")
+
+
 def save_json(audit_result: dict, out_path: str) -> None:
     if "tool_version" not in audit_result:
         audit_result["tool_version"] = get_tool_version()
@@ -797,8 +823,10 @@ def save_json(audit_result: dict, out_path: str) -> None:
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         **audit_result,
     }
+    payload = _sanitize_verdict_value(payload)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
+    _assert_client_safe_json(out_path)
 
 
 def append_csv_row(path: str, row: dict) -> None:
