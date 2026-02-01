@@ -176,6 +176,12 @@ struct ContentView: View {
     @State private var showManageCampaignsSheet: Bool = false
     @State private var showManageCampaignDeleteConfirm: Bool = false
     @State private var pendingManageDeleteCampaign: CampaignSummary? = nil
+
+    @State private var runExportRunning: Bool = false
+    @State private var runExportStatus: String? = nil
+    @State private var runExportTask: Process? = nil
+    @State private var runExportRunID: String? = nil
+    @State private var runExportCancelRequested: Bool = false
     
     @State private var uiRefreshTick: Int = 0
     @State private var showNewCampaignSheet: Bool = false
@@ -848,11 +854,31 @@ struct ContentView: View {
                                         .disabled(logDisabled)
                                         .opacity(buttonOpacity(disabled: logDisabled))
 
+                                        let exportDisabled = isRunning || runExportRunning
+                                        Button("Export Client Bundle") {
+                                            runExportClientBundle(for: entry)
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(exportDisabled)
+                                        .opacity(buttonOpacity(disabled: exportDisabled))
+
+                                        if runExportRunning && runExportRunID == entry.id {
+                                            Button("Cancel Export") {
+                                                cancelRunExport()
+                                            }
+                                            .buttonStyle(.bordered)
+                                        }
+
                                         Button("Delete Run") {
                                             pendingDeleteRun = RunRecord(entry: entry)
                                             showDeleteRunConfirm = true
                                         }
                                         .buttonStyle(.bordered)
+                                    }
+                                    if runExportRunID == entry.id, let status = runExportStatus {
+                                        Text(status)
+                                            .font(.footnote)
+                                            .foregroundColor(.secondary)
                                     }
                                 }
                                 Divider()
@@ -1951,11 +1977,31 @@ struct ContentView: View {
                                     .disabled(logDisabled)
                                     .opacity(buttonOpacity(disabled: logDisabled))
 
+                                    let exportDisabled = isRunning || runExportRunning
+                                    Button("Export Client Bundle") {
+                                        runExportClientBundle(for: entry)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(exportDisabled)
+                                    .opacity(buttonOpacity(disabled: exportDisabled))
+
+                                    if runExportRunning && runExportRunID == entry.id {
+                                        Button("Cancel Export") {
+                                            cancelRunExport()
+                                        }
+                                        .buttonStyle(.bordered)
+                                    }
+
                                     Button("Delete Run") {
                                         pendingDeleteRun = RunRecord(entry: entry)
                                         showDeleteRunConfirm = true
                                     }
                                     .buttonStyle(.bordered)
+                                }
+                                if runExportRunID == entry.id, let status = runExportStatus {
+                                    Text(status)
+                                        .font(.footnote)
+                                        .foregroundColor(.secondary)
                                 }
                             }
                             Divider()
@@ -2998,6 +3044,166 @@ cd "$ASTRA_ROOT"
         cancelRequested = true
         if let task = currentTask, task.isRunning {
             terminateProcess(task)
+        }
+    }
+
+    private func cancelRunExport() {
+        runExportCancelRequested = true
+        if let task = runExportTask, task.isRunning {
+            terminateProcess(task)
+        }
+    }
+
+    private func runRootPath(for entry: RunEntry) -> String? {
+        let path = !entry.deliverablesDir.isEmpty ? entry.deliverablesDir : entry.runDir
+        return path.isEmpty ? nil : path
+    }
+
+    private func isRunExportCanceled() -> Bool {
+        DispatchQueue.main.sync { runExportCancelRequested }
+    }
+
+    private func runProcess(
+        executable: String,
+        arguments: [String],
+        cwd: String,
+        env: [String: String]
+    ) -> (Int32, String) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: executable)
+        p.arguments = arguments
+        p.currentDirectoryURL = URL(fileURLWithPath: cwd)
+        p.environment = env
+
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = pipe
+
+        DispatchQueue.main.async {
+            self.runExportTask = p
+        }
+
+        do {
+            try p.run()
+        } catch {
+            return (1, "")
+        }
+        p.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8) ?? ""
+        return (p.terminationStatus, output)
+    }
+
+    private func runExportClientBundle(for entry: RunEntry) {
+        guard !runExportRunning else { return }
+        guard let runDir = runRootPath(for: entry) else {
+            runExportStatus = "Export failed: run directory missing"
+            return
+        }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: runDir, isDirectory: &isDir), isDir.boolValue else {
+            runExportStatus = "Export failed: run directory missing"
+            return
+        }
+        guard let repoRoot = resolvedRepoRoot() else {
+            runExportStatus = "Export failed: repo root missing"
+            return
+        }
+
+        runExportRunning = true
+        runExportRunID = entry.id
+        runExportCancelRequested = false
+        runExportStatus = "Exporting client bundle…"
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let fm = FileManager.default
+            let venvBin = (repoRoot as NSString).appendingPathComponent(".venv/bin")
+            var env = ProcessInfo.processInfo.environment
+            env["PATH"] = venvBin + ":" + (env["PATH"] ?? "")
+
+            let buildScript = (repoRoot as NSString).appendingPathComponent("scripts/build_master_pdf.sh")
+            let packageScript = (repoRoot as NSString).appendingPathComponent("scripts/package_run_client_safe_zip.sh")
+            let verifyScript = (repoRoot as NSString).appendingPathComponent("scripts/verify_client_safe_zip.py")
+
+            func finish(_ status: String) {
+                DispatchQueue.main.async {
+                    self.runExportRunning = false
+                    self.runExportTask = nil
+                    self.runExportRunID = nil
+                    self.runExportStatus = status
+                }
+            }
+
+            if self.isRunExportCanceled() {
+                finish("Export canceled.")
+                return
+            }
+
+            let buildResult = self.runProcess(
+                executable: "/usr/bin/env",
+                arguments: ["bash", buildScript, runDir],
+                cwd: repoRoot,
+                env: env
+            )
+            if self.isRunExportCanceled() {
+                finish("Export canceled.")
+                return
+            }
+            if buildResult.0 != 0 {
+                finish("Export failed: master pdf")
+                return
+            }
+
+            let packageResult = self.runProcess(
+                executable: "/usr/bin/env",
+                arguments: ["bash", packageScript, runDir],
+                cwd: repoRoot,
+                env: env
+            )
+            if self.isRunExportCanceled() {
+                finish("Export canceled.")
+                return
+            }
+            if packageResult.0 != 0 {
+                finish("Export failed: package")
+                return
+            }
+
+            let runBase = (runDir as NSString).lastPathComponent
+            let defaultZip = (runDir as NSString).appendingPathComponent("client_safe_bundle_\(runBase).zip")
+            let finalDir = (runDir as NSString).appendingPathComponent("final")
+            let finalZip = (finalDir as NSString).appendingPathComponent("client_safe_bundle.zip")
+
+            if !fm.fileExists(atPath: finalDir) {
+                try? fm.createDirectory(atPath: finalDir, withIntermediateDirectories: true)
+            }
+            if fm.fileExists(atPath: finalZip) {
+                try? fm.removeItem(atPath: finalZip)
+            }
+            if fm.fileExists(atPath: defaultZip) {
+                if (try? fm.moveItem(atPath: defaultZip, toPath: finalZip)) == nil {
+                    try? fm.copyItem(atPath: defaultZip, toPath: finalZip)
+                }
+            }
+
+            let verifyTarget = fm.fileExists(atPath: finalZip) ? finalZip : defaultZip
+            if !fm.fileExists(atPath: verifyTarget) {
+                finish("Export failed: zip missing")
+                return
+            }
+
+            let verifyResult = self.runProcess(
+                executable: "/usr/bin/env",
+                arguments: ["python3", verifyScript, verifyTarget],
+                cwd: repoRoot,
+                env: env
+            )
+            if verifyResult.0 != 0 {
+                finish("Export failed: verify")
+                return
+            }
+
+            finish("OK exported: \(verifyTarget)")
         }
     }
 
