@@ -6,9 +6,59 @@ echo "== Smoke test started =="
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATE="$(date +%Y-%m-%d)"
 
+# Resolve repo root (assuming script is in scripts/)
+EXPECTED_VENV="$ROOT/.venv"
+
+# Helper to print version info
+print_versions() {
+    echo "Using source: $ROOT"
+    echo "Active Python: $(python3 -c 'import sys; print(sys.executable)')"
+    echo "Active Pip: $(python3 -m pip --version)"
+    echo "----------------------------------------"
+}
+
+# Verify VENV
+if [[ "${VIRTUAL_ENV:-}" != "$EXPECTED_VENV" ]]; then
+    if [[ "${SMOKE_AUTO_VENV:-}" == "1" ]]; then
+        if [ -f "$EXPECTED_VENV/bin/activate" ]; then
+            echo "Auto-activating venv..."
+            source "$EXPECTED_VENV/bin/activate"
+        else
+            echo "ERROR: SMOKE_AUTO_VENV=1 set, but .venv not found at $EXPECTED_VENV"
+            exit 2
+        fi
+    else
+        echo "ERROR: strictly enforced venv policy violation for deterministic-website-audit."
+        echo "Current Python: $(python3 -c 'import sys; print(sys.executable)')"
+        echo "Expected VENV:  $EXPECTED_VENV"
+        echo
+        echo "Expected venv:  $EXPECTED_VENV"
+        echo ""
+        echo "To run correctly:"
+        echo "  bash scripts/bootstrap_venv.sh"
+        echo "  source .venv/bin/activate"
+        echo "  ./scripts/smoke_test.sh"
+        echo ""
+        echo "Or run with auto-activation: SMOKE_AUTO_VENV=1 ./scripts/smoke_test.sh"
+        exit 2
+    fi
+fi
+
+# 2. Assert correctness (double check)
+PYTHON_PATH="$(python3 -c 'import sys; print(sys.executable)')"
+if [[ "$PYTHON_PATH" != *"$EXPECTED_VENV"* ]]; then
+    echo "FATAL: Failed to switch to expected venv!"
+    echo "Active: $PYTHON_PATH"
+    echo "Wanted: $EXPECTED_VENV"
+    exit 2
+fi
+
+print_versions
+
 SMOKE_FILE="$ROOT/scripts/smoke_targets.txt"
 
 python3 "$ROOT/scripts/guardrails_test.py"
+python3 "$ROOT/scripts/verify_sitemap_safety.py"
 
 run_and_check () {
   LANG="$1"
