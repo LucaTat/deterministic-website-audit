@@ -2,10 +2,6 @@
 import sys
 import zipfile
 
-REQUIRED = {
-    "audit/report.pdf",
-    "final/master.pdf",
-}
 TEXT_EXTS = (".json", ".md", ".txt")
 
 
@@ -17,9 +13,36 @@ def main() -> int:
     with zipfile.ZipFile(zip_path, "r") as zf:
         names = zf.namelist()
         name_set = set(names)
-        for req in REQUIRED:
+        has_ro = "deliverables/Decision_Brief_RO.pdf" in name_set
+        has_en = "deliverables/Decision_Brief_EN.pdf" in name_set
+        if has_ro and has_en:
+            print("ERROR multiple Decision_Brief languages")
+            return 2
+        if not (has_ro or has_en):
+            print("ERROR missing Decision_Brief")
+            return 2
+        lang = "RO" if has_ro else "EN"
+
+        required = {
+            "audit/report.pdf",
+            f"deliverables/Decision_Brief_{lang}.pdf",
+            f"deliverables/Evidence_Appendix_{lang}.pdf",
+            "deliverables/verdict.json",
+            "final/master.pdf",
+        }
+        optional = {
+            "action_scope/action_scope.pdf",
+            "proof_pack/proof_pack.pdf",
+            "regression/regression.pdf",
+        }
+        allowlist = required | optional
+        for req in required:
             if req not in name_set:
                 print(f"ERROR missing required: {req}")
+                return 2
+        for name in names:
+            if name not in allowlist:
+                print(f"ERROR unexpected entry: {name}")
                 return 2
         for name in names:
             lower = name.lower()
@@ -57,7 +80,13 @@ def main() -> int:
                 if "/Users/" in text or "/home/" in text:
                     print(f"ERROR leaked path in: {name}")
                     return 2
-                if "scope_repo=" in text or "scope_invoked=" in text or "scope_available=" in text:
+                if (
+                    "scope_repo=" in text
+                    or "scope_invoked=" in text
+                    or "scope_available=" in text
+                    or "scope_evidence_dir" in text
+                    or "\"notes\"" in text
+                ):
                     print(f"ERROR leaked notes in: {name}")
                     return 2
         print("bad_entries_count=0")
