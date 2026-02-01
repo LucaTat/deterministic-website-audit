@@ -104,7 +104,7 @@ ZIP_LIST="$(mktemp "$RUN_DIR/zip_list.XXXXXX")"
 printf "%s\n" "${FILES[@]}" | LC_ALL=C sort -u > "$ZIP_LIST"
 
 ZIP_LIST_FILTERED="$(mktemp "$RUN_DIR/zip_list.filtered.XXXXXX")"
-rg -v '(^|/)\.run_state\.json$|(^|/)pipeline\.log$|(^|/)version\.json$|\.log$|(^|/)__pycache__(/|$)|\.pyc$|(^|/)\.DS_Store$|(^|/)node_modules(/|$)|(^|/)(\.venv|venv)(/|$)|(^|/)__MACOSX(/|$)|(^|/)\._' "$ZIP_LIST" > "$ZIP_LIST_FILTERED" || true
+rg -v '(^|/)\.run_state\.json$|(^|/)pipeline\.log$|(^|/)version\.json$|\.log$|(^|/)__pycache__(/|$)|\.pyc$|(^|/)\.DS_Store$|(^|/)node_modules(/|$)|(^|/)(\.venv|venv)(/|$)|(^|/)__MACOSX(/|$)|(^|/)\._|(^|/)astra/deliverables/README\.md$' "$ZIP_LIST" > "$ZIP_LIST_FILTERED" || true
 mv -f "$ZIP_LIST_FILTERED" "$ZIP_LIST"
 
 ZIP_LIST_REL="$(mktemp "$RUN_DIR/zip_list.rel.XXXXXX")"
