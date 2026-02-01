@@ -57,55 +57,37 @@ LANG_UP="$(printf "%s" "$LANG" | tr '[:lower:]' '[:upper:]')"
 
 FILES=()
 
-FINAL_PDF="$RUN_DIR/astra/final_decision/ASTRA_Traffic_Readiness_Decision_${LANG_UP}.pdf"
-if [[ -f "$FINAL_PDF" ]]; then
-  FILES+=("$FINAL_PDF")
-else
-  for f in "$RUN_DIR"/astra/Decision_Brief_*_"${LANG_UP}".pdf; do
-    if [[ -f "$f" ]]; then
+include_dir() {
+  local dir="$1"
+  if [[ -d "$RUN_DIR/$dir" ]]; then
+    while IFS= read -r -d '' f; do
       FILES+=("$f")
-    fi
-  done
+    done < <(find "$RUN_DIR/$dir" -type f -print0)
+  fi
+}
+
+include_dir "audit"
+include_dir "action_scope"
+include_dir "proof_pack"
+include_dir "regression"
+
+if [[ -f "$RUN_DIR/final/master.pdf" ]]; then
+  FILES+=("$RUN_DIR/final/master.pdf")
 fi
 
-for f in "$RUN_DIR"/astra/Decision_Brief_*_"${LANG_UP}".pdf; do
-  if [[ -f "$f" ]]; then
+if [[ -d "$RUN_DIR/astra/deliverables" ]]; then
+  while IFS= read -r -d '' f; do
     FILES+=("$f")
-  fi
-done
-
-for f in "$RUN_DIR"/astra/Evidence_Appendix_*_"${LANG_UP}".pdf; do
-  if [[ -f "$f" ]]; then
-    FILES+=("$f")
-  fi
-done
-
-if [[ -f "$RUN_DIR/scope/report.pdf" ]]; then
-  FILES+=("$RUN_DIR/scope/report.pdf")
+  done < <(find "$RUN_DIR/astra/deliverables" -type f -print0)
 fi
-
-for f in "$RUN_DIR"/tool2/*.pdf "$RUN_DIR"/tool3/*.pdf "$RUN_DIR"/tool4/*.pdf; do
-  if [[ -f "$f" ]]; then
-    FILES+=("$f")
-  fi
-done
 
 if [[ -f "$RUN_DIR/astra/verdict.json" ]]; then
   FILES+=("$RUN_DIR/astra/verdict.json")
 fi
 
-if [[ -f "$RUN_DIR/scope/evidence_pack.json" ]]; then
-  FILES+=("$RUN_DIR/scope/evidence_pack.json")
+if [[ -f "$RUN_DIR/astra/targets.txt" ]]; then
+  FILES+=("$RUN_DIR/astra/targets.txt")
 fi
-
-INCLUDE_DIRS=("audit" "astra" "action_scope" "proof_pack" "regression" "final")
-for d in "${INCLUDE_DIRS[@]}"; do
-  if [[ -d "$RUN_DIR/$d" ]]; then
-    while IFS= read -r -d '' f; do
-      FILES+=("$f")
-    done < <(find "$RUN_DIR/$d" -type f -print0)
-  fi
-done
 
 if [[ ${#FILES[@]} -eq 0 ]]; then
   echo "ERROR no files"
@@ -122,7 +104,11 @@ mv -f "$ZIP_LIST_FILTERED" "$ZIP_LIST"
 ZIP_LIST_REL="$(mktemp "$RUN_DIR/zip_list.rel.XXXXXX")"
 while read -r ZIP_PATH_ITEM; do
   if [[ "$ZIP_PATH_ITEM" == "$RUN_DIR/"* ]]; then
-    echo "${ZIP_PATH_ITEM#${RUN_DIR}/}" >> "$ZIP_LIST_REL"
+    rel_path="${ZIP_PATH_ITEM#${RUN_DIR}/}"
+    if [[ "$rel_path" == "final/client_safe_bundle.zip" ]]; then
+      continue
+    fi
+    echo "$rel_path" >> "$ZIP_LIST_REL"
   else
     echo "$(basename "$ZIP_PATH_ITEM")" >> "$ZIP_LIST_REL"
   fi
