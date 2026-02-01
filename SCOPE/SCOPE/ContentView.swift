@@ -177,8 +177,8 @@ struct ContentView: View {
     @State private var showManageCampaignDeleteConfirm: Bool = false
     @State private var pendingManageDeleteCampaign: CampaignSummary? = nil
 
-    @State private var runExportRunning: Bool = false
-    @State private var runExportStatus: String? = nil
+    @State private var exportIsRunning: Bool = false
+    @State private var exportStatusText: String = "Ready"
     @State private var runExportTask: Process? = nil
     @State private var runExportRunID: String? = nil
     @State private var runExportCancelRequested: Bool = false
@@ -859,7 +859,7 @@ struct ContentView: View {
                                         .disabled(logDisabled)
                                         .opacity(buttonOpacity(disabled: logDisabled))
 
-                                        let exportDisabled = isRunning || runExportRunning
+                                        let exportDisabled = isRunning || exportIsRunning
                                         Button("Export Client Bundle") {
                                             runExportClientBundle(for: entry)
                                         }
@@ -867,14 +867,14 @@ struct ContentView: View {
                                         .disabled(exportDisabled)
                                         .opacity(buttonOpacity(disabled: exportDisabled))
 
-                                        if runExportRunning && runExportRunID == entry.id {
+                                        if exportIsRunning && runExportRunID == entry.id {
                                             Button("Cancel Export") {
                                                 cancelRunExport()
                                             }
                                             .buttonStyle(.bordered)
                                         }
 
-                                        let toolDisabled = isRunning || runExportRunning || toolRunning
+                                        let toolDisabled = isRunning || exportIsRunning || toolRunning
                                         Button("Run Tool 2 — Action Scope") {
                                             guard let repoRoot = resolvedRepoRoot() else {
                                                 toolStatus = "Export failed: Tool 2"
@@ -944,7 +944,7 @@ struct ContentView: View {
                                         }
                                         .buttonStyle(.bordered)
                                     }
-                                    Text(exportStatusText(for: entry))
+                                    Text(exportStatusLabel(for: entry))
                                         .font(.footnote)
                                         .foregroundColor(.secondary)
                                     if toolRunID == entry.id, let status = toolStatus {
@@ -2049,7 +2049,7 @@ struct ContentView: View {
                                     .disabled(logDisabled)
                                     .opacity(buttonOpacity(disabled: logDisabled))
 
-                                    let exportDisabled = isRunning || runExportRunning
+                                    let exportDisabled = isRunning || exportIsRunning
                                     Button("Export Client Bundle") {
                                         runExportClientBundle(for: entry)
                                     }
@@ -2057,14 +2057,14 @@ struct ContentView: View {
                                     .disabled(exportDisabled)
                                     .opacity(buttonOpacity(disabled: exportDisabled))
 
-                                    if runExportRunning && runExportRunID == entry.id {
+                                    if exportIsRunning && runExportRunID == entry.id {
                                         Button("Cancel Export") {
                                             cancelRunExport()
                                         }
                                         .buttonStyle(.bordered)
                                     }
 
-                                    let toolDisabled = isRunning || runExportRunning || toolRunning
+                                    let toolDisabled = isRunning || exportIsRunning || toolRunning
                                     Button("Run Tool 2 — Action Scope") {
                                         guard let repoRoot = resolvedRepoRoot() else {
                                             toolStatus = "Export failed: Tool 2"
@@ -2134,7 +2134,7 @@ struct ContentView: View {
                                     }
                                     .buttonStyle(.bordered)
                                 }
-                                Text(exportStatusText(for: entry))
+                                Text(exportStatusLabel(for: entry))
                                     .font(.footnote)
                                     .foregroundColor(.secondary)
                                 if toolRunID == entry.id, let status = toolStatus {
@@ -3277,12 +3277,12 @@ cd "$ASTRA_ROOT"
         DispatchQueue.main.sync { runExportCancelRequested }
     }
 
-    private func exportStatusText(for entry: RunEntry) -> String {
-        if runExportRunning, runExportRunID == entry.id {
-            return "Exporting…"
+    private func exportStatusLabel(for entry: RunEntry) -> String {
+        if exportIsRunning, runExportRunID == entry.id {
+            return exportStatusText
         }
-        if runExportRunID == entry.id, let status = runExportStatus {
-            return status
+        if runExportRunID == entry.id {
+            return exportStatusText
         }
         return "Ready"
     }
@@ -3488,25 +3488,25 @@ cd "$ASTRA_ROOT"
     }
 
     private func runExportClientBundle(for entry: RunEntry) {
-        guard !runExportRunning else { return }
+        guard !exportIsRunning else { return }
         guard let runDir = runRootPath(for: entry) else {
-            runExportStatus = "ERROR: Build master"
+            exportStatusText = "ERROR: Build master"
             return
         }
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: runDir, isDirectory: &isDir), isDir.boolValue else {
-            runExportStatus = "ERROR: Build master"
+            exportStatusText = "ERROR: Build master"
             return
         }
         guard let repoRoot = resolvedRepoRoot() else {
-            runExportStatus = "ERROR: Build master"
+            exportStatusText = "ERROR: Build master"
             return
         }
 
-        runExportRunning = true
+        exportIsRunning = true
         runExportRunID = entry.id
         runExportCancelRequested = false
-        runExportStatus = "Exporting…"
+        exportStatusText = "Exporting… (master → zip → verify)"
 
         DispatchQueue.global(qos: .userInitiated).async {
             let fm = FileManager.default
@@ -3520,9 +3520,9 @@ cd "$ASTRA_ROOT"
 
             func finish(_ status: String) {
                 DispatchQueue.main.async {
-                    self.runExportRunning = false
+                    self.exportIsRunning = false
                     self.runExportTask = nil
-                    self.runExportStatus = status
+                    self.exportStatusText = status
                 }
             }
 
@@ -3538,13 +3538,17 @@ cd "$ASTRA_ROOT"
                 env: env
             )
             if self.isRunExportCanceled() {
-                finish("ERROR: canceled")
+                finish("ERROR: Build master")
                 return
             }
             let buildLine = self.lastOkErrorLine(from: buildResult.1)
             if buildResult.0 != 0 || (buildLine?.hasPrefix("ERROR ") ?? false) || buildLine == nil {
                 finish("ERROR: Build master")
                 return
+            }
+
+            DispatchQueue.main.async {
+                self.exportStatusText = "Packaging…"
             }
 
             let packageResult = self.runProcess(
@@ -3584,6 +3588,10 @@ cd "$ASTRA_ROOT"
             if !fm.fileExists(atPath: verifyTarget) {
                 finish("ERROR: Package zip")
                 return
+            }
+
+            DispatchQueue.main.async {
+                self.exportStatusText = "Verifying…"
             }
 
             let verifyResult = self.runProcess(
