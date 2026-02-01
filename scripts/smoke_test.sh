@@ -104,4 +104,14 @@ run_and_check () {
 run_and_check ro smoke_ro
 run_and_check en smoke_en
 
+if [[ "${PACKAGE_RUN_ZIP_SMOKE:-}" == "1" ]]; then
+  if [[ -z "${PACKAGE_RUN_ZIP_DIR:-}" ]]; then
+    echo "FATAL: PACKAGE_RUN_ZIP_SMOKE=1 requires PACKAGE_RUN_ZIP_DIR=<DET_RUN_DIR>"
+    exit 2
+  fi
+  bash "$ROOT/scripts/package_run_client_safe_zip.sh" "$PACKAGE_RUN_ZIP_DIR"
+  ZIP_PATH="${PACKAGE_RUN_ZIP_DIR}/client_safe_bundle_$(basename "$PACKAGE_RUN_ZIP_DIR").zip"
+  python3 "$ROOT/scripts/verify_client_safe_zip.py" "$ZIP_PATH"
+fi
+
 echo "== Smoke test PASSED =="

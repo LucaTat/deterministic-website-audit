@@ -112,10 +112,16 @@ if [[ "${PDF_COUNT}" -eq 0 ]]; then
 fi
 
 COPIED_COUNT=0
+MASTER_CANDIDATES=()
 while read -r PDF_PATH; do
   if [[ ! -f "${PDF_PATH}" ]]; then
     echo "WARN: PDF not found (skipping): ${PDF_PATH}"
     continue
+  fi
+  RUN_DIR="$(dirname "${PDF_PATH}")"
+  MASTER_PDF="${RUN_DIR}/final/master.pdf"
+  if [[ -f "${MASTER_PDF}" ]]; then
+    MASTER_CANDIDATES+=("${MASTER_PDF}")
   fi
   CLIENT_DIR="$(basename "$(dirname "$(dirname "${PDF_PATH}")")")"
   DOMAIN_LABEL="$(echo "${CLIENT_DIR}" | tr '_' '.' )"
@@ -128,6 +134,13 @@ done < "${LIST_FILE}"
 if [[ "$COPIED_COUNT" -eq 0 ]]; then
   echo "FATAL: No PDFs were copied into ${OUT_DIR}"
   exit 2
+fi
+
+MASTER_PDF_SELECTED=""
+if [[ "${#MASTER_CANDIDATES[@]}" -gt 0 ]]; then
+  MASTER_PDF_SELECTED="$(printf "%s\n" "${MASTER_CANDIDATES[@]}" | LC_ALL=C sort | head -n 1)"
+  mkdir -p "${OUT_DIR}/final"
+  cp -f "${MASTER_PDF_SELECTED}" "${OUT_DIR}/final/master.pdf"
 fi
 
 SORTED_DOMAINS=()
@@ -250,11 +263,32 @@ done
 if [[ -f "${README_CLIENT}" ]]; then
   echo "${README_CLIENT}" >> "${ZIP_LIST}"
 fi
+if [[ -f "${OUT_DIR}/final/master.pdf" ]]; then
+  echo "${OUT_DIR}/final/master.pdf" >> "${ZIP_LIST}"
+fi
+# --- Client-safe ZIP exclusions (never ship internal run metadata/logs) ---
+ZIP_LIST_FILTERED="$(mktemp "${OUT_DIR}/zip_list.filtered.XXXXXX")"
+ZIP_LIST_COUNT_BEFORE="$(wc -l < "${ZIP_LIST}" | tr -d " ")"
+rg -v '(^|/)\.run_state\.json$|(^|/)pipeline\.log$|(^|/)version\.json$|\.log$' "${ZIP_LIST}" > "${ZIP_LIST_FILTERED}" || true
+mv -f "${ZIP_LIST_FILTERED}" "${ZIP_LIST}"
+ZIP_LIST_COUNT_AFTER="$(wc -l < "${ZIP_LIST}" | tr -d " ")"
+echo "ZIP list filtered: ${ZIP_LIST_COUNT_BEFORE} -> ${ZIP_LIST_COUNT_AFTER} entries"
+# --- end exclusions ---
+ZIP_LIST_REL="$(mktemp "${OUT_DIR}/zip_list.rel.XXXXXX")"
+while read -r ZIP_PATH_ITEM; do
+  if [[ "${ZIP_PATH_ITEM}" == "${OUT_DIR}/"* ]]; then
+    echo "${ZIP_PATH_ITEM#${OUT_DIR}/}" >> "${ZIP_LIST_REL}"
+  else
+    echo "$(basename "${ZIP_PATH_ITEM}")" >> "${ZIP_LIST_REL}"
+  fi
+done < "${ZIP_LIST}"
+mv -f "${ZIP_LIST_REL}" "${ZIP_LIST}"
 if [[ ! -s "${ZIP_LIST}" ]]; then
   echo "FATAL: ZIP packaging failed (no files to zip)"
   exit 2
 fi
-if ! ( rm -f "${ZIP_PATH}" && zip -j "${ZIP_PATH}" -@ < "${ZIP_LIST}" >/dev/null ); then
+ZIP_PATH_ABS="${REPO_ROOT}/${ZIP_PATH}"
+if ! ( rm -f "${ZIP_PATH_ABS}" && cd "${OUT_DIR}" && zip "${ZIP_PATH_ABS}" -@ < "${ZIP_LIST}" >/dev/null ); then
   echo "FATAL: ZIP packaging failed"
   exit 2
 fi
