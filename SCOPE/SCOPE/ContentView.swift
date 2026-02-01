@@ -944,11 +944,9 @@ struct ContentView: View {
                                         }
                                         .buttonStyle(.bordered)
                                     }
-                                    if runExportRunID == entry.id, let status = runExportStatus {
-                                        Text(status)
-                                            .font(.footnote)
-                                            .foregroundColor(.secondary)
-                                    }
+                                    Text(exportStatusText(for: entry))
+                                        .font(.footnote)
+                                        .foregroundColor(.secondary)
                                     if toolRunID == entry.id, let status = toolStatus {
                                         Text(status)
                                             .font(.footnote)
@@ -2136,11 +2134,9 @@ struct ContentView: View {
                                     }
                                     .buttonStyle(.bordered)
                                 }
-                                if runExportRunID == entry.id, let status = runExportStatus {
-                                    Text(status)
-                                        .font(.footnote)
-                                        .foregroundColor(.secondary)
-                                }
+                                Text(exportStatusText(for: entry))
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
                                 if toolRunID == entry.id, let status = toolStatus {
                                     Text(status)
                                         .font(.footnote)
@@ -3281,6 +3277,27 @@ cd "$ASTRA_ROOT"
         DispatchQueue.main.sync { runExportCancelRequested }
     }
 
+    private func exportStatusText(for entry: RunEntry) -> String {
+        if runExportRunning, runExportRunID == entry.id {
+            return "Exporting… (master → zip → verify)"
+        }
+        if runExportRunID == entry.id, let status = runExportStatus {
+            return status
+        }
+        return "Ready"
+    }
+
+    private func lastOkErrorLine(from output: String) -> String? {
+        var result: String? = nil
+        for lineSub in output.split(separator: "\n") {
+            let line = String(lineSub).trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.hasPrefix("OK ") || line.hasPrefix("ERROR ") {
+                result = line
+            }
+        }
+        return result
+    }
+
     private func runProcess(
         executable: String,
         arguments: [String],
@@ -3473,23 +3490,23 @@ cd "$ASTRA_ROOT"
     private func runExportClientBundle(for entry: RunEntry) {
         guard !runExportRunning else { return }
         guard let runDir = runRootPath(for: entry) else {
-            runExportStatus = "Export failed: run directory missing"
+            runExportStatus = "ERROR: run directory missing"
             return
         }
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: runDir, isDirectory: &isDir), isDir.boolValue else {
-            runExportStatus = "Export failed: run directory missing"
+            runExportStatus = "ERROR: run directory missing"
             return
         }
         guard let repoRoot = resolvedRepoRoot() else {
-            runExportStatus = "Export failed: repo root missing"
+            runExportStatus = "ERROR: repo root missing"
             return
         }
 
         runExportRunning = true
         runExportRunID = entry.id
         runExportCancelRequested = false
-        runExportStatus = "Exporting client bundle…"
+        runExportStatus = "Exporting… (master → zip → verify)"
 
         DispatchQueue.global(qos: .userInitiated).async {
             let fm = FileManager.default
@@ -3505,13 +3522,12 @@ cd "$ASTRA_ROOT"
                 DispatchQueue.main.async {
                     self.runExportRunning = false
                     self.runExportTask = nil
-                    self.runExportRunID = nil
                     self.runExportStatus = status
                 }
             }
 
             if self.isRunExportCanceled() {
-                finish("Export canceled.")
+                finish("ERROR: canceled")
                 return
             }
 
@@ -3522,11 +3538,12 @@ cd "$ASTRA_ROOT"
                 env: env
             )
             if self.isRunExportCanceled() {
-                finish("Export canceled.")
+                finish("ERROR: canceled")
                 return
             }
-            if buildResult.0 != 0 {
-                finish("Export failed: master pdf")
+            let buildLine = self.lastOkErrorLine(from: buildResult.1)
+            if buildResult.0 != 0 || (buildLine?.hasPrefix("ERROR ") ?? false) || buildLine == nil {
+                finish("ERROR: master")
                 return
             }
 
@@ -3537,11 +3554,12 @@ cd "$ASTRA_ROOT"
                 env: env
             )
             if self.isRunExportCanceled() {
-                finish("Export canceled.")
+                finish("ERROR: canceled")
                 return
             }
-            if packageResult.0 != 0 {
-                finish("Export failed: package")
+            let packageLine = self.lastOkErrorLine(from: packageResult.1)
+            if packageResult.0 != 0 || (packageLine?.hasPrefix("ERROR ") ?? false) || packageLine == nil {
+                finish("ERROR: zip")
                 return
             }
 
@@ -3564,7 +3582,7 @@ cd "$ASTRA_ROOT"
 
             let verifyTarget = fm.fileExists(atPath: finalZip) ? finalZip : defaultZip
             if !fm.fileExists(atPath: verifyTarget) {
-                finish("Export failed: zip missing")
+                finish("ERROR: zip missing")
                 return
             }
 
@@ -3575,11 +3593,11 @@ cd "$ASTRA_ROOT"
                 env: env
             )
             if verifyResult.0 != 0 {
-                finish("Export failed: verify")
+                finish("ERROR: verify")
                 return
             }
 
-            finish("OK exported: \(verifyTarget)")
+            finish("OK: client_safe_bundle.zip")
         }
     }
 
