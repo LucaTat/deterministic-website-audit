@@ -5,8 +5,12 @@ import zipfile
 BAD_SUBSTRINGS = [
     "pipeline.log",
     "version.json",
-    ".DS_Store",
-    "__MACOSX",
+    ".ds_store",
+    "__macosx",
+    "__pycache__",
+    "node_modules",
+    ".venv",
+    "venv/",
 ]
 
 
@@ -22,17 +26,14 @@ def main() -> int:
             if lower.endswith(".log"):
                 print(f"FAIL: found log file in zip: {name}")
                 return 2
-            if "pipeline.log" in lower:
-                print(f"FAIL: found pipeline.log in zip: {name}")
-                return 2
-            if "version.json" in lower:
-                print(f"FAIL: found version.json in zip: {name}")
+            if lower.endswith(".pyc"):
+                print(f"FAIL: found .pyc in zip: {name}")
                 return 2
             if name.endswith(".run_state.json"):
                 print(f"FAIL: found .run_state.json in zip: {name}")
                 return 2
             for bad in BAD_SUBSTRINGS:
-                if bad.lower() in lower:
+                if bad in lower:
                     print(f"FAIL: found banned entry in zip: {name}")
                     return 2
         print("ZIP contents:")

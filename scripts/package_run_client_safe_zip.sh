@@ -98,6 +98,15 @@ if [[ -f "$RUN_DIR/scope/evidence_pack.json" ]]; then
   FILES+=("$RUN_DIR/scope/evidence_pack.json")
 fi
 
+INCLUDE_DIRS=("audit" "astra" "action_scope" "proof_pack" "regression" "final")
+for d in "${INCLUDE_DIRS[@]}"; do
+  if [[ -d "$RUN_DIR/$d" ]]; then
+    while IFS= read -r -d '' f; do
+      FILES+=("$f")
+    done < <(find "$RUN_DIR/$d" -type f -print0)
+  fi
+done
+
 if [[ ${#FILES[@]} -eq 0 ]]; then
   echo "FATAL: no allowlisted files found for: $RUN_DIR"
   exit 2
@@ -106,6 +115,22 @@ fi
 ZIP_LIST="$(mktemp "$RUN_DIR/zip_list.XXXXXX")"
 printf "%s\n" "${FILES[@]}" | LC_ALL=C sort -u > "$ZIP_LIST"
 
+ZIP_LIST_FILTERED="$(mktemp "$RUN_DIR/zip_list.filtered.XXXXXX")"
+rg -v '(^|/)\.run_state\.json$|(^|/)pipeline\.log$|(^|/)version\.json$|\.log$|(^|/)__pycache__(/|$)|\.pyc$|(^|/)\.DS_Store$|(^|/)node_modules(/|$)|(^|/)(\.venv|venv)(/|$)' "$ZIP_LIST" > "$ZIP_LIST_FILTERED" || true
+mv -f "$ZIP_LIST_FILTERED" "$ZIP_LIST"
+
+ZIP_LIST_REL="$(mktemp "$RUN_DIR/zip_list.rel.XXXXXX")"
+while read -r ZIP_PATH_ITEM; do
+  if [[ "$ZIP_PATH_ITEM" == "$RUN_DIR/"* ]]; then
+    echo "${ZIP_PATH_ITEM#${RUN_DIR}/}" >> "$ZIP_LIST_REL"
+  else
+    echo "$(basename "$ZIP_PATH_ITEM")" >> "$ZIP_LIST_REL"
+  fi
+done < "$ZIP_LIST"
+
+LC_ALL=C sort -u "$ZIP_LIST_REL" > "$ZIP_LIST"
+rm -f "$ZIP_LIST_REL"
+
 if [[ ! -s "$ZIP_LIST" ]]; then
   echo "FATAL: ZIP list is empty after filtering"
   rm -f "$ZIP_LIST"
@@ -113,7 +138,7 @@ if [[ ! -s "$ZIP_LIST" ]]; then
 fi
 
 ZIP_PATH="$RUN_DIR/client_safe_bundle_${RUN_BASE}.zip"
-if ! ( rm -f "$ZIP_PATH" && zip -j "$ZIP_PATH" -@ < "$ZIP_LIST" >/dev/null ); then
+if ! ( rm -f "$ZIP_PATH" && cd "$RUN_DIR" && zip "$ZIP_PATH" -@ < "$ZIP_LIST" >/dev/null ); then
   echo "FATAL: ZIP packaging failed"
   rm -f "$ZIP_LIST"
   exit 2
