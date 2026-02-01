@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from typing import Any, Mapping
 from urllib.parse import urlparse
+import socket
+import ipaddress
 
 DEFAULT_USER_AGENT = "SCOPE/1.0 (+contact@astra.example)"
 DEFAULT_HEADERS = {"User-Agent": DEFAULT_USER_AGENT}
@@ -11,6 +13,16 @@ MAX_HTML_BYTES = 2 * 1024 * 1024
 MAX_REDIRECTS = 10
 
 SENSITIVE_HEADERS = {"authorization", "cookie", "set-cookie", "x-api-key"}
+PRIVATE_IP_RANGES = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+]
 
 
 def ignore_robots() -> bool:
@@ -27,6 +39,36 @@ def redact_headers(headers: Mapping[str, Any]) -> dict[str, str]:
         else:
             redacted[key_str] = str(value)
     return redacted
+
+
+def validate_url(url: str) -> None:
+    """
+    Validates that the URL uses a safe scheme and does not resolve to a private IP.
+    Raises ValueError if unsafe.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Unsafe scheme: {parsed.scheme}")
+
+    if not parsed.hostname:
+        raise ValueError("Missing hostname")
+
+    try:
+        # Resolve hostname to IP
+        # Note: This is a basic check. To be fully robust against TOCTOU (Time-of-check to time-of-use),
+        # one would ideally patch the socket connection, but this is a good first line of defense.
+        ip_list = socket.getaddrinfo(parsed.hostname, None)
+        for _, _, _, _, sockaddr in ip_list:
+            ip_str = sockaddr[0]
+            ip_obj = ipaddress.ip_address(ip_str)
+            for private_range in PRIVATE_IP_RANGES:
+                if ip_obj in private_range:
+                    raise ValueError(f"Target resolves to private IP: {ip_str}")
+    except socket.gaierror:
+        # If we can't resolve it, it might be an internal name or just broken.
+        # For security, we might choose to fail, or let requests handle it.
+        # Here we let it pass, assuming requests will fail if DNS is broken.
+        pass
 
 
 def read_limited_text(resp: Any, max_bytes: int | None) -> tuple[str, bool]:

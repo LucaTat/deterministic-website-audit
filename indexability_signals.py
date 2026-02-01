@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 from urllib.parse import urljoin, urlparse
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 
 import requests
 from bs4 import BeautifulSoup

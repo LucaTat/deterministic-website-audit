@@ -16,6 +16,7 @@ from net_guardrails import (
     parse_robots,
     read_limited_text,
     robots_disallows,
+    validate_url,
 )
 
 HEADERS = DEFAULT_HEADERS
@@ -83,6 +84,7 @@ def fetch_html(url: str) -> str:
     session = requests.Session()
     session.max_redirects = MAX_REDIRECTS
     try:
+        validate_url(url)
         if not _robots_allows_url(url):
             raise FetchGuardrailError("robots_disallowed")
         resp = session.get(url, headers=HEADERS, timeout=DEFAULT_TIMEOUT, stream=True)

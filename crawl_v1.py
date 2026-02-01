@@ -5,7 +5,6 @@ import json
 import os
 import re
 from urllib.parse import urljoin, urlparse, urlunparse
-import xml.etree.ElementTree as ET
 
 import requests
 from bs4 import BeautifulSoup
@@ -20,7 +19,9 @@ from net_guardrails import (
     read_limited_text,
     redact_headers,
     robots_disallows,
+    validate_url,
 )
+from defusedxml import ElementTree as ET
 
 HEADERS = DEFAULT_HEADERS
 
@@ -487,7 +488,15 @@ def fetch_pages(urls: list[str], robots_policy: dict | None = None) -> list[dict
         try:
             session = requests.Session()
             session.max_redirects = MAX_REDIRECTS
-            resp = session.get(url, headers=HEADERS, timeout=DEFAULT_TIMEOUT, stream=True)
+            req_headers = HEADERS
+            validate_url(url)
+            resp = session.get(
+                url,
+                headers=req_headers,
+                timeout=DEFAULT_TIMEOUT,
+                allow_redirects=True,
+                stream=True,
+            )
             status = resp.status_code
             content_type = resp.headers.get("Content-Type", "") or ""
             if "text/html" not in content_type:

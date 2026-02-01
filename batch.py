@@ -2,7 +2,6 @@
 import os
 import json
 import re
-import csv
 import argparse
 import datetime as dt 
 import time
@@ -35,7 +34,18 @@ from pdf_export import export_audit_pdf
 from ai.advisory import build_ai_advisory
 from proof_completeness_shadow import write_proof_completeness_shadow
 
-CAMPAIGN = "2025-Q1-outreach"
+import logging
+import config
+
+# Setup logging
+logging.basicConfig(
+    level=getattr(logging, config.LOG_LEVEL, logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S"
+)
+logger = logging.getLogger(__name__)
+
+CAMPAIGN = config.DEFAULT_CAMPAIGN
 
 CRITICAL_FINDING_PREFIXES = ("IDX_",)
 CRITICAL_FINDING_IDS = {
@@ -482,7 +492,7 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
     if u.lower() in ["none", "no", "no website", "n/a", "na", ""]:
         summary_text = human_summary("(no website)", {}, mode="no_website")
         if os.environ.get("AUDIT_DEBUG") == "1":
-            print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
+            logger.debug(f"HUMAN_SUMMARY_PREVIEW: {summary_text[:120]}")
         conversion_loss = build_conversion_loss(
             mode="no_website", signals={}, business_inputs=business_inputs
         )
@@ -607,7 +617,7 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
         insights = user_insights(signals)
         summary_text = human_summary(u, signals, mode="ok")
         if os.environ.get("AUDIT_DEBUG") == "1":
-            print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
+            logger.debug(f"HUMAN_SUMMARY_PREVIEW: {summary_text[:120]}")
 
         business_model = _classify_business_model(u, crawl_payload, signals)
         ads_audit_eligible = business_model in AUDITABLE_MODELS
@@ -649,7 +659,7 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
         reason = e.reason if isinstance(e, FetchGuardrailError) else str(e)
         summary_text = human_summary(u, {"reason": reason}, mode="broken")
         if os.environ.get("AUDIT_DEBUG") == "1":
-            print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
+            logger.debug(f"HUMAN_SUMMARY_PREVIEW: {summary_text[:120]}")
 
         conversion_loss = build_conversion_loss(
             mode="broken", signals={"reason": reason}, business_inputs=business_inputs
@@ -721,7 +731,7 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
         tb = traceback.format_exc()
         summary_text = human_summary(u, {"reason": reason}, mode="broken")
         if os.environ.get("AUDIT_DEBUG") == "1":
-            print("HUMAN_SUMMARY_PREVIEW:", summary_text[:120])
+            logger.debug(f"HUMAN_SUMMARY_PREVIEW: {summary_text[:120]}")
 
         conversion_loss = build_conversion_loss(
             mode="broken", signals={"reason": reason}, business_inputs=business_inputs
@@ -801,28 +811,6 @@ def save_json(audit_result: dict, out_path: str) -> None:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
 
-def append_csv_row(path: str, row: dict) -> None:
-    file_exists = os.path.exists(path)
-    with open(path, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=[
-                "client_name",
-                "url",
-                "mode",
-                "score",
-                "booking",
-                "contact",
-                "services",
-                "pricing",
-                "lang",
-            ],
-        )
-        if not file_exists:
-            writer.writeheader()
-        writer.writerow(row)
-
-
 def main():
     args = parse_args()
     lang = args.lang
@@ -844,9 +832,9 @@ def main():
 
     targets = read_targets(targets_path)
     total = len(targets)
-    print(f"Deterministic Website Audit (batch) — {total} target(s)")
+    logger.info(f"Deterministic Website Audit (batch) — {total} target(s)")
     if not targets:
-        print("Done — 0 OK, 0 BROKEN")
+        logger.info("Done — 0 OK, 0 BROKEN")
         return 0
 
     ok_count = 0
@@ -858,6 +846,8 @@ def main():
         client_name = t["client_name"]
         url = t["url"]
         start_time = time.perf_counter()
+
+        logger.info(f"[{i}/{total}] Processing: {url} (Client: {client_name})")
 
         result = audit_one(url, lang=lang, business_inputs=business_inputs)
         result["client_name"] = client_name
@@ -885,25 +875,27 @@ def main():
         pdf_path = os.path.join(out_folder, f"audit_{lang}.pdf")
         json_path = os.path.join(out_folder, f"audit_{lang}.json")
 
-        export_audit_pdf(result, pdf_path, tool_version=tool_version)
         save_json(result, json_path)
+        logger.info(f"  Saved JSON: {json_path}")
+
+        try:
+            export_audit_pdf(result, pdf_path, tool_version=tool_version)
+            logger.info(f"  Saved PDF:  {pdf_path}")
+        except Exception as e:
+            logger.error(f"  PDF export failed for {url}: {e}")
+            import traceback
+            traceback.print_exc()
 
         if proof_spec == "shadow":
             shadow_path = os.path.join(out_folder, "proof_completeness_shadow.json")
-            write_proof_completeness_shadow(result.get("findings", []), shadow_path)
+            try:
+                write_proof_completeness_shadow(result.get("findings", []), shadow_path)
+                logger.info(f"  Saved Shadow Proof: {shadow_path}")
+            except Exception as px:
+                logger.warning(f"  Shadow proof write failed for {url}: {px}")
 
         signals = result.get("signals", {}) or {}
-        append_csv_row(csv_path, {
-            "client_name": client_name,
-            "url": result["url"],
-            "mode": result["mode"],
-            "score": signals.get("score", 0) if result["mode"] == "ok" else 0,
-            "booking": "yes" if signals.get("booking_detected") else "no",
-            "contact": "yes" if signals.get("contact_detected") else "no",
-            "services": "yes" if signals.get("services_keywords_detected") else "no",
-            "pricing": "yes" if signals.get("pricing_keywords_detected") else "no",
-            "lang": lang,
-        })
+        signals = result.get("signals", {}) or {}
 
         display = result.get("url", "<unknown>")
         mode = result.get("mode", "unknown")

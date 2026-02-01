@@ -24,8 +24,10 @@ from reportlab.platypus import (
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-AGENCY_NAME = "Digital Audit Studio"
-AGENCY_CONTACT = "contact@digitalaudit.ro"
+import config
+
+AGENCY_NAME = config.AGENCY_NAME
+AGENCY_CONTACT = config.AGENCY_CONTACT
 BODY_FONT = "DejaVuSans"
 BOLD_FONT = "DejaVuSans-Bold"
 

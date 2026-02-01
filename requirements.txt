@@ -1,3 +1,7 @@
-requests>=2.0
-beautifulsoup4>=4.0
-reportlab>=3.0
+# Core Dependencies (Pinned for determinism)
+requests==2.31.0
+beautifulsoup4==4.12.3
+reportlab==4.0.9
+
+# Security Hardening
+defusedxml==0.7.1 # XXE protection
