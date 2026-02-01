@@ -11,11 +11,15 @@ from reportlab.pdfgen import canvas
 
 BUCKETS = [
     ("tool1_scope_report", True, [
+        "audit/report.pdf",
+        "audit/*.pdf",
         "deliverables/report.pdf",
         "scope/report.pdf",
         "report.pdf",
     ]),
     ("astra_decision", True, [
+        "astra/Decision Brief*.pdf",
+        "astra/*.pdf",
         "astra/final_decision/ASTRA_Traffic_Readiness_Decision_*.pdf",
         "astra/Decision_Brief_*_*.pdf",
         "astra/Decision Brief - * - *.pdf",
