@@ -39,6 +39,30 @@ struct RunEntry: Identifiable, Codable {
     let reportPdfPath: String?
     let decisionBriefPdfPath: String?
     let logPath: String?
+
+    var canonicalURL: String {
+        RunEntry.canonicalizeURL(url)
+    }
+
+    static func canonicalizeURL(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "" }
+        var working = trimmed
+        if !working.contains("://") {
+            working = "https://" + working
+        }
+        guard var comps = URLComponents(string: working) else { return trimmed }
+        comps.fragment = nil
+        if let scheme = comps.scheme { comps.scheme = scheme.lowercased() }
+        if let host = comps.host { comps.host = host.lowercased() }
+        let path = comps.path.isEmpty ? "/" : comps.path
+        if path.count > 1 && path.hasSuffix("/") {
+            comps.path = String(path.dropLast())
+        } else {
+            comps.path = path
+        }
+        return comps.string ?? trimmed
+    }
 }
 
 struct RunRecord: Identifiable, Hashable {

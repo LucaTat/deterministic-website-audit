@@ -176,6 +176,8 @@ struct ContentView: View {
     @State private var showManageCampaignsSheet: Bool = false
     @State private var showManageCampaignDeleteConfirm: Bool = false
     @State private var pendingManageDeleteCampaign: CampaignSummary? = nil
+    
+    @State private var uiRefreshTick: Int = 0
     @State private var showNewCampaignSheet: Bool = false
     @StateObject private var store = CampaignStore(repoRoot: "")
     @AppStorage("scopeTheme") private var themeRaw: String = Theme.light.rawValue
@@ -192,18 +194,7 @@ struct ContentView: View {
     private var theme: Theme { Theme(rawValue: themeRaw) ?? .light }
 
     var body: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 20) {
-                headerSection
-                pathsSection
-                runControlsSection
-                campaignsSection
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .modifier(NeonPanel(theme: theme))
-            .padding(16)
-        }
+        rootView
         .background(theme.background)
         .preferredColorScheme(theme.colorScheme)
         .tint(theme.accent)
@@ -308,6 +299,7 @@ struct ContentView: View {
             runHistory = loadRunHistory()
             migrateLegacyRunsIfNeeded()
             refreshCampaignsPanel()
+            runOverwriteURLTests()
         }
         .onChange(of: repoRoot) { _, _ in
             if let repoRoot { store.repoRoot = repoRoot }
@@ -325,6 +317,29 @@ struct ContentView: View {
                 deleteOlderCount = countOlderCampaigns(days: deleteOlderDays)
             }
         }
+    }
+
+    private var rootView: some View {
+        Group {
+            // Force a dependency so bumpUIRefresh() triggers recompute
+            let _ = uiRefreshTick
+
+            // If you intended some conditional behavior, do it without returning nil
+            // For now: render the normal main UI.
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 20) {
+                    headerSection
+                    pathsSection
+                    runControlsSection
+                    campaignsSection
+                }
+                .padding(20)
+            }
+        }
+    }
+
+    private func bumpUIRefresh() {
+        uiRefreshTick &+= 1
     }
 
     private var headerSection: some View {
@@ -539,6 +554,19 @@ struct ContentView: View {
                         .disabled(logsDisabled)
                         .opacity(buttonOpacity(disabled: logsDisabled))
                         .help(logsHelpText())
+
+                        let runFolderDisabled = isRunning || lastRunDir == nil
+                        Button {
+                            if let path = lastRunDir {
+                                openFolder(path)
+                            }
+                        } label: {
+                            Label("Open Run Folder", systemImage: "folder.fill")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(runFolderDisabled)
+                        .opacity(buttonOpacity(disabled: runFolderDisabled))
+                        .help("Open the latest run folder")
                     }
 
                     if demoDeliverablePath != nil {
@@ -1611,6 +1639,33 @@ struct ContentView: View {
         return host.lowercased()
     }
 
+    private func normalizeURLForOverwrite(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "" }
+        var working = trimmed
+        if !working.contains("://") { working = "https://" + working }
+        guard var comps = URLComponents(string: working) else { return trimmed }
+        comps.fragment = nil
+        comps.query = nil
+        if let scheme = comps.scheme { comps.scheme = scheme.lowercased() }
+        if let host = comps.host { comps.host = host.lowercased() }
+        let path = comps.path.isEmpty ? "/" : comps.path
+        if path.count > 1 && path.hasSuffix("/") {
+            comps.path = String(path.dropLast())
+        } else {
+            comps.path = path
+        }
+        return comps.string ?? trimmed
+    }
+
+    private func runOverwriteURLTests() {
+#if DEBUG
+        assert(normalizeURLForOverwrite("https://magic-gym.ro") == normalizeURLForOverwrite("https://magic-gym.ro/"))
+        assert(normalizeURLForOverwrite("https://example.com/path") == normalizeURLForOverwrite("https://example.com/path/"))
+        assert(normalizeURLForOverwrite("https://example.com/path?x=1") == normalizeURLForOverwrite("https://example.com/path?x=2"))
+#endif
+    }
+
     private func openCampaignManager() {
         campaignManagerSelection = []
         campaignManagerItems = loadCampaignManagerItems()
@@ -1915,6 +1970,7 @@ struct ContentView: View {
         .preferredColorScheme(theme.colorScheme)
         .tint(theme.accent)
     }
+
 
     private func manageCampaignsList() -> [CampaignSummary] {
         guard let exportRoot = exportRootPath() else { return [] }
@@ -2284,15 +2340,23 @@ struct ContentView: View {
             try? fm.removeItem(at: runFolderURL)
         }
         store.ensureDirectory(runFolderURL.path)
+        store.ensureDirectory(runFolderURL.appendingPathComponent("deliverables").path)
+        store.ensureDirectory(runFolderURL.appendingPathComponent("final_decision").path)
 
         let astraDest = runFolderURL.appendingPathComponent("astra")
         if !fm.fileExists(atPath: astraDest.path) {
             try? fm.copyItem(atPath: runDir, toPath: astraDest.path)
         }
+        if !fm.fileExists(atPath: astraDest.path) {
+            try? fm.createDirectory(at: astraDest, withIntermediateDirectories: true)
+        }
 
         let scopeSource = (runDir as NSString).appendingPathComponent("scope")
         let scopeDest = runFolderURL.appendingPathComponent("scope")
         copyScopeFolderIfNeeded(from: scopeSource, to: scopeDest.path)
+        if !fm.fileExists(atPath: scopeDest.path) {
+            try? fm.createDirectory(at: scopeDest, withIntermediateDirectories: true)
+        }
 
         let scopeLogSource = (runDir as NSString).appendingPathComponent("scope_run.log")
         let scopeLogDest = astraDest.appendingPathComponent("scope_run.log")
@@ -2826,8 +2890,37 @@ cd "$ASTRA_ROOT"
                             self.lastRunDir = fallbackCampaignPath
                         }
 
-                        self.runHistory.insert(entry, at: 0)
-                        self.saveRunHistory(self.runHistory)
+                        if let campaignName = self.lastRunCampaign,
+                           let exportRoot = self.exportRootPath() {
+                            let campaignURL = self.store.campaignURL(forName: campaignName, exportRoot: exportRoot)
+                            let runsRoot = campaignURL.appendingPathComponent("runs").path
+                            let newCanonical = self.normalizeURLForOverwrite(entry.url)
+                            if !newCanonical.isEmpty {
+                                let matches = self.runHistory.filter { existing in
+                                    self.normalizeURLForOverwrite(existing.url) == newCanonical
+                                        && (existing.deliverablesDir.hasPrefix(runsRoot) || existing.runDir.hasPrefix(runsRoot))
+                                }
+                                for match in matches {
+                                    let oldPath = !match.deliverablesDir.isEmpty ? match.deliverablesDir : match.runDir
+                                    guard oldPath.hasPrefix(runsRoot) else { continue }
+                                    if FileManager.default.fileExists(atPath: oldPath) {
+                                        do {
+                                            try FileManager.default.removeItem(atPath: oldPath)
+                                            self.logOutput += "\nOVERWRITE_URL: \(newCanonical) old=\(match.id) new=\(entry.id)"
+                                        } catch {
+                                            self.logOutput += "\nOverwrite failed for \(newCanonical): \(error.localizedDescription)"
+                                            return
+                                        }
+                                    }
+                                    self.runHistory.removeAll { $0.id == match.id }
+                                }
+                            }
+                            self.runHistory.insert(entry, at: 0)
+                            self.saveRunHistory(self.runHistory)
+                        } else {
+                            self.runHistory.insert(entry, at: 0)
+                            self.saveRunHistory(self.runHistory)
+                        }
                         onRunRecorded?(entry)
                         self.campaignsPanel = campaignsSnapshot
 
@@ -3036,15 +3129,14 @@ cd "$ASTRA_ROOT"
     }
 
     private func parseAstraRunDirMarker(from output: String) -> String? {
-        let fm = FileManager.default
         for lineSub in output.split(separator: "\n").reversed() {
             let line = lineSub.trimmingCharacters(in: .whitespacesAndNewlines)
             if line.hasPrefix("ASTRA_RUN_DIR=") {
-                let path = String(line.dropFirst("ASTRA_RUN_DIR=".count))
-                var isDir: ObjCBool = false
-                if fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
-                    return path
+                var path = String(line.dropFirst("ASTRA_RUN_DIR=".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if (path.hasPrefix("\"") && path.hasSuffix("\"")) || (path.hasPrefix("'") && path.hasSuffix("'")) {
+                    path = String(path.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
                 }
+                return path.isEmpty ? nil : path
             }
         }
         return nil

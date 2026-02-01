@@ -122,6 +122,11 @@ final class CampaignStore: ObservableObject {
         URL(fileURLWithPath: exportRoot).appendingPathComponent("campaigns")
     }
 
+    func campaignURL(forName name: String, exportRoot: String) -> URL {
+        let safe = campaignFolderName(for: name)
+        return campaignsRoot(exportRoot: exportRoot).appendingPathComponent(safe)
+    }
+
     private func exportRootPath() -> String? {
         let trimmed = repoRoot.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -247,6 +252,34 @@ final class CampaignStore: ObservableObject {
         }
         m.updated_at = isoNow()
         writeManifestAtomic(m, to: manifestURL)
+    }
+
+    func upsertRun(_ run: RunEntry, in campaign: Campaign) throws -> [RunEntry] {
+        var history = loadRunHistory()
+        let canonical = run.canonicalURL
+        let runsRoot = campaign.campaignURL.appendingPathComponent("runs").standardizedFileURL
+        if let existing = history.first(where: { entry in
+            entry.canonicalURL == canonical &&
+            (entry.deliverablesDir.hasPrefix(runsRoot.path) || entry.runDir.hasPrefix(runsRoot.path))
+        }) {
+            let oldPath = !existing.deliverablesDir.isEmpty ? existing.deliverablesDir : existing.runDir
+            let oldURL = URL(fileURLWithPath: oldPath).standardizedFileURL
+            guard oldURL.path.hasPrefix(runsRoot.path) else {
+                throw NSError(domain: "SCOPE.Overwrite", code: 1, userInfo: [NSLocalizedDescriptionKey: "Refusing to delete outside campaign runs folder."])
+            }
+            print("OVERWRITE_URL: \(canonical) old=\(existing.id) new=\(run.id)")
+            if fm.fileExists(atPath: oldURL.path) {
+                do {
+                    try fm.removeItem(at: oldURL)
+                } catch {
+                    throw NSError(domain: "SCOPE.Overwrite", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to delete old run folder."])
+                }
+            }
+            history.removeAll { $0.id == existing.id }
+        }
+        history.insert(run, at: 0)
+        saveRunHistory(history)
+        return history
     }
 
     func listCampaigns(exportRoot: String) -> [CampaignSummary] {
