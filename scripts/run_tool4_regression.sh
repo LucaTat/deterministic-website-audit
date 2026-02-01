@@ -38,4 +38,9 @@ PY
   exit 2
 fi
 
+if ! "$PYTHON" scripts/write_tool_summary.py "$RUN_DIR" "regression" "regression/regression.pdf" >/dev/null 2>&1; then
+  echo "ERROR tool4 summary"
+  exit 2
+fi
+
 echo "OK tool4 $PDF_PATH"

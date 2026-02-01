@@ -38,4 +38,9 @@ PY
   exit 2
 fi
 
+if ! "$PYTHON" scripts/write_tool_summary.py "$RUN_DIR" "proof_pack" "proof_pack/proof_pack.pdf" >/dev/null 2>&1; then
+  echo "ERROR tool3 summary"
+  exit 2
+fi
+
 echo "OK tool3 $PDF_PATH"

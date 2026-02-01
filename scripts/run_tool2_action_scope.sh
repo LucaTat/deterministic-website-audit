@@ -38,4 +38,9 @@ PY
   exit 2
 fi
 
+if ! "$PYTHON" scripts/write_tool_summary.py "$RUN_DIR" "action_scope" "action_scope/action_scope.pdf" >/dev/null 2>&1; then
+  echo "ERROR tool2 summary"
+  exit 2
+fi
+
 echo "OK tool2 $PDF_PATH"
