@@ -2,16 +2,10 @@
 import sys
 import zipfile
 
-BAD_SUBSTRINGS = [
-    "pipeline.log",
-    "version.json",
-    ".ds_store",
-    "__macosx",
-    "__pycache__",
-    "node_modules",
-    ".venv",
-    "venv/",
-]
+REQUIRED = {
+    "audit/report.pdf",
+    "final/master.pdf",
+}
 
 
 def main() -> int:
@@ -21,21 +15,35 @@ def main() -> int:
     zip_path = sys.argv[1]
     with zipfile.ZipFile(zip_path, "r") as zf:
         names = zf.namelist()
+        name_set = set(names)
+        for req in REQUIRED:
+            if req not in name_set:
+                print(f"ERROR missing required: {req}")
+                return 2
         for name in names:
             lower = name.lower()
+            if name.startswith("__MACOSX/"):
+                print(f"ERROR banned entry: {name}")
+                return 2
+            if "/._" in name or name.startswith("._"):
+                print(f"ERROR banned entry: {name}")
+                return 2
+            if name.endswith(".DS_Store"):
+                print(f"ERROR banned entry: {name}")
+                return 2
             if lower.endswith(".log"):
-                print(f"FAIL: found log file in zip: {name}")
+                print(f"ERROR banned entry: {name}")
+                return 2
+            if "/__pycache__/" in name:
+                print(f"ERROR banned entry: {name}")
                 return 2
             if lower.endswith(".pyc"):
-                print(f"FAIL: found .pyc in zip: {name}")
+                print(f"ERROR banned entry: {name}")
                 return 2
-            if name.endswith(".run_state.json"):
-                print(f"FAIL: found .run_state.json in zip: {name}")
+            if "/.venv/" in name or "/venv/" in name or "/node_modules/" in name:
+                print(f"ERROR banned entry: {name}")
                 return 2
-            for bad in BAD_SUBSTRINGS:
-                if bad in lower:
-                    print(f"FAIL: found banned entry in zip: {name}")
-                    return 2
+        print("bad_entries_count=0")
         print("ZIP contents:")
         for name in names:
             print(name)

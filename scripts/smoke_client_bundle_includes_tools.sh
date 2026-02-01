@@ -22,7 +22,7 @@ def make_pdf(path):
     c.showPage()
     c.save()
 
-make_pdf(os.path.join(run_dir, "audit", "audit.pdf"))
+make_pdf(os.path.join(run_dir, "audit", "report.pdf"))
 make_pdf(os.path.join(run_dir, "astra", "deliverables", "Decision_Brief_RO.pdf"))
 make_pdf(os.path.join(run_dir, "action_scope", "Action_Scope_RO.pdf"))
 make_pdf(os.path.join(run_dir, "proof_pack", "Implementation_Proof_RO.pdf"))
@@ -43,7 +43,7 @@ import zipfile
 
 zip_path = sys.argv[1]
 required = [
-    "audit/",
+    "audit/report.pdf",
     "action_scope/",
     "proof_pack/",
     "regression/",
