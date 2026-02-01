@@ -16,18 +16,11 @@ Client-safe, deterministic delivery workflow for paid audits.
 ## Operator Steps (Paid Audit Delivery)
 1) Locate the run directory:
    - `<RUN_DIR>` is the run folder for the audit.
-2) Build the master PDF:
-   - `bash scripts/build_master_pdf.sh "<RUN_DIR>"`
+2) Run the canonical operator command:
+   - `scripts/run_paid_audit.sh "<RUN_DIR>"`
    - Output: `<RUN_DIR>/final/master.pdf`
-3) Package client-safe ZIP:
-   - `bash scripts/package_run_client_safe_zip.sh "<RUN_DIR>"`
-   - Output: `<RUN_DIR>/client_safe_bundle_<run_basename>.zip`
-4) Move ZIP to canonical location:
-   - `mkdir -p "<RUN_DIR>/final"`
-   - `mv "<RUN_DIR>/client_safe_bundle_<run_basename>.zip" "<RUN_DIR>/final/client_safe_bundle.zip"`
-5) Verify ZIP:
-   - `python3 scripts/verify_client_safe_zip.py "<RUN_DIR>/final/client_safe_bundle.zip"`
-6) Final check:
+   - Output: `<RUN_DIR>/final/client_safe_bundle.zip`
+3) Final check:
    - Open `final/master.pdf` and confirm it renders correctly.
    - Open the ZIP and confirm files look correct and client‑safe.
 
