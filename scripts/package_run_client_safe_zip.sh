@@ -8,7 +8,7 @@ fi
 
 DET_RUN_DIR="$1"
 if [[ ! -d "$DET_RUN_DIR" ]]; then
-  echo "FATAL: run dir not found: $DET_RUN_DIR"
+  echo "ERROR run dir not found"
   exit 2
 fi
 
@@ -49,11 +49,11 @@ if [[ -z "$LANG" ]]; then
 fi
 
 if [[ -z "$LANG" ]]; then
-  echo "FATAL: could not determine language for run: $RUN_DIR"
+  echo "ERROR language missing"
   exit 2
 fi
 
-LANG_UP="${LANG^^}"
+LANG_UP="$(printf "%s" "$LANG" | tr '[:lower:]' '[:upper:]')"
 
 FILES=()
 
@@ -108,7 +108,7 @@ for d in "${INCLUDE_DIRS[@]}"; do
 done
 
 if [[ ${#FILES[@]} -eq 0 ]]; then
-  echo "FATAL: no allowlisted files found for: $RUN_DIR"
+  echo "ERROR no files"
   exit 2
 fi
 
@@ -116,7 +116,7 @@ ZIP_LIST="$(mktemp "$RUN_DIR/zip_list.XXXXXX")"
 printf "%s\n" "${FILES[@]}" | LC_ALL=C sort -u > "$ZIP_LIST"
 
 ZIP_LIST_FILTERED="$(mktemp "$RUN_DIR/zip_list.filtered.XXXXXX")"
-rg -v '(^|/)\.run_state\.json$|(^|/)pipeline\.log$|(^|/)version\.json$|\.log$|(^|/)__pycache__(/|$)|\.pyc$|(^|/)\.DS_Store$|(^|/)node_modules(/|$)|(^|/)(\.venv|venv)(/|$)' "$ZIP_LIST" > "$ZIP_LIST_FILTERED" || true
+rg -v '(^|/)\.run_state\.json$|(^|/)pipeline\.log$|(^|/)version\.json$|\.log$|(^|/)__pycache__(/|$)|\.pyc$|(^|/)\.DS_Store$|(^|/)node_modules(/|$)|(^|/)(\.venv|venv)(/|$)|(^|/)__MACOSX(/|$)|(^|/)\._' "$ZIP_LIST" > "$ZIP_LIST_FILTERED" || true
 mv -f "$ZIP_LIST_FILTERED" "$ZIP_LIST"
 
 ZIP_LIST_REL="$(mktemp "$RUN_DIR/zip_list.rel.XXXXXX")"
@@ -132,18 +132,20 @@ LC_ALL=C sort -u "$ZIP_LIST_REL" > "$ZIP_LIST"
 rm -f "$ZIP_LIST_REL"
 
 if [[ ! -s "$ZIP_LIST" ]]; then
-  echo "FATAL: ZIP list is empty after filtering"
+  echo "ERROR empty zip list"
   rm -f "$ZIP_LIST"
   exit 2
 fi
 
-ZIP_PATH="$RUN_DIR/client_safe_bundle_${RUN_BASE}.zip"
+FINAL_DIR="$RUN_DIR/final"
+mkdir -p "$FINAL_DIR"
+ZIP_PATH="$FINAL_DIR/client_safe_bundle.zip"
 if ! ( rm -f "$ZIP_PATH" && cd "$RUN_DIR" && zip "$ZIP_PATH" -@ < "$ZIP_LIST" >/dev/null ); then
-  echo "FATAL: ZIP packaging failed"
+  echo "ERROR zip failed"
   rm -f "$ZIP_LIST"
   exit 2
 fi
 
 rm -f "$ZIP_LIST"
 
-echo "Client-safe ZIP ready: $ZIP_PATH"
+echo "OK $ZIP_PATH"

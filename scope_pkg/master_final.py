@@ -18,6 +18,7 @@ BUCKETS = [
         "report.pdf",
     ]),
     ("astra_decision", True, [
+        "astra/deliverables/Decision_Brief*.pdf",
         "astra/Decision Brief*.pdf",
         "astra/*.pdf",
         "astra/final_decision/ASTRA_Traffic_Readiness_Decision_*.pdf",

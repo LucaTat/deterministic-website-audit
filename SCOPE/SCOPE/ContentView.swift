@@ -182,6 +182,11 @@ struct ContentView: View {
     @State private var runExportTask: Process? = nil
     @State private var runExportRunID: String? = nil
     @State private var runExportCancelRequested: Bool = false
+
+    @State private var toolRunning: Bool = false
+    @State private var toolStatus: String? = nil
+    @State private var toolTask: Process? = nil
+    @State private var toolRunID: String? = nil
     
     @State private var uiRefreshTick: Int = 0
     @State private var showNewCampaignSheet: Bool = false
@@ -869,6 +874,70 @@ struct ContentView: View {
                                             .buttonStyle(.bordered)
                                         }
 
+                                        let toolDisabled = isRunning || runExportRunning || toolRunning
+                                        Button("Run Tool 2 — Action Scope") {
+                                            guard let repoRoot = resolvedRepoRoot() else {
+                                                toolStatus = "Export failed: Tool 2"
+                                                return
+                                            }
+                                            let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool2_action_scope.sh")
+                                            runTool(stepName: "Tool 2", scriptPath: scriptPath, entry: entry, expectedFolder: "action_scope")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(toolDisabled)
+                                        .opacity(buttonOpacity(disabled: toolDisabled))
+
+                                        Button("Run Tool 3 — Implementation Proof") {
+                                            guard let repoRoot = resolvedRepoRoot() else {
+                                                toolStatus = "Export failed: Tool 3"
+                                                return
+                                            }
+                                            let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool3_proof_pack.sh")
+                                            runTool(stepName: "Tool 3", scriptPath: scriptPath, entry: entry, expectedFolder: "proof_pack")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(toolDisabled)
+                                        .opacity(buttonOpacity(disabled: toolDisabled))
+
+                                        Button("Run Tool 4 — Regression Guard") {
+                                            guard let repoRoot = resolvedRepoRoot() else {
+                                                toolStatus = "Export failed: Tool 4"
+                                                return
+                                            }
+                                            let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool4_regression.sh")
+                                            runTool(stepName: "Tool 4", scriptPath: scriptPath, entry: entry, expectedFolder: "regression")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(toolDisabled)
+                                        .opacity(buttonOpacity(disabled: toolDisabled))
+
+                                        let tool2Path = toolPDFPath(for: entry, tool: "tool2") ?? ""
+                                        let tool2Disabled = toolDisabled || tool2Path.isEmpty || !FileManager.default.fileExists(atPath: tool2Path)
+                                        Button("Open Tool2 Output") {
+                                            openToolOutput(for: entry, tool: "tool2")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(tool2Disabled)
+                                        .opacity(buttonOpacity(disabled: tool2Disabled))
+
+                                        let tool3Path = toolPDFPath(for: entry, tool: "tool3") ?? ""
+                                        let tool3Disabled = toolDisabled || tool3Path.isEmpty || !FileManager.default.fileExists(atPath: tool3Path)
+                                        Button("Open Tool3 Output") {
+                                            openToolOutput(for: entry, tool: "tool3")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(tool3Disabled)
+                                        .opacity(buttonOpacity(disabled: tool3Disabled))
+
+                                        let tool4Path = toolPDFPath(for: entry, tool: "tool4") ?? ""
+                                        let tool4Disabled = toolDisabled || tool4Path.isEmpty || !FileManager.default.fileExists(atPath: tool4Path)
+                                        Button("Open Tool4 Output") {
+                                            openToolOutput(for: entry, tool: "tool4")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(tool4Disabled)
+                                        .opacity(buttonOpacity(disabled: tool4Disabled))
+
                                         Button("Delete Run") {
                                             pendingDeleteRun = RunRecord(entry: entry)
                                             showDeleteRunConfirm = true
@@ -876,6 +945,11 @@ struct ContentView: View {
                                         .buttonStyle(.bordered)
                                     }
                                     if runExportRunID == entry.id, let status = runExportStatus {
+                                        Text(status)
+                                            .font(.footnote)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    if toolRunID == entry.id, let status = toolStatus {
                                         Text(status)
                                             .font(.footnote)
                                             .foregroundColor(.secondary)
@@ -1992,6 +2066,70 @@ struct ContentView: View {
                                         .buttonStyle(.bordered)
                                     }
 
+                                    let toolDisabled = isRunning || runExportRunning || toolRunning
+                                    Button("Run Tool 2 — Action Scope") {
+                                        guard let repoRoot = resolvedRepoRoot() else {
+                                            toolStatus = "Export failed: Tool 2"
+                                            return
+                                        }
+                                        let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool2_action_scope.sh")
+                                        runTool(stepName: "Tool 2", scriptPath: scriptPath, entry: entry, expectedFolder: "action_scope")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(toolDisabled)
+                                    .opacity(buttonOpacity(disabled: toolDisabled))
+
+                                    Button("Run Tool 3 — Implementation Proof") {
+                                        guard let repoRoot = resolvedRepoRoot() else {
+                                            toolStatus = "Export failed: Tool 3"
+                                            return
+                                        }
+                                        let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool3_proof_pack.sh")
+                                        runTool(stepName: "Tool 3", scriptPath: scriptPath, entry: entry, expectedFolder: "proof_pack")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(toolDisabled)
+                                    .opacity(buttonOpacity(disabled: toolDisabled))
+
+                                    Button("Run Tool 4 — Regression Guard") {
+                                        guard let repoRoot = resolvedRepoRoot() else {
+                                            toolStatus = "Export failed: Tool 4"
+                                            return
+                                        }
+                                        let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool4_regression.sh")
+                                        runTool(stepName: "Tool 4", scriptPath: scriptPath, entry: entry, expectedFolder: "regression")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(toolDisabled)
+                                    .opacity(buttonOpacity(disabled: toolDisabled))
+
+                                    let tool2Path = toolPDFPath(for: entry, tool: "tool2") ?? ""
+                                    let tool2Disabled = toolDisabled || tool2Path.isEmpty || !FileManager.default.fileExists(atPath: tool2Path)
+                                    Button("Open Tool2 Output") {
+                                        openToolOutput(for: entry, tool: "tool2")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(tool2Disabled)
+                                    .opacity(buttonOpacity(disabled: tool2Disabled))
+
+                                    let tool3Path = toolPDFPath(for: entry, tool: "tool3") ?? ""
+                                    let tool3Disabled = toolDisabled || tool3Path.isEmpty || !FileManager.default.fileExists(atPath: tool3Path)
+                                    Button("Open Tool3 Output") {
+                                        openToolOutput(for: entry, tool: "tool3")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(tool3Disabled)
+                                    .opacity(buttonOpacity(disabled: tool3Disabled))
+
+                                    let tool4Path = toolPDFPath(for: entry, tool: "tool4") ?? ""
+                                    let tool4Disabled = toolDisabled || tool4Path.isEmpty || !FileManager.default.fileExists(atPath: tool4Path)
+                                    Button("Open Tool4 Output") {
+                                        openToolOutput(for: entry, tool: "tool4")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(tool4Disabled)
+                                    .opacity(buttonOpacity(disabled: tool4Disabled))
+
                                     Button("Delete Run") {
                                         pendingDeleteRun = RunRecord(entry: entry)
                                         showDeleteRunConfirm = true
@@ -1999,6 +2137,11 @@ struct ContentView: View {
                                     .buttonStyle(.bordered)
                                 }
                                 if runExportRunID == entry.id, let status = runExportStatus {
+                                    Text(status)
+                                        .font(.footnote)
+                                        .foregroundColor(.secondary)
+                                }
+                                if toolRunID == entry.id, let status = toolStatus {
                                     Text(status)
                                         .font(.footnote)
                                         .foregroundColor(.secondary)
@@ -2404,6 +2547,37 @@ struct ContentView: View {
             try? fm.createDirectory(at: scopeDest, withIntermediateDirectories: true)
         }
 
+        let auditDir = runFolderURL.appendingPathComponent("audit")
+        let runDirURL = URL(fileURLWithPath: runDir)
+        if !fm.fileExists(atPath: auditDir.path) {
+            try? fm.createDirectory(at: auditDir, withIntermediateDirectories: true)
+        }
+        let auditReportDest = auditDir.appendingPathComponent("report.pdf")
+        if !fm.fileExists(atPath: auditReportDest.path) {
+            let auditCandidates = [
+                astraDest.appendingPathComponent("deliverables").appendingPathComponent("report.pdf").path,
+                runDirURL.appendingPathComponent("deliverables", isDirectory: true).appendingPathComponent("report.pdf").path,
+                runDirURL.appendingPathComponent("scope", isDirectory: true).appendingPathComponent("report.pdf").path,
+                runFolderURL.appendingPathComponent("deliverables").appendingPathComponent("report.pdf").path,
+                runDirURL.appendingPathComponent("report.pdf").path,
+            ]
+            if let src = auditCandidates.first(where: { fm.fileExists(atPath: $0) }) {
+                try? fm.copyItem(atPath: src, toPath: auditReportDest.path)
+            }
+        }
+        let auditReportJsonDest = auditDir.appendingPathComponent("report.json")
+        if !fm.fileExists(atPath: auditReportJsonDest.path) {
+            let jsonCandidates = [
+                astraDest.appendingPathComponent("deliverables").appendingPathComponent("report.json").path,
+                runDirURL.appendingPathComponent("deliverables", isDirectory: true).appendingPathComponent("report.json").path,
+                runDirURL.appendingPathComponent("scope", isDirectory: true).appendingPathComponent("report.json").path,
+                runDirURL.appendingPathComponent("report.json").path,
+            ]
+            if let src = jsonCandidates.first(where: { fm.fileExists(atPath: $0) }) {
+                try? fm.copyItem(atPath: src, toPath: auditReportJsonDest.path)
+            }
+        }
+
         let scopeLogSource = (runDir as NSString).appendingPathComponent("scope_run.log")
         let scopeLogDest = astraDest.appendingPathComponent("scope_run.log")
         if fm.fileExists(atPath: scopeLogSource), !fm.fileExists(atPath: scopeLogDest.path) {
@@ -2421,7 +2595,10 @@ struct ContentView: View {
 
         let deliverablesDest = astraDest.appendingPathComponent("deliverables")
         let decisionBriefName = (lang.lowercased() == "ro") ? "Decision_Brief_RO.pdf" : "Decision_Brief_EN.pdf"
-        let reportPath = deliverablesDest.appendingPathComponent(decisionBriefName).path
+        let auditReportPath = auditReportDest.path
+        let reportPath = fm.fileExists(atPath: auditReportPath)
+            ? auditReportPath
+            : deliverablesDest.appendingPathComponent(decisionBriefName).path
         let verdictPath = deliverablesDest.appendingPathComponent("verdict.json").path
         let reportExists = fm.fileExists(atPath: reportPath)
         let verdictExists = fm.fileExists(atPath: verdictPath)
@@ -2892,7 +3069,42 @@ cd "$ASTRA_ROOT"
                     let astraRunDir = deliverablesDir.isEmpty
                         ? (runDir ?? "")
                         : (deliverablesDir as NSString).appendingPathComponent("astra")
-                    let reportPath = (decisionBriefPath != nil && FileManager.default.fileExists(atPath: decisionBriefPath ?? "")) ? decisionBriefPath : nil
+                    var auditReportPath: String? = nil
+                    var auditCopyError: String? = nil
+                    if code == 0 && !deliverablesDir.isEmpty, let repoRoot = self.resolvedRepoRoot() {
+                        let auditDir = URL(fileURLWithPath: deliverablesDir).appendingPathComponent("audit", isDirectory: true)
+                        if !FileManager.default.fileExists(atPath: auditDir.path) {
+                            try? FileManager.default.createDirectory(at: auditDir, withIntermediateDirectories: true)
+                        }
+                        let parsedPdf = self.lastMatch(in: logSnapshot, pattern: "Saved PDF:\\s+(.+\\\\.pdf)")
+                            ?? self.lastMatch(in: logSnapshot, pattern: "pdf:\\s+(.+\\\\.pdf)")
+                        let parsedJson = self.lastMatch(in: logSnapshot, pattern: "Saved JSON:\\s+(.+\\\\.json)")
+                            ?? self.lastMatch(in: logSnapshot, pattern: "json:\\s+(.+\\\\.json)")
+                        let auditDest = auditDir.appendingPathComponent("report.pdf").path
+                        if let parsedPdf, FileManager.default.fileExists(atPath: parsedPdf) {
+                            try? FileManager.default.removeItem(atPath: auditDest)
+                            if (try? FileManager.default.copyItem(atPath: parsedPdf, toPath: auditDest)) != nil {
+                                auditReportPath = auditDest
+                            }
+                        } else if let fallback = self.findRecentAuditPDF(repoRoot: repoRoot) {
+                            try? FileManager.default.removeItem(atPath: auditDest)
+                            if (try? FileManager.default.copyItem(atPath: fallback, toPath: auditDest)) != nil {
+                                auditReportPath = auditDest
+                            }
+                        }
+                        if auditReportPath == nil {
+                            auditCopyError = "ERROR could not locate Tool1 PDF"
+                        }
+
+                        if let parsedJson, FileManager.default.fileExists(atPath: parsedJson) {
+                            let jsonDest = auditDir.appendingPathComponent("report.json").path
+                            try? FileManager.default.removeItem(atPath: jsonDest)
+                            _ = try? FileManager.default.copyItem(atPath: parsedJson, toPath: jsonDest)
+                        }
+                    }
+
+                    let reportPath = auditReportPath
+                        ?? ((decisionBriefPath != nil && FileManager.default.fileExists(atPath: decisionBriefPath ?? "")) ? decisionBriefPath : nil)
                     let reportExists = reportPath != nil
                     let resolvedLogPath = scopeLogExists ? scopeLogPath : delivery.scopeLogPath
 
@@ -2972,6 +3184,12 @@ cd "$ASTRA_ROOT"
 
                         self.lastRunLang = spec.lang
                         self.lastRunStatus = status
+                        if let auditCopyError {
+                            self.lastRunStatus = "FAILED"
+                            self.runState = .error
+                            self.readyToSend = false
+                            self.logOutput += "\n\(auditCopyError)"
+                        }
                         if let campaignLangPath = delivery.campaignLangPath {
                             if self.result == nil { self.result = ScopeResult() }
                             self.result?.outDirByLang[spec.lang] = campaignLangPath
@@ -3092,6 +3310,164 @@ cd "$ASTRA_ROOT"
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         let output = String(data: data, encoding: .utf8) ?? ""
         return (p.terminationStatus, output)
+    }
+
+    private func runToolProcess(
+        executable: String,
+        arguments: [String],
+        cwd: String,
+        env: [String: String]
+    ) -> (Int32, String) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: executable)
+        p.arguments = arguments
+        p.currentDirectoryURL = URL(fileURLWithPath: cwd)
+        p.environment = env
+
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = pipe
+
+        DispatchQueue.main.async {
+            self.toolTask = p
+        }
+
+        do {
+            try p.run()
+        } catch {
+            return (1, "")
+        }
+        p.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8) ?? ""
+        return (p.terminationStatus, output)
+    }
+
+    private func lastMatch(in text: String, pattern: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        var result: String? = nil
+        regex.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
+            guard let match, match.numberOfRanges > 1 else { return }
+            if let r = Range(match.range(at: 1), in: text) {
+                result = String(text[r]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return result
+    }
+
+    private func findRecentAuditPDF(repoRoot: String) -> String? {
+        let reportsRoot = URL(fileURLWithPath: repoRoot).appendingPathComponent("reports", isDirectory: true)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: reportsRoot.path) else { return nil }
+        let cutoff = Date().addingTimeInterval(-30 * 60)
+        guard let enumerator = fm.enumerator(at: reportsRoot, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]) else {
+            return nil
+        }
+        var bestPath: String? = nil
+        var bestDate: Date = Date.distantPast
+        for case let url as URL in enumerator {
+            if !url.path.lowercased().hasSuffix(".pdf") { continue }
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+            let modified = values?.contentModificationDate ?? Date.distantPast
+            if modified < cutoff { continue }
+            if modified > bestDate {
+                bestDate = modified
+                bestPath = url.path
+            } else if modified == bestDate {
+                if let currentBest = bestPath, url.path < currentBest {
+                    bestPath = url.path
+                }
+            }
+        }
+        return bestPath
+    }
+
+    private func toolOutputPath(for entry: RunEntry, folder: String, fileName: String) -> String? {
+        guard let runDir = runRootPath(for: entry) else { return nil }
+        let base = URL(fileURLWithPath: runDir).appendingPathComponent(folder, isDirectory: true)
+        return base.appendingPathComponent(fileName).path
+    }
+
+    private func runTool(stepName: String, scriptPath: String, entry: RunEntry, expectedFolder: String) {
+        guard !toolRunning else { return }
+        guard let runDir = runRootPath(for: entry) else {
+            toolStatus = "Export failed: \(stepName)"
+            return
+        }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: runDir, isDirectory: &isDir), isDir.boolValue else {
+            toolStatus = "Export failed: \(stepName)"
+            return
+        }
+        guard let repoRoot = resolvedRepoRoot() else {
+            toolStatus = "Export failed: \(stepName)"
+            return
+        }
+
+        toolRunning = true
+        toolRunID = entry.id
+        toolStatus = "Running \(stepName)…"
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let venvBin = (repoRoot as NSString).appendingPathComponent(".venv/bin")
+            var env = ProcessInfo.processInfo.environment
+            env["PATH"] = venvBin + ":" + (env["PATH"] ?? "")
+
+            let result = self.runToolProcess(
+                executable: "/usr/bin/env",
+                arguments: ["bash", scriptPath, runDir],
+                cwd: repoRoot,
+                env: env
+            )
+
+            DispatchQueue.main.async {
+                self.toolRunning = false
+                self.toolTask = nil
+                self.toolRunID = nil
+
+                if result.0 != 0 {
+                    self.toolStatus = "Export failed: \(stepName)"
+                    return
+                }
+
+                let folderPath = (runDir as NSString).appendingPathComponent(expectedFolder)
+                let pdfFound = (try? FileManager.default.contentsOfDirectory(atPath: folderPath))?.contains(where: { $0.lowercased().hasSuffix(".pdf") }) ?? false
+                self.toolStatus = pdfFound ? "OK \(stepName)" : "No output produced"
+            }
+        }
+    }
+
+    private func toolPDFPath(for entry: RunEntry, tool: String) -> String? {
+        guard let runDir = runRootPath(for: entry) else { return nil }
+        switch tool {
+        case "tool2":
+            return URL(fileURLWithPath: runDir)
+                .appendingPathComponent("action_scope", isDirectory: true)
+                .appendingPathComponent("action_scope.pdf").path
+        case "tool3":
+            return URL(fileURLWithPath: runDir)
+                .appendingPathComponent("proof_pack", isDirectory: true)
+                .appendingPathComponent("proof_pack.pdf").path
+        case "tool4":
+            return URL(fileURLWithPath: runDir)
+                .appendingPathComponent("regression", isDirectory: true)
+                .appendingPathComponent("regression.pdf").path
+        default:
+            return nil
+        }
+    }
+
+    private func openToolOutput(for entry: RunEntry, tool: String) {
+        guard let path = toolPDFPath(for: entry, tool: tool) else {
+            toolStatus = "No output produced"
+            return
+        }
+        if FileManager.default.fileExists(atPath: path) {
+            revealAndOpenFile(path)
+        } else {
+            toolStatus = "No output produced"
+        }
     }
 
     private func runExportClientBundle(for entry: RunEntry) {

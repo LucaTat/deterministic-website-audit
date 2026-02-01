@@ -34,7 +34,7 @@ with open(os.path.join(run_dir, "astra", "pipeline.log"), "w", encoding="utf-8")
 PY
 
 bash "$ROOT/scripts/package_run_client_safe_zip.sh" "$RUN_DIR"
-ZIP_PATH="$RUN_DIR/client_safe_bundle_$(basename "$RUN_DIR").zip"
+ZIP_PATH="$RUN_DIR/final/client_safe_bundle.zip"
 python3 "$ROOT/scripts/verify_client_safe_zip.py" "$ZIP_PATH" >/dev/null
 
 python3 - <<'PY' "$ZIP_PATH"

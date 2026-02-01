@@ -13,5 +13,6 @@ if [[ ! -d "$RUN_DIR" ]]; then
 fi
 
 OUT_PDF="$RUN_DIR/final/master.pdf"
+mkdir -p "$RUN_DIR/final"
 
 python3 -m scope.master_final --run-dir "$RUN_DIR" --out "$OUT_PDF"
