@@ -6,7 +6,7 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 RUN_DIR="$TMP_DIR/run_ro"
-mkdir -p "$RUN_DIR/audit" "$RUN_DIR/astra" "$RUN_DIR/action_scope" "$RUN_DIR/proof_pack" "$RUN_DIR/regression" "$RUN_DIR/final"
+mkdir -p "$RUN_DIR/audit" "$RUN_DIR/astra/deliverables" "$RUN_DIR/action_scope" "$RUN_DIR/proof_pack" "$RUN_DIR/regression" "$RUN_DIR/final"
 
 python3 - <<'PY' "$RUN_DIR"
 import os
@@ -23,7 +23,7 @@ def make_pdf(path):
     c.save()
 
 make_pdf(os.path.join(run_dir, "audit", "audit.pdf"))
-make_pdf(os.path.join(run_dir, "astra", "Decision_Brief_X_RO.pdf"))
+make_pdf(os.path.join(run_dir, "astra", "deliverables", "Decision_Brief_RO.pdf"))
 make_pdf(os.path.join(run_dir, "action_scope", "Action_Scope_RO.pdf"))
 make_pdf(os.path.join(run_dir, "proof_pack", "Implementation_Proof_RO.pdf"))
 make_pdf(os.path.join(run_dir, "regression", "Regression_Guard_RO.pdf"))
@@ -44,11 +44,11 @@ import zipfile
 zip_path = sys.argv[1]
 required = [
     "audit/",
-    "astra/",
     "action_scope/",
     "proof_pack/",
     "regression/",
     "final/master.pdf",
+    "astra/deliverables/Decision_Brief_RO.pdf",
 ]
 with zipfile.ZipFile(zip_path, "r") as zf:
     names = zf.namelist()
@@ -63,6 +63,9 @@ with zipfile.ZipFile(zip_path, "r") as zf:
             if item not in names:
                 print(f"FATAL: missing {item}")
                 raise SystemExit(2)
+    if any(n.startswith("astra/scope/") for n in names):
+        print("FATAL: astra/scope should not be included")
+        raise SystemExit(2)
     bad = [n for n in names if n.endswith(".log") or "__pycache__" in n or n.endswith(".pyc")]
     if bad:
         print(f"FATAL: forbidden entries present: {bad}")
