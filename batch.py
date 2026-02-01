@@ -9,6 +9,9 @@ import subprocess
 import sys
 import requests
 from urllib.parse import urlparse
+from collections import deque
+import json
+import csv
 from datetime import datetime, timezone
 from finding_policy import enforce_policy_on_findings
 from findings_enricher import enrich_findings
@@ -840,6 +843,7 @@ def main():
     ok_count = 0
     broken_count = 0
     unknown_count = 0
+    collected_rows = []
 
     tool_version = get_tool_version()
     for i, t in enumerate(targets, start=1):
@@ -923,6 +927,33 @@ def main():
         if tb:
             with open(os.path.join(out_folder, "error_traceback.txt"), "w", encoding="utf-8") as f:
                f.write(tb)
+
+        # Collect CSV row
+        narrative = result.get("client_narrative") or {}
+        primary = narrative.get("primary_issue")
+        p_title = primary.get("title", "") if isinstance(primary, dict) else str(primary)
+        
+        row = {
+            "domain": display,
+            "score": signals.get("score", 0),
+            "mode": mode,
+            "primary_issue": p_title,
+            "confidence": narrative.get("confidence", ""),
+        }
+        collected_rows.append(row)
+
+    # Write deterministic CSV
+    if collected_rows:
+        fieldnames = ["domain", "score", "mode", "primary_issue", "confidence"]
+        try:
+            with open(csv_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                for row in collected_rows:
+                    writer.writerow(row)
+            logger.info(f"Saved batch summary CSV: {csv_path}")
+        except Exception as e:
+            logger.error(f"Failed to write CSV: {e}")
 
     if unknown_count > 0:
         print(f"Done — {ok_count} OK, {broken_count} BROKEN, {unknown_count} UNKNOWN")

@@ -65,10 +65,9 @@ def validate_url(url: str) -> None:
                 if ip_obj in private_range:
                     raise ValueError(f"Target resolves to private IP: {ip_str}")
     except socket.gaierror:
-        # If we can't resolve it, it might be an internal name or just broken.
-        # For security, we might choose to fail, or let requests handle it.
-        # Here we let it pass, assuming requests will fail if DNS is broken.
-        pass
+        # Failsafe: if we can't resolve it, we can't verify it's not a private IP.
+        # Fail closed for security.
+        raise ValueError(f"DNS resolution failed for {parsed.hostname}")
 
 
 def read_limited_text(resp: Any, max_bytes: int | None) -> tuple[str, bool]:

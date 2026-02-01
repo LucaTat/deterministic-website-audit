@@ -13,6 +13,16 @@ The tool is designed for agency use:
 - no crawling creep,
 - no false-positive FAILs.
 
+- no false-positive FAILs.
+
+---
+
+## Developer Policy: Virtual Environments
+To prevent dependency conflicts, this repository enforces strict `.venv` isolation.
+- **One venv per repo**: Never share a global or ASTRA-wide venv with this project.
+- **Enforcement**: Scripts will fail if not run from `deterministic-website-audit/.venv`.
+- **Setup**: Run `bash scripts/bootstrap_venv.sh` to create/update the environment.
+
 ---
 
 ## Input / Output

@@ -7,9 +7,15 @@ Focus: high-signal issues that directly impact conversions.
 No AI is used in analysis. All outputs are deterministic.
 
 ## Setup
-1. `python -m venv .venv`
-2. `source .venv/bin/activate`
-3. `pip install -r requirements.txt`
+1. **Bootstrap (First Run):**
+   ```bash
+   bash scripts/bootstrap_venv.sh
+   ```
+2. **Activate:**
+   ```bash
+   source .venv/bin/activate
+   ```
+3. **Never reuse virtualenvs between `astra` and `deterministic-website-audit`.**
 
 ## Outputs
 - audit.pdf → client-facing, clean, consultant-grade
