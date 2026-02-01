@@ -179,6 +179,12 @@ struct ContentView: View {
 
     @State private var exportIsRunning: Bool = false
     @State private var exportStatusText: String = "Ready"
+    @State private var exportStartTime: Date? = nil
+    @State private var exportBuildEndTime: Date? = nil
+    @State private var exportPackageEndTime: Date? = nil
+    @State private var exportVerifyEndTime: Date? = nil
+    @State private var exportMetricsText: String? = nil
+    @State private var exportSizesText: String? = nil
     @State private var runExportTask: Process? = nil
     @State private var runExportRunID: String? = nil
     @State private var runExportCancelRequested: Bool = false
@@ -974,6 +980,18 @@ struct ContentView: View {
                                     Text(exportStatusLabel(for: entry))
                                         .font(.footnote)
                                         .foregroundColor(.secondary)
+                                    if runExportRunID == entry.id {
+                                        if let metrics = exportMetricsText {
+                                            Text(metrics)
+                                                .font(.footnote)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        if let sizes = exportSizesText {
+                                            Text(sizes)
+                                                .font(.footnote)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
                                     if toolRunID == entry.id, let status = toolStatus {
                                         Text(status)
                                             .font(.footnote)
@@ -3334,6 +3352,24 @@ cd "$ASTRA_ROOT"
         return "Ready"
     }
 
+    private func formatSeconds(_ seconds: Double?) -> String {
+        guard let seconds else { return "0.0s" }
+        let rounded = (seconds * 10).rounded() / 10
+        return String(format: "%.1fs", rounded)
+    }
+
+    private func formatKB(_ bytes: Int?) -> String {
+        guard let bytes else { return "0 KB" }
+        let kb = Int((Double(bytes) / 1024.0).rounded())
+        return "\(kb) KB"
+    }
+
+    private func fileSizeBytes(_ path: String) -> Int? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = attrs[.size] as? NSNumber else { return nil }
+        return size.intValue
+    }
+
     private func lastOkErrorLine(from output: String) -> String? {
         var result: String? = nil
         for lineSub in output.split(separator: "\n") {
@@ -3554,6 +3590,12 @@ cd "$ASTRA_ROOT"
         runExportRunID = entry.id
         runExportCancelRequested = false
         exportStatusText = "Building master PDF…"
+        exportStartTime = Date()
+        exportBuildEndTime = nil
+        exportPackageEndTime = nil
+        exportVerifyEndTime = nil
+        exportMetricsText = nil
+        exportSizesText = nil
 
         DispatchQueue.global(qos: .userInitiated).async {
             let fm = FileManager.default
@@ -3599,6 +3641,7 @@ cd "$ASTRA_ROOT"
             }
 
             DispatchQueue.main.async {
+                self.exportBuildEndTime = Date()
                 self.exportStatusText = "Packaging client bundle…"
             }
 
@@ -3625,6 +3668,7 @@ cd "$ASTRA_ROOT"
             }
 
             DispatchQueue.main.async {
+                self.exportPackageEndTime = Date()
                 self.exportStatusText = "Verifying bundle…"
             }
 
@@ -3640,6 +3684,15 @@ cd "$ASTRA_ROOT"
             }
 
             DispatchQueue.main.async {
+                self.exportVerifyEndTime = Date()
+                let buildSecs = self.exportBuildEndTime?.timeIntervalSince(self.exportStartTime ?? Date())
+                let packageSecs = self.exportPackageEndTime?.timeIntervalSince(self.exportBuildEndTime ?? self.exportStartTime ?? Date())
+                let verifySecs = self.exportVerifyEndTime?.timeIntervalSince(self.exportPackageEndTime ?? self.exportStartTime ?? Date())
+                let totalSecs = self.exportVerifyEndTime?.timeIntervalSince(self.exportStartTime ?? Date())
+                self.exportMetricsText = "Build \(self.formatSeconds(buildSecs)) · Package \(self.formatSeconds(packageSecs)) · Verify \(self.formatSeconds(verifySecs)) · Total \(self.formatSeconds(totalSecs))"
+                let masterSize = self.fileSizeBytes(masterPdf)
+                let zipSize = self.fileSizeBytes(finalZip)
+                self.exportSizesText = "master.pdf \(self.formatKB(masterSize)) · bundle \(self.formatKB(zipSize))"
                 self.exportStatusText = "Verified"
             }
             finish("OK: client_safe_bundle.zip")
