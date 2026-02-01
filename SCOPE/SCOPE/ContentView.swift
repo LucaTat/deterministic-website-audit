@@ -3279,7 +3279,7 @@ cd "$ASTRA_ROOT"
 
     private func exportStatusText(for entry: RunEntry) -> String {
         if runExportRunning, runExportRunID == entry.id {
-            return "Exporting… (master → zip → verify)"
+            return "Exporting…"
         }
         if runExportRunID == entry.id, let status = runExportStatus {
             return status
@@ -3490,23 +3490,23 @@ cd "$ASTRA_ROOT"
     private func runExportClientBundle(for entry: RunEntry) {
         guard !runExportRunning else { return }
         guard let runDir = runRootPath(for: entry) else {
-            runExportStatus = "ERROR: run directory missing"
+            runExportStatus = "ERROR: Build master"
             return
         }
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: runDir, isDirectory: &isDir), isDir.boolValue else {
-            runExportStatus = "ERROR: run directory missing"
+            runExportStatus = "ERROR: Build master"
             return
         }
         guard let repoRoot = resolvedRepoRoot() else {
-            runExportStatus = "ERROR: repo root missing"
+            runExportStatus = "ERROR: Build master"
             return
         }
 
         runExportRunning = true
         runExportRunID = entry.id
         runExportCancelRequested = false
-        runExportStatus = "Exporting… (master → zip → verify)"
+        runExportStatus = "Exporting…"
 
         DispatchQueue.global(qos: .userInitiated).async {
             let fm = FileManager.default
@@ -3527,7 +3527,7 @@ cd "$ASTRA_ROOT"
             }
 
             if self.isRunExportCanceled() {
-                finish("ERROR: canceled")
+                finish("ERROR: Build master")
                 return
             }
 
@@ -3543,7 +3543,7 @@ cd "$ASTRA_ROOT"
             }
             let buildLine = self.lastOkErrorLine(from: buildResult.1)
             if buildResult.0 != 0 || (buildLine?.hasPrefix("ERROR ") ?? false) || buildLine == nil {
-                finish("ERROR: master")
+                finish("ERROR: Build master")
                 return
             }
 
@@ -3554,12 +3554,12 @@ cd "$ASTRA_ROOT"
                 env: env
             )
             if self.isRunExportCanceled() {
-                finish("ERROR: canceled")
+                finish("ERROR: Package zip")
                 return
             }
             let packageLine = self.lastOkErrorLine(from: packageResult.1)
             if packageResult.0 != 0 || (packageLine?.hasPrefix("ERROR ") ?? false) || packageLine == nil {
-                finish("ERROR: zip")
+                finish("ERROR: Package zip")
                 return
             }
 
@@ -3582,7 +3582,7 @@ cd "$ASTRA_ROOT"
 
             let verifyTarget = fm.fileExists(atPath: finalZip) ? finalZip : defaultZip
             if !fm.fileExists(atPath: verifyTarget) {
-                finish("ERROR: zip missing")
+                finish("ERROR: Package zip")
                 return
             }
 
@@ -3593,7 +3593,7 @@ cd "$ASTRA_ROOT"
                 env: env
             )
             if verifyResult.0 != 0 {
-                finish("ERROR: verify")
+                finish("ERROR: Verify zip")
                 return
             }
 
