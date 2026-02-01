@@ -140,4 +140,12 @@ fi
 
 rm -f "$ZIP_LIST"
 
+if [[ -d "$FINAL_DIR/client_safe_bundle" ]]; then
+  rm -rf "$FINAL_DIR/client_safe_bundle"
+fi
+if [[ -f "$FINAL_DIR/.DS_Store" ]]; then
+  rm -f "$FINAL_DIR/.DS_Store"
+fi
+find "$FINAL_DIR" -name ".DS_Store" -type f -delete >/dev/null 2>&1 || true
+
 echo "OK $ZIP_PATH"
