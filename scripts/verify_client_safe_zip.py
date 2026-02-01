@@ -6,6 +6,7 @@ REQUIRED = {
     "audit/report.pdf",
     "final/master.pdf",
 }
+TEXT_EXTS = (".json", ".md", ".txt")
 
 
 def main() -> int:
@@ -43,6 +44,22 @@ def main() -> int:
             if "/.venv/" in name or "/venv/" in name or "/node_modules/" in name:
                 print(f"ERROR banned entry: {name}")
                 return 2
+            if lower.endswith(TEXT_EXTS):
+                try:
+                    data = zf.read(name)
+                except Exception:
+                    print(f"ERROR could not read: {name}")
+                    return 2
+                try:
+                    text = data.decode("utf-8", errors="ignore")
+                except Exception:
+                    text = ""
+                if "/Users/" in text or "/home/" in text:
+                    print(f"ERROR leaked path in: {name}")
+                    return 2
+                if "scope_repo=" in text or "scope_invoked=" in text or "scope_available=" in text:
+                    print(f"ERROR leaked notes in: {name}")
+                    return 2
         print("bad_entries_count=0")
         print("ZIP contents:")
         for name in names:
