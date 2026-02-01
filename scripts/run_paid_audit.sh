@@ -29,25 +29,24 @@ DEST_ZIP="$DEST_DIR/client_safe_bundle.zip"
 
 mkdir -p "$DEST_DIR" >/dev/null 2>&1 || true
 
+rm -rf "$RUN_DIR/astra" "$RUN_DIR/final_decision" || true
+
 ASTRA_PY="$HOME/Desktop/astra/.venv/bin/python3"
 if [[ ! -x "$ASTRA_PY" ]]; then
   echo "FATAL: ASTRA venv python missing: $ASTRA_PY" >&2
   exit 1
 fi
 
-if ! "$ASTRA_PY" -m astra.run_full_pipeline --det-run-dir "$RUN_DIR" --lang "$LANG" --force >/dev/null; then
-  echo "FATAL: ASTRA pipeline failed" >&2
-  exit 1
-fi
+"$ASTRA_PY" -m astra.run_full_pipeline --det-run-dir "$RUN_DIR" --lang "$LANG" --force
 
 ASTRA_BRIEF="$RUN_DIR/astra/deliverables/Decision_Brief_${LANG}.pdf"
 ASTRA_VERDICT="$RUN_DIR/astra/deliverables/verdict.json"
 if [[ ! -f "$ASTRA_BRIEF" ]]; then
-  echo "FATAL: ASTRA decision brief missing: $ASTRA_BRIEF" >&2
+  echo "FATAL: missing Decision Brief" >&2
   exit 1
 fi
 if [[ ! -f "$ASTRA_VERDICT" ]]; then
-  echo "FATAL: ASTRA verdict missing: $ASTRA_VERDICT" >&2
+  echo "FATAL: missing astra verdict.json" >&2
   exit 1
 fi
 
