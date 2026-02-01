@@ -867,12 +867,28 @@ struct ContentView: View {
                                         .opacity(buttonOpacity(disabled: logDisabled))
 
                                         let exportDisabled = isRunning || exportIsRunning
-                                        Button("Export Client Bundle") {
+                                        let runDirForExport = runRootPath(for: entry) ?? ""
+                                        let bundlePath = runDirForExport.isEmpty ? "" : (runDirForExport as NSString).appendingPathComponent("final/client_safe_bundle.zip")
+                                        let hasBundle = !bundlePath.isEmpty && FileManager.default.fileExists(atPath: bundlePath)
+                                        let isExportingThis = exportIsRunning && runExportRunID == entry.id
+                                        let isFailedThis = (!exportStatusText.isEmpty && exportStatusText.hasPrefix("ERROR:") && runExportRunID == entry.id)
+                                        let exportButtonLabel = isExportingThis ? "Exporting…" : (hasBundle ? "Exported ✓" : (isFailedThis ? "Retry Export" : "Export Client Bundle"))
+                                        Button(exportButtonLabel) {
                                             runExportClientBundle(for: entry)
                                         }
                                         .buttonStyle(.bordered)
                                         .disabled(exportDisabled)
                                         .opacity(buttonOpacity(disabled: exportDisabled))
+
+                                        let openBundleDisabled = isRunning || exportIsRunning || !hasBundle
+                                        Button("Open Bundle") {
+                                            if !bundlePath.isEmpty {
+                                                revealAndOpenFile(bundlePath)
+                                            }
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(openBundleDisabled)
+                                        .opacity(buttonOpacity(disabled: openBundleDisabled))
 
                                         if exportIsRunning && runExportRunID == entry.id {
                                             Button("Cancel Export") {
@@ -882,6 +898,10 @@ struct ContentView: View {
                                         }
 
                                         let toolDisabled = isRunning || exportIsRunning || toolRunning
+                                        let tool2OutputPath = toolPDFPath(for: entry, tool: "tool2") ?? ""
+                                        let tool2Exists = !tool2OutputPath.isEmpty && FileManager.default.fileExists(atPath: tool2OutputPath)
+                                        let tool3OutputPath = toolPDFPath(for: entry, tool: "tool3") ?? ""
+                                        let tool3Exists = !tool3OutputPath.isEmpty && FileManager.default.fileExists(atPath: tool3OutputPath)
                                         Button("Run Tool 2 — Action Scope") {
                                             guard let repoRoot = resolvedRepoRoot() else {
                                                 toolStatus = "Export failed: Tool 2"
@@ -903,8 +923,8 @@ struct ContentView: View {
                                             runTool(stepName: "Tool 3", scriptPath: scriptPath, entry: entry, expectedFolder: "proof_pack")
                                         }
                                         .buttonStyle(.bordered)
-                                        .disabled(toolDisabled)
-                                        .opacity(buttonOpacity(disabled: toolDisabled))
+                                        .disabled(toolDisabled || !tool2Exists)
+                                        .opacity(buttonOpacity(disabled: toolDisabled || !tool2Exists))
 
                                         Button("Run Tool 4 — Regression Guard") {
                                             guard let repoRoot = resolvedRepoRoot() else {
@@ -915,8 +935,8 @@ struct ContentView: View {
                                             runTool(stepName: "Tool 4", scriptPath: scriptPath, entry: entry, expectedFolder: "regression")
                                         }
                                         .buttonStyle(.bordered)
-                                        .disabled(toolDisabled)
-                                        .opacity(buttonOpacity(disabled: toolDisabled))
+                                        .disabled(toolDisabled || !tool3Exists)
+                                        .opacity(buttonOpacity(disabled: toolDisabled || !tool3Exists))
 
                                         let tool2Path = toolPDFPath(for: entry, tool: "tool2") ?? ""
                                         let tool2Disabled = toolDisabled || tool2Path.isEmpty || !FileManager.default.fileExists(atPath: tool2Path)
@@ -2057,12 +2077,28 @@ struct ContentView: View {
                                     .opacity(buttonOpacity(disabled: logDisabled))
 
                                     let exportDisabled = isRunning || exportIsRunning
-                                    Button("Export Client Bundle") {
+                                    let runDirForExport = runRootPath(for: entry) ?? ""
+                                    let bundlePath = runDirForExport.isEmpty ? "" : (runDirForExport as NSString).appendingPathComponent("final/client_safe_bundle.zip")
+                                    let hasBundle = !bundlePath.isEmpty && FileManager.default.fileExists(atPath: bundlePath)
+                                    let isExportingThis = exportIsRunning && runExportRunID == entry.id
+                                    let isFailedThis = (!exportStatusText.isEmpty && exportStatusText.hasPrefix("ERROR:") && runExportRunID == entry.id)
+                                    let exportButtonLabel = isExportingThis ? "Exporting…" : (hasBundle ? "Exported ✓" : (isFailedThis ? "Retry Export" : "Export Client Bundle"))
+                                    Button(exportButtonLabel) {
                                         runExportClientBundle(for: entry)
                                     }
                                     .buttonStyle(.bordered)
                                     .disabled(exportDisabled)
                                     .opacity(buttonOpacity(disabled: exportDisabled))
+
+                                    let openBundleDisabled = isRunning || exportIsRunning || !hasBundle
+                                    Button("Open Bundle") {
+                                        if !bundlePath.isEmpty {
+                                            revealAndOpenFile(bundlePath)
+                                        }
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(openBundleDisabled)
+                                    .opacity(buttonOpacity(disabled: openBundleDisabled))
 
                                     if exportIsRunning && runExportRunID == entry.id {
                                         Button("Cancel Export") {
@@ -2072,6 +2108,10 @@ struct ContentView: View {
                                     }
 
                                     let toolDisabled = isRunning || exportIsRunning || toolRunning
+                                    let tool2OutputPath = toolPDFPath(for: entry, tool: "tool2") ?? ""
+                                    let tool2Exists = !tool2OutputPath.isEmpty && FileManager.default.fileExists(atPath: tool2OutputPath)
+                                    let tool3OutputPath = toolPDFPath(for: entry, tool: "tool3") ?? ""
+                                    let tool3Exists = !tool3OutputPath.isEmpty && FileManager.default.fileExists(atPath: tool3OutputPath)
                                     Button("Run Tool 2 — Action Scope") {
                                         guard let repoRoot = resolvedRepoRoot() else {
                                             toolStatus = "Export failed: Tool 2"
@@ -2093,8 +2133,8 @@ struct ContentView: View {
                                         runTool(stepName: "Tool 3", scriptPath: scriptPath, entry: entry, expectedFolder: "proof_pack")
                                     }
                                     .buttonStyle(.bordered)
-                                    .disabled(toolDisabled)
-                                    .opacity(buttonOpacity(disabled: toolDisabled))
+                                    .disabled(toolDisabled || !tool2Exists)
+                                    .opacity(buttonOpacity(disabled: toolDisabled || !tool2Exists))
 
                                     Button("Run Tool 4 — Regression Guard") {
                                         guard let repoRoot = resolvedRepoRoot() else {
@@ -2105,8 +2145,8 @@ struct ContentView: View {
                                         runTool(stepName: "Tool 4", scriptPath: scriptPath, entry: entry, expectedFolder: "regression")
                                     }
                                     .buttonStyle(.bordered)
-                                    .disabled(toolDisabled)
-                                    .opacity(buttonOpacity(disabled: toolDisabled))
+                                    .disabled(toolDisabled || !tool3Exists)
+                                    .opacity(buttonOpacity(disabled: toolDisabled || !tool3Exists))
 
                                     let tool2Path = toolPDFPath(for: entry, tool: "tool2") ?? ""
                                     let tool2Disabled = toolDisabled || tool2Path.isEmpty || !FileManager.default.fileExists(atPath: tool2Path)
@@ -3513,7 +3553,7 @@ cd "$ASTRA_ROOT"
         exportIsRunning = true
         runExportRunID = entry.id
         runExportCancelRequested = false
-        exportStatusText = "Exporting…"
+        exportStatusText = "Building master PDF…"
 
         DispatchQueue.global(qos: .userInitiated).async {
             let fm = FileManager.default
@@ -3559,7 +3599,7 @@ cd "$ASTRA_ROOT"
             }
 
             DispatchQueue.main.async {
-                self.exportStatusText = "Master built"
+                self.exportStatusText = "Packaging client bundle…"
             }
 
             let packageResult = self.runProcess(
@@ -3577,10 +3617,6 @@ cd "$ASTRA_ROOT"
                 return
             }
 
-            DispatchQueue.main.async {
-                self.exportStatusText = "Zip packaged"
-            }
-
             let finalDir = (runDir as NSString).appendingPathComponent("final")
             let finalZip = (finalDir as NSString).appendingPathComponent("client_safe_bundle.zip")
             if !fm.fileExists(atPath: finalZip) {
@@ -3589,7 +3625,7 @@ cd "$ASTRA_ROOT"
             }
 
             DispatchQueue.main.async {
-                self.exportStatusText = "Verifying…"
+                self.exportStatusText = "Verifying bundle…"
             }
 
             let verifyResult = self.runProcess(
