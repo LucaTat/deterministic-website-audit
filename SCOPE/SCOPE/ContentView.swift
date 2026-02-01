@@ -3506,13 +3506,13 @@ cd "$ASTRA_ROOT"
         exportIsRunning = true
         runExportRunID = entry.id
         runExportCancelRequested = false
-        exportStatusText = "Exporting… (master → zip → verify)"
+        exportStatusText = "Exporting…"
 
         DispatchQueue.global(qos: .userInitiated).async {
             let fm = FileManager.default
             let venvBin = (repoRoot as NSString).appendingPathComponent(".venv/bin")
             var env = ProcessInfo.processInfo.environment
-            env["PATH"] = venvBin + ":" + (env["PATH"] ?? "")
+            env["PATH"] = venvBin + ":/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
 
             let buildScript = (repoRoot as NSString).appendingPathComponent("scripts/build_master_pdf.sh")
             let packageScript = (repoRoot as NSString).appendingPathComponent("scripts/package_run_client_safe_zip.sh")
@@ -3532,8 +3532,8 @@ cd "$ASTRA_ROOT"
             }
 
             let buildResult = self.runProcess(
-                executable: "/usr/bin/env",
-                arguments: ["bash", buildScript, runDir],
+                executable: "/bin/bash",
+                arguments: [buildScript, runDir],
                 cwd: repoRoot,
                 env: env
             )
@@ -3541,19 +3541,23 @@ cd "$ASTRA_ROOT"
                 finish("ERROR: Build master")
                 return
             }
-            let buildLine = self.lastOkErrorLine(from: buildResult.1)
-            if buildResult.0 != 0 || (buildLine?.hasPrefix("ERROR ") ?? false) || buildLine == nil {
+            if buildResult.0 != 0 {
+                finish("ERROR: Build master")
+                return
+            }
+            let masterPdf = (runDir as NSString).appendingPathComponent("final/master.pdf")
+            if !fm.fileExists(atPath: masterPdf) {
                 finish("ERROR: Build master")
                 return
             }
 
             DispatchQueue.main.async {
-                self.exportStatusText = "Packaging…"
+                self.exportStatusText = "Master built"
             }
 
             let packageResult = self.runProcess(
-                executable: "/usr/bin/env",
-                arguments: ["bash", packageScript, runDir],
+                executable: "/bin/bash",
+                arguments: [packageScript, runDir],
                 cwd: repoRoot,
                 env: env
             )
@@ -3561,31 +3565,18 @@ cd "$ASTRA_ROOT"
                 finish("ERROR: Package zip")
                 return
             }
-            let packageLine = self.lastOkErrorLine(from: packageResult.1)
-            if packageResult.0 != 0 || (packageLine?.hasPrefix("ERROR ") ?? false) || packageLine == nil {
+            if packageResult.0 != 0 {
                 finish("ERROR: Package zip")
                 return
             }
 
-            let runBase = (runDir as NSString).lastPathComponent
-            let defaultZip = (runDir as NSString).appendingPathComponent("client_safe_bundle_\(runBase).zip")
+            DispatchQueue.main.async {
+                self.exportStatusText = "Zip packaged"
+            }
+
             let finalDir = (runDir as NSString).appendingPathComponent("final")
             let finalZip = (finalDir as NSString).appendingPathComponent("client_safe_bundle.zip")
-
-            if !fm.fileExists(atPath: finalDir) {
-                try? fm.createDirectory(atPath: finalDir, withIntermediateDirectories: true)
-            }
-            if fm.fileExists(atPath: finalZip) {
-                try? fm.removeItem(atPath: finalZip)
-            }
-            if fm.fileExists(atPath: defaultZip) {
-                if (try? fm.moveItem(atPath: defaultZip, toPath: finalZip)) == nil {
-                    try? fm.copyItem(atPath: defaultZip, toPath: finalZip)
-                }
-            }
-
-            let verifyTarget = fm.fileExists(atPath: finalZip) ? finalZip : defaultZip
-            if !fm.fileExists(atPath: verifyTarget) {
+            if !fm.fileExists(atPath: finalZip) {
                 finish("ERROR: Package zip")
                 return
             }
@@ -3595,8 +3586,8 @@ cd "$ASTRA_ROOT"
             }
 
             let verifyResult = self.runProcess(
-                executable: "/usr/bin/env",
-                arguments: ["python3", verifyScript, verifyTarget],
+                executable: "/usr/bin/python3",
+                arguments: [verifyScript, finalZip],
                 cwd: repoRoot,
                 env: env
             )
@@ -3605,6 +3596,9 @@ cd "$ASTRA_ROOT"
                 return
             }
 
+            DispatchQueue.main.async {
+                self.exportStatusText = "Verified"
+            }
             finish("OK: client_safe_bundle.zip")
         }
     }
