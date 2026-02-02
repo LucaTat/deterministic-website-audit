@@ -13,10 +13,10 @@ DATE="$(date +%Y-%m-%d)"
 TARGETS_FILE="$TMP_DIR/targets.txt"
 echo "OK Test,https://example.com/" > "$TARGETS_FILE"
 
-if ! python3 "$ROOT/batch.py" --lang ro --targets "$TARGETS_FILE" --campaign "$CAMPAIGN"; then
-  echo "FATAL: tool1 batch failed"
-  exit 2
-fi
+set +e
+python3 "$ROOT/batch.py" --lang ro --targets "$TARGETS_FILE" --campaign "$CAMPAIGN"
+TOOL1_CODE=$?
+set -e
 
 TOOL1_ROOT="$ROOT/reports/$CAMPAIGN"
 TOOL1_EVIDENCE_DIR="$(find "$TOOL1_ROOT" -type d -name evidence | sort | tail -n 1)"
@@ -42,6 +42,16 @@ fi
 if [[ ! -f "$RUN_DIR/scope/evidence/home.html" || ! -f "$RUN_DIR/scope/evidence/pages.json" ]]; then
   echo "FATAL: missing tool1 evidence files"
   exit 2
+fi
+if [[ "$TOOL1_CODE" -ne 0 ]]; then
+  if [[ ! -s "$RUN_DIR/audit/report.pdf" ]]; then
+    echo "FATAL: tool1 failed and audit/report.pdf missing"
+    exit 2
+  fi
+  if [[ -z "$TOOL1_JSON" || ! -f "$TOOL1_JSON" ]]; then
+    echo "FATAL: tool1 failed and audit_ro.json missing"
+    exit 2
+  fi
 fi
 
 python3 - <<'PY' "$RUN_DIR"
@@ -80,6 +90,10 @@ if [[ ! -s "$RUN_DIR/final/master.pdf" ]]; then
   echo "FATAL: missing or empty master.pdf"
   exit 2
 fi
+if [[ ! -s "$RUN_DIR/final/MASTER_BUNDLE.pdf" ]]; then
+  echo "FATAL: missing or empty MASTER_BUNDLE.pdf"
+  exit 2
+fi
 
 python3 - <<'PY' "$ZIP_PATH"
 import sys
@@ -89,6 +103,7 @@ zip_path = sys.argv[1]
 required = [
     "audit/report.pdf",
     "final/master.pdf",
+    "final/MASTER_BUNDLE.pdf",
     "deliverables/Decision_Brief_RO.pdf",
     "deliverables/Evidence_Appendix_RO.pdf",
     "deliverables/verdict.json",

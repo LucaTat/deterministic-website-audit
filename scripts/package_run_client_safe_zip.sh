@@ -62,6 +62,7 @@ REQ_FILES=(
   "deliverables/Evidence_Appendix_${LANG}.pdf"
   "deliverables/verdict.json"
   "final/master.pdf"
+  "final/MASTER_BUNDLE.pdf"
 )
 
 OPT_FILES=()
