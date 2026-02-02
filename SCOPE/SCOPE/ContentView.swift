@@ -96,11 +96,14 @@ struct RunMetrics {
     let proofPack: Bool
     let regression: Bool
     let masterPdf: Bool
+    let masterBundle: Bool
     let bundleZip: Bool
     let checksums: Bool
     let masterSize: String?
+    let masterBundleSize: String?
     let bundleSize: String?
     let masterPages: Int?
+    let masterBundlePages: Int?
 
     init(runDir: URL) {
         let fm = FileManager.default
@@ -143,15 +146,22 @@ struct RunMetrics {
         proofPack = exists("proof_pack/proof_pack.pdf")
         regression = exists("regression/regression.pdf")
         masterPdf = exists("final/master.pdf")
+        masterBundle = exists("final/MASTER_BUNDLE.pdf")
         bundleZip = exists("final/client_safe_bundle.zip")
         checksums = exists("final/checksums.sha256")
 
         masterSize = Self.formatSize(path: runDir.appendingPathComponent("final/master.pdf"))
+        masterBundleSize = Self.formatSize(path: runDir.appendingPathComponent("final/MASTER_BUNDLE.pdf"))
         bundleSize = Self.formatSize(path: runDir.appendingPathComponent("final/client_safe_bundle.zip"))
         if masterPdf, let doc = PDFDocument(url: runDir.appendingPathComponent("final/master.pdf")) {
             masterPages = doc.pageCount
         } else {
             masterPages = nil
+        }
+        if masterBundle, let doc = PDFDocument(url: runDir.appendingPathComponent("final/MASTER_BUNDLE.pdf")) {
+            masterBundlePages = doc.pageCount
+        } else {
+            masterBundlePages = nil
         }
     }
 
@@ -1011,6 +1021,16 @@ struct ContentView: View {
                                             }
                                             .disabled(logDisabled)
 
+                                            let runDirForMaster = runRootPath(for: entry) ?? ""
+                                            let masterBundlePath = runDirForMaster.isEmpty ? "" : (runDirForMaster as NSString).appendingPathComponent("final/MASTER_BUNDLE.pdf")
+                                            let masterBundleDisabled = isRunning || masterBundlePath.isEmpty || !FileManager.default.fileExists(atPath: masterBundlePath)
+                                            Button("Open MASTER_BUNDLE") {
+                                                if !masterBundlePath.isEmpty {
+                                                    revealAndOpenFile(masterBundlePath)
+                                                }
+                                            }
+                                            .disabled(masterBundleDisabled)
+
                                             let toolDisabled = isRunning || exportIsRunning || toolRunning
                                             let tool2OutputPath = toolPDFPath(for: entry, tool: "tool2") ?? ""
                                             let tool2Exists = !tool2OutputPath.isEmpty && FileManager.default.fileExists(atPath: tool2OutputPath)
@@ -1132,18 +1152,22 @@ struct ContentView: View {
                                             Text("audit/report.pdf \(metrics.auditReport ? "✅" : "❌") · action_scope \(metrics.actionScope ? "✅" : "❌") · proof_pack \(metrics.proofPack ? "✅" : "❌")")
                                                 .font(.system(.caption, design: .monospaced))
                                                 .foregroundStyle(.primary)
-                                            Text("regression \(metrics.regression ? "✅" : "❌") · master.pdf \(metrics.masterPdf ? "✅" : "❌") · bundle.zip \(metrics.bundleZip ? "✅" : "❌")")
+                                            Text("regression \(metrics.regression ? "✅" : "❌") · master.pdf \(metrics.masterPdf ? "✅" : "❌") · MASTER_BUNDLE \(metrics.masterBundle ? "✅" : "❌") · bundle.zip \(metrics.bundleZip ? "✅" : "❌")")
                                                 .font(.system(.caption, design: .monospaced))
                                                 .foregroundStyle(.primary)
                                             let checksumsLine = metrics.checksums ? "checksums ✅" : (metrics.bundleZip ? "checksums ❌" : "checksums (export-only) —")
                                             Text(checksumsLine)
                                                 .font(.system(.caption, design: .monospaced))
                                                 .foregroundStyle(.primary)
-                                            Text("Sizes: master \(metrics.masterSize ?? "—") · bundle \(metrics.bundleSize ?? "—")")
+                                            Text("Sizes: master \(metrics.masterSize ?? "—") · bundle \(metrics.bundleSize ?? "—") · MASTER_BUNDLE \(metrics.masterBundleSize ?? "—")")
                                                 .font(.system(.caption, design: .monospaced))
                                                 .foregroundStyle(.primary)
                                             let pages = metrics.masterPages != nil ? "\(metrics.masterPages!)" : "—"
                                             Text("Master pages: \(pages)")
+                                                .font(.system(.caption, design: .monospaced))
+                                                .foregroundStyle(.primary)
+                                            let bundlePages = metrics.masterBundlePages != nil ? "\(metrics.masterBundlePages!)" : "—"
+                                            Text("MASTER_BUNDLE pages: \(bundlePages)")
                                                 .font(.system(.caption, design: .monospaced))
                                                 .foregroundStyle(.primary)
                                         }
@@ -2274,6 +2298,17 @@ struct ContentView: View {
                                     .buttonStyle(.bordered)
                                     .disabled(openBundleDisabled)
                                     .opacity(buttonOpacity(disabled: openBundleDisabled))
+
+                                    let masterBundlePath = runDirForExport.isEmpty ? "" : (runDirForExport as NSString).appendingPathComponent("final/MASTER_BUNDLE.pdf")
+                                    let openMasterBundleDisabled = isRunning || exportIsRunning || masterBundlePath.isEmpty || !FileManager.default.fileExists(atPath: masterBundlePath)
+                                    Button("Open MASTER_BUNDLE") {
+                                        if !masterBundlePath.isEmpty {
+                                            revealAndOpenFile(masterBundlePath)
+                                        }
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(openMasterBundleDisabled)
+                                    .opacity(buttonOpacity(disabled: openMasterBundleDisabled))
 
                                     if exportIsRunning && runExportRunID == entry.id {
                                         Button("Cancel Export") {
@@ -3590,6 +3625,70 @@ struct ContentView: View {
         return (p.terminationStatus, output)
     }
 
+    private func rebuildFinalOutputs(runDir: String, repoRoot: String, env: [String: String]) -> Bool {
+        let fm = FileManager.default
+        let buildScript = (repoRoot as NSString).appendingPathComponent("scripts/build_master_pdf.sh")
+        let bundleScript = (repoRoot as NSString).appendingPathComponent("scripts/build_master_bundle.py")
+        let packageScript = (repoRoot as NSString).appendingPathComponent("scripts/package_run_client_safe_zip.sh")
+        let verifyScript = (repoRoot as NSString).appendingPathComponent("scripts/verify_client_safe_zip.py")
+        let venvPy = (repoRoot as NSString).appendingPathComponent(".venv/bin/python3")
+        let pythonExec = fm.isExecutableFile(atPath: venvPy) ? venvPy : "/usr/bin/python3"
+
+        let buildResult = runToolProcess(
+            executable: "/bin/bash",
+            arguments: [buildScript, runDir],
+            cwd: repoRoot,
+            env: env
+        )
+        if buildResult.0 != 0 {
+            return false
+        }
+        let masterPdf = (runDir as NSString).appendingPathComponent("final/master.pdf")
+        if !fm.fileExists(atPath: masterPdf) {
+            return false
+        }
+
+        let bundleResult = runToolProcess(
+            executable: pythonExec,
+            arguments: [bundleScript, "--run-dir", runDir],
+            cwd: repoRoot,
+            env: env
+        )
+        if bundleResult.0 != 0 {
+            return false
+        }
+        let masterBundle = (runDir as NSString).appendingPathComponent("final/MASTER_BUNDLE.pdf")
+        if !fm.fileExists(atPath: masterBundle) {
+            return false
+        }
+
+        let packageResult = runToolProcess(
+            executable: "/bin/bash",
+            arguments: [packageScript, runDir],
+            cwd: repoRoot,
+            env: env
+        )
+        if packageResult.0 != 0 {
+            return false
+        }
+
+        let finalZip = (runDir as NSString).appendingPathComponent("final/client_safe_bundle.zip")
+        if !fm.fileExists(atPath: finalZip) {
+            return false
+        }
+
+        let verifyResult = runToolProcess(
+            executable: pythonExec,
+            arguments: [verifyScript, finalZip],
+            cwd: repoRoot,
+            env: env
+        )
+        if verifyResult.0 != 0 {
+            return false
+        }
+        return true
+    }
+
     private func lastMatch(in text: String, pattern: String) -> String? {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return nil }
         let range = NSRange(text.startIndex..., in: text)
@@ -3668,19 +3767,38 @@ struct ContentView: View {
                 env: env
             )
 
+            if result.0 != 0 {
+                DispatchQueue.main.async {
+                    self.toolRunning = false
+                    self.toolTask = nil
+                    self.toolRunID = nil
+                    self.toolStatus = "Export failed: \(stepName)"
+                }
+                return
+            }
+
+            let folderPath = (runDir as NSString).appendingPathComponent(expectedFolder)
+            let pdfFound = (try? FileManager.default.contentsOfDirectory(atPath: folderPath))?.contains(where: { $0.lowercased().hasSuffix(".pdf") }) ?? false
+            if !pdfFound {
+                DispatchQueue.main.async {
+                    self.toolRunning = false
+                    self.toolTask = nil
+                    self.toolRunID = nil
+                    self.toolStatus = "No output produced"
+                }
+                return
+            }
+
+            DispatchQueue.main.async {
+                self.toolStatus = "Rebuilding final outputs…"
+            }
+            let rebuildOk = self.rebuildFinalOutputs(runDir: runDir, repoRoot: repoRoot, env: env)
+
             DispatchQueue.main.async {
                 self.toolRunning = false
                 self.toolTask = nil
                 self.toolRunID = nil
-
-                if result.0 != 0 {
-                    self.toolStatus = "Export failed: \(stepName)"
-                    return
-                }
-
-                let folderPath = (runDir as NSString).appendingPathComponent(expectedFolder)
-                let pdfFound = (try? FileManager.default.contentsOfDirectory(atPath: folderPath))?.contains(where: { $0.lowercased().hasSuffix(".pdf") }) ?? false
-                self.toolStatus = pdfFound ? "OK \(stepName)" : "No output produced"
+                self.toolStatus = rebuildOk ? "OK \(stepName)" : "Export failed: Finalize"
             }
         }
     }
@@ -3751,8 +3869,11 @@ struct ContentView: View {
             env["PATH"] = venvBin + ":/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
 
             let buildScript = (repoRoot as NSString).appendingPathComponent("scripts/build_master_pdf.sh")
+            let bundleScript = (repoRoot as NSString).appendingPathComponent("scripts/build_master_bundle.py")
             let packageScript = (repoRoot as NSString).appendingPathComponent("scripts/package_run_client_safe_zip.sh")
             let verifyScript = (repoRoot as NSString).appendingPathComponent("scripts/verify_client_safe_zip.py")
+            let venvPy = (repoRoot as NSString).appendingPathComponent(".venv/bin/python3")
+            let pythonExec = FileManager.default.isExecutableFile(atPath: venvPy) ? venvPy : "/usr/bin/python3"
 
             func finish(_ status: String) {
                 DispatchQueue.main.async {
@@ -3784,6 +3905,30 @@ struct ContentView: View {
             let masterPdf = (runDir as NSString).appendingPathComponent("final/master.pdf")
             if !fm.fileExists(atPath: masterPdf) {
                 finish("ERROR: Build master")
+                return
+            }
+
+            DispatchQueue.main.async {
+                self.exportStatusText = "Building MASTER_BUNDLE…"
+            }
+
+            let bundleResult = self.runProcess(
+                executable: pythonExec,
+                arguments: [bundleScript, "--run-dir", runDir],
+                cwd: repoRoot,
+                env: env
+            )
+            if self.isRunExportCanceled() {
+                finish("ERROR: Build bundle")
+                return
+            }
+            if bundleResult.0 != 0 {
+                finish("ERROR: Build bundle")
+                return
+            }
+            let masterBundlePdf = (runDir as NSString).appendingPathComponent("final/MASTER_BUNDLE.pdf")
+            if !fm.fileExists(atPath: masterBundlePdf) {
+                finish("ERROR: Build bundle")
                 return
             }
 
@@ -3820,7 +3965,7 @@ struct ContentView: View {
             }
 
             let verifyResult = self.runProcess(
-                executable: "/usr/bin/python3",
+                executable: pythonExec,
                 arguments: [verifyScript, finalZip],
                 cwd: repoRoot,
                 env: env

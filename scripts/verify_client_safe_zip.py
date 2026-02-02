@@ -29,6 +29,7 @@ def main() -> int:
             f"deliverables/Evidence_Appendix_{lang}.pdf",
             "deliverables/verdict.json",
             "final/master.pdf",
+            "final/MASTER_BUNDLE.pdf",
         }
         optional = {
             "action_scope/action_scope.pdf",

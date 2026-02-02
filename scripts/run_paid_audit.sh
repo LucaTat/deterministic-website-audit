@@ -101,6 +101,16 @@ if ! bash scripts/build_master_pdf.sh "$RUN_DIR" "$LANG" >/dev/null; then
   exit 2
 fi
 
+if ! .venv/bin/python3 scripts/build_master_bundle.py --run-dir "$RUN_DIR" >/dev/null; then
+  echo "ERROR build master bundle"
+  exit 2
+fi
+
+if [[ ! -f "$RUN_DIR/final/MASTER_BUNDLE.pdf" ]]; then
+  echo "ERROR missing MASTER_BUNDLE.pdf"
+  exit 2
+fi
+
 if ! .venv/bin/python3 scripts/write_final_manifest.py "$RUN_DIR" >/dev/null; then
   echo "ERROR write manifest"
   exit 2
