@@ -136,4 +136,4 @@ if ! .venv/bin/python3 scripts/verify_client_safe_zip.py "$DEST_ZIP" >/dev/null;
   exit 2
 fi
 
-echo "OK paid_audit $DEST_ZIP"
+echo "OK paid_audit $RUN_DIR/final/MASTER_BUNDLE.pdf"
