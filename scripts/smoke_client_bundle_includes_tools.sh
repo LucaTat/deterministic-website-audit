@@ -8,6 +8,42 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 RUN_DIR="$TMP_DIR/run_ro"
 mkdir -p "$RUN_DIR/audit" "$RUN_DIR/action_scope" "$RUN_DIR/proof_pack" "$RUN_DIR/regression" "$RUN_DIR/final"
 
+CAMPAIGN="smoke_tool1_tmp"
+DATE="$(date +%Y-%m-%d)"
+TARGETS_FILE="$TMP_DIR/targets.txt"
+echo "OK Test,https://example.com/" > "$TARGETS_FILE"
+
+if ! python3 "$ROOT/batch.py" --lang ro --targets "$TARGETS_FILE" --campaign "$CAMPAIGN"; then
+  echo "FATAL: tool1 batch failed"
+  exit 2
+fi
+
+TOOL1_ROOT="$ROOT/reports/$CAMPAIGN"
+TOOL1_EVIDENCE_DIR="$(find "$TOOL1_ROOT" -type d -name evidence | sort | tail -n 1)"
+TOOL1_PDF="$(find "$TOOL1_ROOT" -type f -name 'audit_ro.pdf' | sort | tail -n 1)"
+TOOL1_JSON="$(find "$TOOL1_ROOT" -type f -name 'audit_ro.json' | sort | tail -n 1)"
+
+if [[ -z "$TOOL1_EVIDENCE_DIR" || ! -d "$TOOL1_EVIDENCE_DIR" ]]; then
+  echo "FATAL: missing tool1 evidence"
+  exit 2
+fi
+if [[ -z "$TOOL1_PDF" || ! -f "$TOOL1_PDF" ]]; then
+  echo "FATAL: missing tool1 pdf"
+  exit 2
+fi
+
+mkdir -p "$RUN_DIR/audit" "$RUN_DIR/scope/evidence"
+rsync -a "$TOOL1_EVIDENCE_DIR/" "$RUN_DIR/scope/evidence/"
+cp -f "$TOOL1_PDF" "$RUN_DIR/audit/report.pdf"
+if [[ -n "$TOOL1_JSON" && -f "$TOOL1_JSON" ]]; then
+  cp -f "$TOOL1_JSON" "$RUN_DIR/audit/audit_ro.json"
+fi
+
+if [[ ! -f "$RUN_DIR/scope/evidence/home.html" || ! -f "$RUN_DIR/scope/evidence/pages.json" ]]; then
+  echo "FATAL: missing tool1 evidence files"
+  exit 2
+fi
+
 python3 - <<'PY' "$RUN_DIR"
 import os
 import sys
