@@ -38,7 +38,23 @@ PY
   exit 2
 fi
 
-if ! "$PYTHON" scripts/write_tool_summary.py "$RUN_DIR" "regression" "regression/regression.pdf" >/dev/null 2>&1; then
+SUMMARY_PATH="$TARGET_DIR/summary.json"
+if ! "$PYTHON" - <<'PY' "$SUMMARY_PATH"; then
+import json
+import sys
+from datetime import datetime, timezone
+
+out_path = sys.argv[1]
+data = {
+    "tool": "tool4",
+    "ok": True,
+    "generated_utc": datetime.now(timezone.utc).isoformat(),
+    "artifacts": ["regression.pdf"],
+}
+with open(out_path, "w", encoding="utf-8") as f:
+    json.dump(data, f, sort_keys=True, indent=2)
+    f.write("\n")
+PY
   echo "ERROR tool4 summary"
   exit 2
 fi
