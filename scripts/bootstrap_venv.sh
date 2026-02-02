@@ -31,6 +31,10 @@ echo "Upgrading pip..."
 
 echo "Installing requirements..."
 "$PIP" install -r "$ROOT/requirements.txt"
+if [ -f "$ROOT/requirements-dev.txt" ]; then
+    echo "Installing dev requirements..."
+    "$PIP" install -r "$ROOT/requirements-dev.txt"
+fi
 
 echo
 echo "== Bootstrap Complete =="

@@ -48,6 +48,22 @@ No AI is used in analysis. All outputs are deterministic.
    python3 batch.py --lang ro --campaign <name> --targets urls.txt
 3. Find reports in /reports/<campaign>/
 
+## Security Gate (pre-push)
+Run locally:
+```bash
+scripts/sec_gate.sh
+```
+
+Run with a specific run dir for bundle checks:
+```bash
+SEC_GATE_RUN=/path/to/RUN_DIR scripts/sec_gate.sh
+```
+
+Install git pre-push hook:
+```bash
+scripts/install_hooks.sh
+```
+
 ## Constraints
 - Do not add AI-based analysis
 - Do not refactor core logic unless necessary
