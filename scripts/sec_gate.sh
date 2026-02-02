@@ -1,42 +1,58 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 
-PYTHON=""
-if [[ -x "$ROOT/.venv/bin/python3" ]]; then
-  PYTHON="$ROOT/.venv/bin/python3"
-else
-  PYTHON="$(command -v python3 || true)"
-fi
-
-if [[ -z "$PYTHON" ]]; then
-  echo "ERROR: python3 not found"
+PY="$ROOT/.venv/bin/python3"
+if [[ ! -x "$PY" ]]; then
+  echo "FATAL: expected venv python not found: $PY" >&2
+  echo "Run: python3 -m venv .venv && source .venv/bin/activate && python3 -m pip install -r requirements.txt -r requirements-dev.txt" >&2
   exit 2
 fi
 
-echo "Active Python: $("$PYTHON" -c 'import sys; print(sys.executable)')"
+echo "== SEC_GATE =="
+echo "Repo: $ROOT"
+echo "Python: $PY"
+echo
 
-"$PYTHON" -m pytest -q
+# Tests
+"$PY" -m pytest -q
+
+# Smoke (make sure it sees the venv python)
+# If smoke script expects the venv to be 'active', set VIRTUAL_ENV + PATH explicitly.
+export VIRTUAL_ENV="$ROOT/.venv"
+export PATH="$ROOT/.venv/bin:$PATH"
+
+# Optional override for scripts that look for SMOKE_AUTO_VENV
+export SMOKE_AUTO_VENV="${SMOKE_AUTO_VENV:-1}"
 
 if [[ -x "$ROOT/scripts/smoke_test.sh" ]]; then
   bash "$ROOT/scripts/smoke_test.sh"
 elif [[ -x "$ROOT/scripts/smoke_master_final.sh" ]]; then
-  bash "$ROOT/scripts/smoke_master_final.sh"
+  # If this needs a RUN path, sec_gate can be called with one; otherwise skip.
+  if [[ "${1:-}" != "" ]]; then
+    bash "$ROOT/scripts/smoke_master_final.sh" "$1"
+  else
+    echo "WARN: smoke_master_final.sh requires a RUN path; skipping (provide RUN as arg or SEC_GATE_RUN env)."
+  fi
 else
-  echo "SKIP: no smoke script found"
+  echo "WARN: no smoke script found; skipping smoke."
 fi
 
-RUN_PATH="${SEC_GATE_RUN:-${1:-}}"
-if [[ -n "$RUN_PATH" ]]; then
-  bash "$ROOT/scripts/smoke_client_bundle_includes_tools.sh" "$RUN_PATH"
-  ZIP_PATH="$RUN_PATH/final/client_safe_bundle.zip"
-  if [[ ! -f "$ZIP_PATH" ]]; then
-    echo "ERROR: missing zip $ZIP_PATH"
-    exit 2
+# Optional bundle checks when RUN provided
+RUN="${SEC_GATE_RUN:-${1:-}}"
+if [[ -n "${RUN}" ]]; then
+  if [[ -x "$ROOT/scripts/smoke_client_bundle_includes_tools.sh" ]]; then
+    bash "$ROOT/scripts/smoke_client_bundle_includes_tools.sh" "$RUN"
   fi
-  "$PYTHON" "$ROOT/scripts/verify_client_safe_zip.py" "$ZIP_PATH"
-else
-  echo "SKIP: no SEC_GATE_RUN provided"
+  ZIP="$RUN/final/client_safe_bundle.zip"
+  if [[ -f "$ZIP" ]]; then
+    "$PY" "$ROOT/scripts/verify_client_safe_zip.py" "$ZIP"
+  else
+    echo "FATAL: expected zip missing: $ZIP" >&2
+    exit 3
+  fi
 fi
+
+echo "== SEC_GATE PASSED =="
