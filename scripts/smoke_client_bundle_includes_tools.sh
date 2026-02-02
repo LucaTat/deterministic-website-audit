@@ -76,6 +76,11 @@ if [[ ! -f "$ZIP_PATH" ]]; then
 fi
 python3 "$ROOT/scripts/verify_client_safe_zip.py" "$ZIP_PATH" >/dev/null
 
+if [[ ! -s "$RUN_DIR/final/master.pdf" ]]; then
+  echo "FATAL: missing or empty master.pdf"
+  exit 2
+fi
+
 python3 - <<'PY' "$ZIP_PATH"
 import sys
 import zipfile
@@ -93,6 +98,8 @@ required = [
 ]
 with zipfile.ZipFile(zip_path, "r") as zf:
     names = zf.namelist()
+    for n in sorted(names):
+        print(n)
     for item in required:
         if item not in names:
             print(f"FATAL: missing {item}")

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export LC_ALL=C
+export LANG=C
 
 if [[ $# -ne 1 ]]; then
   echo "Usage: $0 <RUN_DIR>"
@@ -29,28 +31,72 @@ DEST_ZIP="$DEST_DIR/client_safe_bundle.zip"
 
 mkdir -p "$DEST_DIR" >/dev/null 2>&1 || true
 
-rm -rf "$RUN_DIR/astra" "$RUN_DIR/final_decision" || true
-
-ASTRA_PY="$HOME/Desktop/astra/.venv/bin/python3"
+ASTRA_PY="${ASTRA_PY:-$HOME/Desktop/astra/.venv/bin/python3}"
 if [[ ! -x "$ASTRA_PY" ]]; then
   echo "FATAL: ASTRA venv python missing: $ASTRA_PY" >&2
-  exit 1
+  exit 2
 fi
 
-"$ASTRA_PY" -m astra.run_full_pipeline --det-run-dir "$RUN_DIR" --lang "$LANG" --force
+"$ASTRA_PY" -c "import astra, pathlib; print('ASTRA_PKG=' + str(pathlib.Path(astra.__file__).resolve()))"
+set +e
+ASTRA_OUTPUT="$("$ASTRA_PY" -m astra.run_full_pipeline --det-run-dir "$RUN_DIR" --lang "$LANG" --force 2>&1)"
+ASTRA_CODE=$?
+set -e
+if [[ "$ASTRA_OUTPUT" == *"Missing required summary.json after pipeline."* || "$ASTRA_CODE" -eq 2 ]]; then
+  if ! bash scripts/run_tool2_action_scope.sh "$RUN_DIR"; then
+    echo "FATAL: tool2 summary failed" >&2
+    exit 2
+  fi
+  if ! bash scripts/run_tool3_proof_pack.sh "$RUN_DIR"; then
+    echo "FATAL: tool3 summary failed" >&2
+    exit 2
+  fi
+  if ! bash scripts/run_tool4_regression.sh "$RUN_DIR"; then
+    echo "FATAL: tool4 summary failed" >&2
+    exit 2
+  fi
+  ASTRA_OUTPUT="$("$ASTRA_PY" -m astra.run_full_pipeline --det-run-dir "$RUN_DIR" --lang "$LANG" --force 2>&1)"
+  ASTRA_CODE=$?
+fi
+if [[ "$ASTRA_CODE" -ne 0 ]]; then
+  echo "$ASTRA_OUTPUT"
+  exit 2
+fi
 
-ASTRA_BRIEF="$RUN_DIR/astra/deliverables/Decision_Brief_${LANG}.pdf"
-ASTRA_VERDICT="$RUN_DIR/astra/deliverables/verdict.json"
-if [[ ! -f "$ASTRA_BRIEF" ]]; then
+mkdir -p "$RUN_DIR/deliverables"
+
+BRIEF_A="$RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf"
+BRIEF_B="$RUN_DIR/astra/deliverables/Decision_Brief_${LANG}.pdf"
+EVID_A="$RUN_DIR/deliverables/Evidence_Appendix_${LANG}.pdf"
+EVID_B="$RUN_DIR/astra/deliverables/Evidence_Appendix_${LANG}.pdf"
+VERDICT_A="$RUN_DIR/deliverables/verdict.json"
+VERDICT_B="$RUN_DIR/astra/deliverables/verdict.json"
+FINAL_DECISION="$RUN_DIR/final_decision/ASTRA_Traffic_Readiness_Decision_${LANG}.pdf"
+
+if [[ ! -f "$BRIEF_A" && -f "$BRIEF_B" ]]; then
+  cp -f "$BRIEF_B" "$BRIEF_A"
+fi
+if [[ ! -f "$EVID_A" && -f "$EVID_B" ]]; then
+  cp -f "$EVID_B" "$EVID_A"
+fi
+if [[ ! -f "$VERDICT_A" && -f "$VERDICT_B" ]]; then
+  cp -f "$VERDICT_B" "$VERDICT_A"
+fi
+
+if [[ ! -f "$BRIEF_A" ]]; then
   echo "FATAL: missing Decision Brief" >&2
   exit 1
 fi
-if [[ ! -f "$ASTRA_VERDICT" ]]; then
-  echo "FATAL: missing astra verdict.json" >&2
+if [[ ! -f "$EVID_A" ]]; then
+  echo "FATAL: missing Evidence Appendix" >&2
+  exit 1
+fi
+if [[ ! -f "$VERDICT_A" ]]; then
+  echo "FATAL: missing verdict.json" >&2
   exit 1
 fi
 
-if ! bash scripts/build_master_pdf.sh "$RUN_DIR" >/dev/null; then
+if ! bash scripts/build_master_pdf.sh "$RUN_DIR" "$LANG" >/dev/null; then
   echo "ERROR build master pdf"
   exit 2
 fi
