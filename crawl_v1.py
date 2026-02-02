@@ -187,13 +187,33 @@ def _fetch(url: str, max_bytes: int | None = MAX_HTML_BYTES) -> tuple[int | None
     try:
         session = requests.Session()
         session.max_redirects = MAX_REDIRECTS
-        resp = session.get(url, headers=HEADERS, timeout=DEFAULT_TIMEOUT, stream=True)
-        text, too_large = read_limited_text(resp, max_bytes)
-        if too_large:
-            return resp.status_code, "", resp.url or url, redact_headers(resp.headers or {}), "too_large"
-        return resp.status_code, text or "", resp.url or url, redact_headers(resp.headers or {}), None
-    except requests.TooManyRedirects:
-        return None, "", url, {}, "too_many_redirects"
+        session.trust_env = False
+        current_url = url
+        for _ in range(MAX_REDIRECTS + 1):
+            validate_url(current_url)
+            resp = session.get(
+                current_url,
+                headers=HEADERS,
+                timeout=DEFAULT_TIMEOUT,
+                stream=True,
+                allow_redirects=False,
+            )
+            status = resp.status_code
+            if status is not None and 300 <= status < 400:
+                location = resp.headers.get("Location") or resp.headers.get("location")
+                if not location:
+                    return status, "", resp.url or current_url, redact_headers(resp.headers or {}), None
+                next_url = urljoin(current_url, location)
+                validate_url(next_url)
+                current_url = next_url
+                continue
+            text, too_large = read_limited_text(resp, max_bytes)
+            if too_large:
+                return status, "", resp.url or current_url, redact_headers(resp.headers or {}), "too_large"
+            return status, text or "", resp.url or current_url, redact_headers(resp.headers or {}), None
+        return None, "", current_url, {}, "too_many_redirects"
+    except ValueError:
+        return None, "", url, {}, "invalid_url"
     except Exception:
         return None, "", url, {}, "fetch_error"
 
