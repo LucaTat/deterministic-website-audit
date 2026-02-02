@@ -1,15 +1,15 @@
 # SECURITY
 
 ## Security model
-SCOPE/ASTRA is designed to be deterministic and evidence-first. Security controls are applied to reduce common audit-run risks (command execution, SSRF, unsafe XML parsing) without changing audit verdict logic.
+This project is deterministic and evidence-first. Security controls reduce common audit-run risks (command execution, SSRF, unsafe XML parsing) without changing audit verdict logic.
 
-## Key guarantees (operator-stable security line)
-- No shell-based command execution for ASTRA runs from SCOPE.app (prevents shell injection vectors).
-- Network fetching is hardened:
-  - URL validation is enforced before requests
-  - redirects are handled with strict limits
-  - proxy environment variables are not trusted (prevents proxy-based request hijacking)
-- XML parsing is hardened using defusedxml (prevents XXE-style entity expansion attacks).
+## Guarantees (operator-stable security line)
+- No shell-based command execution for ASTRA runs from SCOPE.app (reduces shell injection vectors).
+- Network fetching hardening:
+  - URL validation enforced before requests
+  - redirects handled with strict limits
+  - proxy environment variables are not trusted
+- XML parsing hardened via defusedxml (reduces XXE/entity expansion risks).
 
 ## Security gate
 A single deterministic gate is enforced:
@@ -20,5 +20,5 @@ A single deterministic gate is enforced:
 
 ## Reporting
 If you find a security issue:
-- Create a private report (preferred) or open an issue with "SECURITY" in the title and minimal reproduction steps.
-- Do not include client data or any secrets in reports.
+- Report privately if possible.
+- Do not include client data or secrets in reports.
