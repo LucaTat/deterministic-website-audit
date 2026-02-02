@@ -3136,12 +3136,6 @@ struct ContentView: View {
         let timeoutQueue = DispatchQueue(label: "scope.timeout")
         var timedOutTokens: Set<UUID> = []
 
-        func shellEscape(_ value: String) -> String {
-            value
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\"", with: "\\\"")
-        }
-
         func endAccessIfNeeded() {
             if !endAccessCalled {
                 endAccessCalled = true
@@ -3175,27 +3169,17 @@ struct ContentView: View {
 
             logOutput += "\n== ASTRA run \(index)/\(specs.count) • \(spec.lang.uppercased()) • \(spec.url) ==\n"
 
-            let escapedRepo = shellEscape(engineRoot)
-            let escapedAstraRoot = shellEscape(normalizedAstraRoot)
-            let escapedUrl = shellEscape(spec.url)
-            let command = """
-set -e
-ASTRA_ROOT="\(escapedAstraRoot)"
-if [[ -x "$ASTRA_ROOT/.venv/bin/python" ]]; then
-  PYTHON="$ASTRA_ROOT/.venv/bin/python"
-else
-  PYTHON="python3"
-fi
-export SCOPE_REPO="\(escapedRepo)"
-export ASTRA_LANG="\(spec.lang == "en" ? "EN" : "RO")"
-cd "$ASTRA_ROOT"
-"$PYTHON" -m astra run "\(escapedUrl)" --lang \(spec.lang)
-"""
             let task = Process()
             currentTask = task
-            task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            task.arguments = ["bash", "-lc", command]
+            let venvPython = URL(fileURLWithPath: normalizedAstraRoot)
+                .appendingPathComponent(".venv/bin/python").path
+            let pythonPath = fm.isExecutableFile(atPath: venvPython) ? venvPython : "/usr/bin/python3"
+            task.executableURL = URL(fileURLWithPath: pythonPath)
+            task.arguments = ["-m", "astra", "run", spec.url, "--lang", spec.lang]
+            task.currentDirectoryURL = URL(fileURLWithPath: normalizedAstraRoot)
             var environment = task.environment ?? ProcessInfo.processInfo.environment
+            environment["SCOPE_REPO"] = engineRoot
+            environment["ASTRA_LANG"] = (spec.lang == "en" ? "EN" : "RO")
             environment["SCOPE_USE_AI"] = useAI ? "1" : "0"
             environment["SCOPE_ANALYSIS_MODE"] = analysisMode
             task.environment = environment
