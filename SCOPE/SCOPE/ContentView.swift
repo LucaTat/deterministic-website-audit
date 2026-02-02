@@ -940,39 +940,30 @@ struct ContentView: View {
                                             .foregroundColor(badgeColor)
                                     }
                                     HStack(spacing: 8) {
-                                        let exportDisabled = isRunning || exportIsRunning
                                         let runDirForExport = runRootPath(for: entry) ?? ""
-                                        let bundlePath = runDirForExport.isEmpty ? "" : (runDirForExport as NSString).appendingPathComponent("final/client_safe_bundle.zip")
-                                        let hasBundle = !bundlePath.isEmpty && FileManager.default.fileExists(atPath: bundlePath)
-                                        let isExportingThis = exportIsRunning && runExportRunID == entry.id
-                                        let isFailedThis = (!exportStatusText.isEmpty && exportStatusText.hasPrefix("ERROR:") && runExportRunID == entry.id)
-                                        let exportButtonLabel = isExportingThis ? "Exporting…" : (hasBundle ? "Exported ✓" : (isFailedThis ? "Retry Export" : "Export Client Bundle"))
-                                        Button(exportButtonLabel) {
-                                            runExportClientBundle(for: entry)
+                                        let masterBundlePath = runDirForExport.isEmpty ? "" : (runDirForExport as NSString).appendingPathComponent("final/MASTER_BUNDLE.pdf")
+                                        let deliverDisabled = isRunning || masterBundlePath.isEmpty || !FileManager.default.fileExists(atPath: masterBundlePath)
+                                        Button("Deliver (PDF)") {
+                                            if !masterBundlePath.isEmpty {
+                                                revealAndOpenFile(masterBundlePath)
+                                            }
                                         }
-                                        .buttonStyle(.bordered)
-                                        .disabled(exportDisabled)
-                                        .opacity(buttonOpacity(disabled: exportDisabled))
+                                        .buttonStyle(.borderedProminent)
+                                        .disabled(deliverDisabled)
+                                        .opacity(buttonOpacity(disabled: deliverDisabled))
+                                        .help(deliverDisabled ? "MASTER_BUNDLE.pdf missing" : "Open MASTER_BUNDLE.pdf")
                                         .fixedSize(horizontal: true, vertical: false)
                                         .lineLimit(1)
                                         .truncationMode(.tail)
                                         .minimumScaleFactor(0.85)
                                         .frame(minWidth: 140, alignment: .center)
 
-                                        let openBundleDisabled = isRunning || exportIsRunning || !hasBundle
-                                        Button("Open Bundle") {
-                                            if !bundlePath.isEmpty {
-                                                revealAndOpenFile(bundlePath)
-                                            }
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .disabled(openBundleDisabled)
-                                        .opacity(buttonOpacity(disabled: openBundleDisabled))
-                                        .fixedSize(horizontal: true, vertical: false)
-                                        .lineLimit(1)
-                                        .truncationMode(.tail)
-                                        .minimumScaleFactor(0.85)
-                                        .frame(minWidth: 100, alignment: .center)
+                                        let exportDisabled = isRunning || exportIsRunning
+                                        let bundlePath = runDirForExport.isEmpty ? "" : (runDirForExport as NSString).appendingPathComponent("final/client_safe_bundle.zip")
+                                        let hasBundle = !bundlePath.isEmpty && FileManager.default.fileExists(atPath: bundlePath)
+                                        let isExportingThis = exportIsRunning && runExportRunID == entry.id
+                                        let isFailedThis = (!exportStatusText.isEmpty && exportStatusText.hasPrefix("ERROR:") && runExportRunID == entry.id)
+                                        let exportButtonLabel = isExportingThis ? "Exporting…" : (hasBundle ? "Exported ✓" : (isFailedThis ? "Retry Export" : "Export Client Bundle"))
 
                                         let outDisabled = isRunning || entry.deliverablesDir.isEmpty || !FileManager.default.fileExists(atPath: entry.deliverablesDir)
                                         Button { openFolder(entry.deliverablesDir) } label: {
@@ -1002,34 +993,31 @@ struct ContentView: View {
                                         .minimumScaleFactor(0.85)
                                         .frame(minWidth: 100, alignment: .center)
 
-                                        if exportIsRunning && runExportRunID == entry.id {
-                                            Button("Cancel Export") {
-                                                cancelRunExport()
-                                            }
-                                            .buttonStyle(.bordered)
-                                            .fixedSize(horizontal: true, vertical: false)
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                            .minimumScaleFactor(0.85)
-                                            .frame(minWidth: 100, alignment: .center)
-                                        }
-
-                                        Menu("More") {
+                                        Menu("Advanced") {
                                             let logDisabled = isRunning || (entry.logPath == nil)
                                             Button("Open Log") {
                                                 if let path = entry.logPath { revealAndOpenFile(path) }
                                             }
                                             .disabled(logDisabled)
 
-                                            let runDirForMaster = runRootPath(for: entry) ?? ""
-                                            let masterBundlePath = runDirForMaster.isEmpty ? "" : (runDirForMaster as NSString).appendingPathComponent("final/MASTER_BUNDLE.pdf")
-                                            let masterBundleDisabled = isRunning || masterBundlePath.isEmpty || !FileManager.default.fileExists(atPath: masterBundlePath)
-                                            Button("Open MASTER_BUNDLE") {
-                                                if !masterBundlePath.isEmpty {
-                                                    revealAndOpenFile(masterBundlePath)
+                                            Button(exportButtonLabel) {
+                                                runExportClientBundle(for: entry)
+                                            }
+                                            .disabled(exportDisabled)
+
+                                            let openBundleDisabled = isRunning || exportIsRunning || !hasBundle
+                                            Button("Open Bundle") {
+                                                if !bundlePath.isEmpty {
+                                                    revealAndOpenFile(bundlePath)
                                                 }
                                             }
-                                            .disabled(masterBundleDisabled)
+                                            .disabled(openBundleDisabled)
+
+                                            if exportIsRunning && runExportRunID == entry.id {
+                                                Button("Cancel Export") {
+                                                    cancelRunExport()
+                                                }
+                                            }
 
                                             let toolDisabled = isRunning || exportIsRunning || toolRunning
                                             let tool2OutputPath = toolPDFPath(for: entry, tool: "tool2") ?? ""
@@ -2275,46 +2263,45 @@ struct ContentView: View {
                                     .disabled(logDisabled)
                                     .opacity(buttonOpacity(disabled: logDisabled))
 
-                                    let exportDisabled = isRunning || exportIsRunning
                                     let runDirForExport = runRootPath(for: entry) ?? ""
+                                    let masterBundlePath = runDirForExport.isEmpty ? "" : (runDirForExport as NSString).appendingPathComponent("final/MASTER_BUNDLE.pdf")
+                                    let deliverDisabled = isRunning || masterBundlePath.isEmpty || !FileManager.default.fileExists(atPath: masterBundlePath)
+                                    Button("Deliver (PDF)") {
+                                        if !masterBundlePath.isEmpty {
+                                            revealAndOpenFile(masterBundlePath)
+                                        }
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(deliverDisabled)
+                                    .opacity(buttonOpacity(disabled: deliverDisabled))
+                                    .help(deliverDisabled ? "MASTER_BUNDLE.pdf missing" : "Open MASTER_BUNDLE.pdf")
+
+                                    let exportDisabled = isRunning || exportIsRunning
                                     let bundlePath = runDirForExport.isEmpty ? "" : (runDirForExport as NSString).appendingPathComponent("final/client_safe_bundle.zip")
                                     let hasBundle = !bundlePath.isEmpty && FileManager.default.fileExists(atPath: bundlePath)
                                     let isExportingThis = exportIsRunning && runExportRunID == entry.id
                                     let isFailedThis = (!exportStatusText.isEmpty && exportStatusText.hasPrefix("ERROR:") && runExportRunID == entry.id)
                                     let exportButtonLabel = isExportingThis ? "Exporting…" : (hasBundle ? "Exported ✓" : (isFailedThis ? "Retry Export" : "Export Client Bundle"))
-                                    Button(exportButtonLabel) {
-                                        runExportClientBundle(for: entry)
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .disabled(exportDisabled)
-                                    .opacity(buttonOpacity(disabled: exportDisabled))
 
-                                    let openBundleDisabled = isRunning || exportIsRunning || !hasBundle
-                                    Button("Open Bundle") {
-                                        if !bundlePath.isEmpty {
-                                            revealAndOpenFile(bundlePath)
+                                    Menu("Advanced") {
+                                        Button(exportButtonLabel) {
+                                            runExportClientBundle(for: entry)
                                         }
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .disabled(openBundleDisabled)
-                                    .opacity(buttonOpacity(disabled: openBundleDisabled))
+                                        .disabled(exportDisabled)
 
-                                    let masterBundlePath = runDirForExport.isEmpty ? "" : (runDirForExport as NSString).appendingPathComponent("final/MASTER_BUNDLE.pdf")
-                                    let openMasterBundleDisabled = isRunning || exportIsRunning || masterBundlePath.isEmpty || !FileManager.default.fileExists(atPath: masterBundlePath)
-                                    Button("Open MASTER_BUNDLE") {
-                                        if !masterBundlePath.isEmpty {
-                                            revealAndOpenFile(masterBundlePath)
+                                        let openBundleDisabled = isRunning || exportIsRunning || !hasBundle
+                                        Button("Open Bundle") {
+                                            if !bundlePath.isEmpty {
+                                                revealAndOpenFile(bundlePath)
+                                            }
                                         }
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .disabled(openMasterBundleDisabled)
-                                    .opacity(buttonOpacity(disabled: openMasterBundleDisabled))
+                                        .disabled(openBundleDisabled)
 
-                                    if exportIsRunning && runExportRunID == entry.id {
-                                        Button("Cancel Export") {
-                                            cancelRunExport()
+                                        if exportIsRunning && runExportRunID == entry.id {
+                                            Button("Cancel Export") {
+                                                cancelRunExport()
+                                            }
                                         }
-                                        .buttonStyle(.bordered)
                                     }
 
                                     let toolDisabled = isRunning || exportIsRunning || toolRunning
