@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Darwin
+import PDFKit
 
 // MARK: - Repo locator
 
@@ -75,6 +76,90 @@ struct ScopeRepoLocator {
         guard isRepoRoot(url.path) else { throw ScopeRepoError.invalidRepo }
         let data = try url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
         UserDefaults.standard.set(data, forKey: bookmarkKey)
+    }
+}
+
+struct RunMetrics {
+    struct Manifest: Codable {
+        let domain: String?
+        let lang: String?
+        let generated_utc: String?
+        let version: String?
+    }
+
+    let domain: String?
+    let lang: String?
+    let generatedUTC: String?
+    let version: String?
+    let auditReport: Bool
+    let actionScope: Bool
+    let proofPack: Bool
+    let regression: Bool
+    let masterPdf: Bool
+    let bundleZip: Bool
+    let checksums: Bool
+    let masterSize: String?
+    let bundleSize: String?
+    let masterPages: Int?
+
+    init(runDir: URL) {
+        let fm = FileManager.default
+        let manifestURL = runDir.appendingPathComponent("final/manifest.json")
+        var manifest: Manifest? = nil
+        if let data = try? Data(contentsOf: manifestURL) {
+            manifest = try? JSONDecoder().decode(Manifest.self, from: data)
+        }
+
+        let runBase = runDir.lastPathComponent
+        let inferredLang: String? = {
+            let lower = runBase.lowercased()
+            if lower.hasSuffix("_ro") { return "RO" }
+            if lower.hasSuffix("_en") { return "EN" }
+            return nil
+        }()
+        let inferredDomain: String? = {
+            let parts = runBase.split(separator: "_")
+            if parts.isEmpty { return nil }
+            if parts.count >= 2 {
+                let last = parts.last?.lowercased()
+                if last == "ro" || last == "en" {
+                    return String(parts[parts.count - 2])
+                }
+            }
+            return String(parts.last!)
+        }()
+
+        domain = manifest?.domain ?? inferredDomain
+        lang = manifest?.lang ?? inferredLang
+        generatedUTC = manifest?.generated_utc
+        version = manifest?.version
+
+        func exists(_ rel: String) -> Bool {
+            fm.fileExists(atPath: runDir.appendingPathComponent(rel).path)
+        }
+
+        auditReport = exists("audit/report.pdf")
+        actionScope = exists("action_scope/action_scope.pdf")
+        proofPack = exists("proof_pack/proof_pack.pdf")
+        regression = exists("regression/regression.pdf")
+        masterPdf = exists("final/master.pdf")
+        bundleZip = exists("final/client_safe_bundle.zip")
+        checksums = exists("final/checksums.sha256")
+
+        masterSize = Self.formatSize(path: runDir.appendingPathComponent("final/master.pdf"))
+        bundleSize = Self.formatSize(path: runDir.appendingPathComponent("final/client_safe_bundle.zip"))
+        if masterPdf, let doc = PDFDocument(url: runDir.appendingPathComponent("final/master.pdf")) {
+            masterPages = doc.pageCount
+        } else {
+            masterPages = nil
+        }
+    }
+
+    private static func formatSize(path: URL) -> String? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path.path),
+              let size = attrs[.size] as? NSNumber else { return nil }
+        let kb = (Double(truncating: size) / 1024.0).rounded()
+        return "\(Int(kb)) KB"
     }
 }
 
@@ -185,6 +270,7 @@ struct ContentView: View {
     @State private var exportVerifyEndTime: Date? = nil
     @State private var exportMetricsText: String? = nil
     @State private var exportSizesText: String? = nil
+    @State private var metricsExpanded: Set<String> = []
     @State private var runExportTask: Process? = nil
     @State private var runExportRunID: String? = nil
     @State private var runExportCancelRequested: Bool = false
@@ -843,96 +929,94 @@ struct ContentView: View {
                                             .font(.caption)
                                             .foregroundColor(badgeColor)
                                     }
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        HStack(spacing: 8) {
-                                            let exportDisabled = isRunning || exportIsRunning
-                                            let runDirForExport = runRootPath(for: entry) ?? ""
-                                            let bundlePath = runDirForExport.isEmpty ? "" : (runDirForExport as NSString).appendingPathComponent("final/client_safe_bundle.zip")
-                                            let hasBundle = !bundlePath.isEmpty && FileManager.default.fileExists(atPath: bundlePath)
-                                            let isExportingThis = exportIsRunning && runExportRunID == entry.id
-                                            let isFailedThis = (!exportStatusText.isEmpty && exportStatusText.hasPrefix("ERROR:") && runExportRunID == entry.id)
-                                            let exportButtonLabel = isExportingThis ? "Exporting…" : (hasBundle ? "Exported ✓" : (isFailedThis ? "Retry Export" : "Export Client Bundle"))
-                                            Button(exportButtonLabel) {
-                                                runExportClientBundle(for: entry)
-                                            }
-                                            .buttonStyle(.bordered)
-                                            .disabled(exportDisabled)
-                                            .opacity(buttonOpacity(disabled: exportDisabled))
-                                            .fixedSize(horizontal: true, vertical: false)
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                            .frame(minWidth: 140, alignment: .center)
+                                    HStack(spacing: 8) {
+                                        let exportDisabled = isRunning || exportIsRunning
+                                        let runDirForExport = runRootPath(for: entry) ?? ""
+                                        let bundlePath = runDirForExport.isEmpty ? "" : (runDirForExport as NSString).appendingPathComponent("final/client_safe_bundle.zip")
+                                        let hasBundle = !bundlePath.isEmpty && FileManager.default.fileExists(atPath: bundlePath)
+                                        let isExportingThis = exportIsRunning && runExportRunID == entry.id
+                                        let isFailedThis = (!exportStatusText.isEmpty && exportStatusText.hasPrefix("ERROR:") && runExportRunID == entry.id)
+                                        let exportButtonLabel = isExportingThis ? "Exporting…" : (hasBundle ? "Exported ✓" : (isFailedThis ? "Retry Export" : "Export Client Bundle"))
+                                        Button(exportButtonLabel) {
+                                            runExportClientBundle(for: entry)
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(exportDisabled)
+                                        .opacity(buttonOpacity(disabled: exportDisabled))
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                        .minimumScaleFactor(0.85)
+                                        .frame(minWidth: 140, alignment: .center)
 
-                                            let openBundleDisabled = isRunning || exportIsRunning || !hasBundle
-                                            Button("Open Bundle") {
-                                                if !bundlePath.isEmpty {
-                                                    revealAndOpenFile(bundlePath)
-                                                }
+                                        let openBundleDisabled = isRunning || exportIsRunning || !hasBundle
+                                        Button("Open Bundle") {
+                                            if !bundlePath.isEmpty {
+                                                revealAndOpenFile(bundlePath)
+                                            }
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(openBundleDisabled)
+                                        .opacity(buttonOpacity(disabled: openBundleDisabled))
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                        .minimumScaleFactor(0.85)
+                                        .frame(minWidth: 100, alignment: .center)
+
+                                        let outDisabled = isRunning || entry.deliverablesDir.isEmpty || !FileManager.default.fileExists(atPath: entry.deliverablesDir)
+                                        Button { openFolder(entry.deliverablesDir) } label: {
+                                            Text("Open Output")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(outDisabled)
+                                        .opacity(buttonOpacity(disabled: outDisabled))
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                        .minimumScaleFactor(0.85)
+                                        .frame(minWidth: 100, alignment: .center)
+
+                                        let reportDisabled = isRunning || (entry.reportPdfPath == nil)
+                                        Button {
+                                            if let path = entry.reportPdfPath { revealAndOpenFile(path) }
+                                        } label: {
+                                            Text("Open Report")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(reportDisabled)
+                                        .opacity(buttonOpacity(disabled: reportDisabled))
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                        .minimumScaleFactor(0.85)
+                                        .frame(minWidth: 100, alignment: .center)
+
+                                        if exportIsRunning && runExportRunID == entry.id {
+                                            Button("Cancel Export") {
+                                                cancelRunExport()
                                             }
                                             .buttonStyle(.bordered)
-                                            .disabled(openBundleDisabled)
-                                            .opacity(buttonOpacity(disabled: openBundleDisabled))
                                             .fixedSize(horizontal: true, vertical: false)
                                             .lineLimit(1)
                                             .truncationMode(.tail)
+                                            .minimumScaleFactor(0.85)
                                             .frame(minWidth: 100, alignment: .center)
+                                        }
 
-                                            if exportIsRunning && runExportRunID == entry.id {
-                                                Button("Cancel Export") {
-                                                    cancelRunExport()
-                                                }
-                                                .buttonStyle(.bordered)
-                                                .fixedSize(horizontal: true, vertical: false)
-                                                .lineLimit(1)
-                                                .truncationMode(.tail)
-                                                .frame(minWidth: 100, alignment: .center)
-                                            }
-
-                                            let outDisabled = isRunning || entry.deliverablesDir.isEmpty || !FileManager.default.fileExists(atPath: entry.deliverablesDir)
-                                            Button { openFolder(entry.deliverablesDir) } label: {
-                                                Text("Open Output")
-                                            }
-                                            .buttonStyle(.bordered)
-                                            .disabled(outDisabled)
-                                            .opacity(buttonOpacity(disabled: outDisabled))
-                                            .fixedSize(horizontal: true, vertical: false)
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                            .frame(minWidth: 100, alignment: .center)
-
-                                            let reportDisabled = isRunning || (entry.reportPdfPath == nil)
-                                            Button {
-                                                if let path = entry.reportPdfPath { revealAndOpenFile(path) }
-                                            } label: {
-                                                Text("Open Report")
-                                            }
-                                            .buttonStyle(.bordered)
-                                            .disabled(reportDisabled)
-                                            .opacity(buttonOpacity(disabled: reportDisabled))
-                                            .fixedSize(horizontal: true, vertical: false)
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                            .frame(minWidth: 100, alignment: .center)
-
+                                        Menu("More") {
                                             let logDisabled = isRunning || (entry.logPath == nil)
-                                            Button {
+                                            Button("Open Log") {
                                                 if let path = entry.logPath { revealAndOpenFile(path) }
-                                            } label: {
-                                                Text("Open Log")
                                             }
-                                            .buttonStyle(.bordered)
                                             .disabled(logDisabled)
-                                            .opacity(buttonOpacity(disabled: logDisabled))
-                                            .fixedSize(horizontal: true, vertical: false)
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                            .frame(minWidth: 100, alignment: .center)
 
                                             let toolDisabled = isRunning || exportIsRunning || toolRunning
                                             let tool2OutputPath = toolPDFPath(for: entry, tool: "tool2") ?? ""
                                             let tool2Exists = !tool2OutputPath.isEmpty && FileManager.default.fileExists(atPath: tool2OutputPath)
                                             let tool3OutputPath = toolPDFPath(for: entry, tool: "tool3") ?? ""
                                             let tool3Exists = !tool3OutputPath.isEmpty && FileManager.default.fileExists(atPath: tool3OutputPath)
+
                                             Button("Run Tool 2 — Action Scope") {
                                                 guard let repoRoot = resolvedRepoRoot() else {
                                                     toolStatus = "Export failed: Tool 2"
@@ -941,13 +1025,7 @@ struct ContentView: View {
                                                 let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool2_action_scope.sh")
                                                 runTool(stepName: "Tool 2", scriptPath: scriptPath, entry: entry, expectedFolder: "action_scope")
                                             }
-                                            .buttonStyle(.bordered)
                                             .disabled(toolDisabled)
-                                            .opacity(buttonOpacity(disabled: toolDisabled))
-                                            .fixedSize(horizontal: true, vertical: false)
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                            .frame(minWidth: 110, alignment: .center)
 
                                             Button("Run Tool 3 — Implementation Proof") {
                                                 guard let repoRoot = resolvedRepoRoot() else {
@@ -957,13 +1035,7 @@ struct ContentView: View {
                                                 let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool3_proof_pack.sh")
                                                 runTool(stepName: "Tool 3", scriptPath: scriptPath, entry: entry, expectedFolder: "proof_pack")
                                             }
-                                            .buttonStyle(.bordered)
                                             .disabled(toolDisabled || !tool2Exists)
-                                            .opacity(buttonOpacity(disabled: toolDisabled || !tool2Exists))
-                                            .fixedSize(horizontal: true, vertical: false)
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                            .frame(minWidth: 110, alignment: .center)
 
                                             Button("Run Tool 4 — Regression Guard") {
                                                 guard let repoRoot = resolvedRepoRoot() else {
@@ -973,81 +1045,109 @@ struct ContentView: View {
                                                 let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool4_regression.sh")
                                                 runTool(stepName: "Tool 4", scriptPath: scriptPath, entry: entry, expectedFolder: "regression")
                                             }
-                                            .buttonStyle(.bordered)
                                             .disabled(toolDisabled || !tool3Exists)
-                                            .opacity(buttonOpacity(disabled: toolDisabled || !tool3Exists))
-                                            .fixedSize(horizontal: true, vertical: false)
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                            .frame(minWidth: 110, alignment: .center)
 
                                             let tool2Path = toolPDFPath(for: entry, tool: "tool2") ?? ""
                                             let tool2Disabled = toolDisabled || tool2Path.isEmpty || !FileManager.default.fileExists(atPath: tool2Path)
                                             Button("Open Tool2 Output") {
                                                 openToolOutput(for: entry, tool: "tool2")
                                             }
-                                            .buttonStyle(.bordered)
                                             .disabled(tool2Disabled)
-                                            .opacity(buttonOpacity(disabled: tool2Disabled))
-                                            .fixedSize(horizontal: true, vertical: false)
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                            .frame(minWidth: 100, alignment: .center)
 
                                             let tool3Path = toolPDFPath(for: entry, tool: "tool3") ?? ""
                                             let tool3Disabled = toolDisabled || tool3Path.isEmpty || !FileManager.default.fileExists(atPath: tool3Path)
                                             Button("Open Tool3 Output") {
                                                 openToolOutput(for: entry, tool: "tool3")
                                             }
-                                            .buttonStyle(.bordered)
                                             .disabled(tool3Disabled)
-                                            .opacity(buttonOpacity(disabled: tool3Disabled))
-                                            .fixedSize(horizontal: true, vertical: false)
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                            .frame(minWidth: 100, alignment: .center)
 
                                             let tool4Path = toolPDFPath(for: entry, tool: "tool4") ?? ""
                                             let tool4Disabled = toolDisabled || tool4Path.isEmpty || !FileManager.default.fileExists(atPath: tool4Path)
                                             Button("Open Tool4 Output") {
                                                 openToolOutput(for: entry, tool: "tool4")
                                             }
-                                            .buttonStyle(.bordered)
                                             .disabled(tool4Disabled)
-                                            .opacity(buttonOpacity(disabled: tool4Disabled))
-                                            .fixedSize(horizontal: true, vertical: false)
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                            .frame(minWidth: 100, alignment: .center)
 
                                             Button("Delete Run") {
                                                 pendingDeleteRun = RunRecord(entry: entry)
                                                 showDeleteRunConfirm = true
                                             }
-                                            .buttonStyle(.bordered)
-                                            .fixedSize(horizontal: true, vertical: false)
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                            .frame(minWidth: 100, alignment: .center)
                                         }
+                                        .buttonStyle(.bordered)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                        .minimumScaleFactor(0.85)
+                                        .frame(minWidth: 100, alignment: .center)
                                     }
-                                    Text(exportStatusLabel(for: entry))
-                                        .font(.footnote)
-                                        .foregroundColor(.secondary)
+                                    .foregroundStyle(.primary)
+                                    HStack(spacing: 8) {
+                                        Text(exportStatusLabel(for: entry))
+                                            .font(.footnote)
+                                            .foregroundColor(.secondary)
+                                        let key = entry.id
+                                        Button(metricsExpanded.contains(key) ? "Metrics ▾" : "Metrics ▸") {
+                                            if metricsExpanded.contains(key) {
+                                                metricsExpanded.remove(key)
+                                            } else {
+                                                metricsExpanded.insert(key)
+                                            }
+                                        }
+                                        .buttonStyle(.plain)
+                                        .font(.caption)
+                                        .foregroundStyle(.primary)
+                                    }
                                     if runExportRunID == entry.id && !exportIsRunning {
                                         if let metrics = exportMetricsText {
                                             Text(metrics)
                                                 .font(.system(.caption, design: .monospaced))
-                                                .foregroundColor(.secondary)
+                                                .foregroundStyle(.primary)
                                                 .fixedSize(horizontal: false, vertical: true)
                                                 .padding(.top, 4)
                                         }
                                         if let sizes = exportSizesText {
                                             Text(sizes)
                                                 .font(.system(.caption, design: .monospaced))
-                                                .foregroundColor(.secondary)
+                                                .foregroundStyle(.primary)
                                                 .fixedSize(horizontal: false, vertical: true)
                                         }
+                                    }
+                                    if metricsExpanded.contains(entry.id), let metrics = runMetrics(for: entry) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("Metrics")
+                                                .font(.system(.caption, design: .monospaced))
+                                                .foregroundStyle(.primary)
+                                            Text("Domain: \(metrics.domain ?? "—") · Lang: \(metrics.lang ?? "—")")
+                                                .font(.system(.caption, design: .monospaced))
+                                                .foregroundStyle(.primary)
+                                            if let generated = metrics.generatedUTC, let version = metrics.version {
+                                                Text("Generated: \(generated) · v\(version)")
+                                                    .font(.system(.caption, design: .monospaced))
+                                                    .foregroundStyle(.primary)
+                                            } else if let generated = metrics.generatedUTC {
+                                                Text("Generated: \(generated)")
+                                                    .font(.system(.caption, design: .monospaced))
+                                                    .foregroundStyle(.primary)
+                                            }
+                                            Text("audit/report.pdf \(metrics.auditReport ? "✅" : "❌") · action_scope \(metrics.actionScope ? "✅" : "❌") · proof_pack \(metrics.proofPack ? "✅" : "❌")")
+                                                .font(.system(.caption, design: .monospaced))
+                                                .foregroundStyle(.primary)
+                                            Text("regression \(metrics.regression ? "✅" : "❌") · master.pdf \(metrics.masterPdf ? "✅" : "❌") · bundle.zip \(metrics.bundleZip ? "✅" : "❌")")
+                                                .font(.system(.caption, design: .monospaced))
+                                                .foregroundStyle(.primary)
+                                            let checksumsLine = metrics.checksums ? "checksums ✅" : (metrics.bundleZip ? "checksums ❌" : "checksums (export-only) —")
+                                            Text(checksumsLine)
+                                                .font(.system(.caption, design: .monospaced))
+                                                .foregroundStyle(.primary)
+                                            Text("Sizes: master \(metrics.masterSize ?? "—") · bundle \(metrics.bundleSize ?? "—")")
+                                                .font(.system(.caption, design: .monospaced))
+                                                .foregroundStyle(.primary)
+                                            let pages = metrics.masterPages != nil ? "\(metrics.masterPages!)" : "—"
+                                            Text("Master pages: \(pages)")
+                                                .font(.system(.caption, design: .monospaced))
+                                                .foregroundStyle(.primary)
+                                        }
+                                        .padding(.top, 6)
                                     }
                                     if toolRunID == entry.id, let status = toolStatus {
                                         Text(status)
@@ -2256,6 +2356,7 @@ struct ContentView: View {
                                     }
                                     .buttonStyle(.bordered)
                                 }
+                                .foregroundStyle(.primary)
                                 Text(exportStatusLabel(for: entry))
                                     .font(.footnote)
                                     .foregroundColor(.secondary)
@@ -3407,6 +3508,11 @@ cd "$ASTRA_ROOT"
             return exportStatusText
         }
         return "Ready"
+    }
+
+    private func runMetrics(for entry: RunEntry) -> RunMetrics? {
+        guard let runDirPath = runRootPath(for: entry) else { return nil }
+        return RunMetrics(runDir: URL(fileURLWithPath: runDirPath))
     }
 
     private func formatSeconds(_ seconds: Double?) -> String {
