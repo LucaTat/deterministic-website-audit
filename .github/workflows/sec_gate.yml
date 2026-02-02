@@ -1,0 +1,31 @@
+name: sec_gate
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  sec_gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create venv + install deps
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install -U pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run sec_gate
+        run: |
+          bash scripts/sec_gate.sh
