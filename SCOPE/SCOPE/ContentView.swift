@@ -289,6 +289,9 @@ struct ContentView: View {
     @State private var toolStatus: String? = nil
     @State private var toolTask: Process? = nil
     @State private var toolRunID: String? = nil
+    @State private var finalizeRunning: Bool = false
+    @State private var finalizeStatus: String? = nil
+    @State private var finalizeRunID: String? = nil
     
     @State private var uiRefreshTick: Int = 0
     @State private var showNewCampaignSheet: Bool = false
@@ -941,17 +944,15 @@ struct ContentView: View {
                                     }
                                     HStack(spacing: 8) {
                                         let runDirForExport = runRootPath(for: entry) ?? ""
-                                        let masterBundlePath = runDirForExport.isEmpty ? "" : (runDirForExport as NSString).appendingPathComponent("final/MASTER_BUNDLE.pdf")
-                                        let deliverDisabled = isRunning || masterBundlePath.isEmpty || !FileManager.default.fileExists(atPath: masterBundlePath)
+                                        let resolvedRunDir = runDirForExport.isEmpty ? "" : (resolveConcreteRunDir(baseRunsDir: URL(fileURLWithPath: runDirForExport))?.path ?? runDirForExport)
+        let deliverDisabled = isRunning || finalizeRunning || resolvedRunDir.isEmpty
                                         Button("Deliver (PDF)") {
-                                            if !masterBundlePath.isEmpty {
-                                                revealAndOpenFile(masterBundlePath)
-                                            }
+                                            runFinalizeIfNeeded(entry: entry, openOnSuccess: true)
                                         }
                                         .buttonStyle(.borderedProminent)
                                         .disabled(deliverDisabled)
                                         .opacity(buttonOpacity(disabled: deliverDisabled))
-                                        .help(deliverDisabled ? "MASTER_BUNDLE.pdf missing" : "Open MASTER_BUNDLE.pdf")
+                                        .help(deliverDisabled ? "Finalize and open MASTER_BUNDLE.pdf" : "Finalize and open MASTER_BUNDLE.pdf")
                                         .fixedSize(horizontal: true, vertical: false)
                                         .lineLimit(1)
                                         .truncationMode(.tail)
@@ -1162,6 +1163,11 @@ struct ContentView: View {
                                         .padding(.top, 6)
                                     }
                                     if toolRunID == entry.id, let status = toolStatus {
+                                        Text(status)
+                                            .font(.footnote)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    if finalizeRunID == entry.id, let status = finalizeStatus {
                                         Text(status)
                                             .font(.footnote)
                                             .foregroundColor(.secondary)
@@ -1831,14 +1837,14 @@ struct ContentView: View {
 
     private func shipRootHelpText() -> String {
         if shipRootPath() == nil {
-            return "Open export/delivery root. Available after run."
+            return "Open run final folder. Available after Deliver (PDF)."
         }
-        return "Open the export/delivery root folder for this campaign"
+        return "Open the run final folder"
     }
 
     private func zipHelpText(forLang lang: String) -> String {
         if zipDisabledReason() != nil {
-            return "Open ZIP for the last run. Available after run."
+            return "Open ZIP for the last run. Available after Deliver (PDF)."
         }
         if lang == "ro" { return "Open the RO ZIP" }
         if lang == "en" { return "Open the EN ZIP" }
@@ -2264,17 +2270,15 @@ struct ContentView: View {
                                     .opacity(buttonOpacity(disabled: logDisabled))
 
                                     let runDirForExport = runRootPath(for: entry) ?? ""
-                                    let masterBundlePath = runDirForExport.isEmpty ? "" : (runDirForExport as NSString).appendingPathComponent("final/MASTER_BUNDLE.pdf")
-                                    let deliverDisabled = isRunning || masterBundlePath.isEmpty || !FileManager.default.fileExists(atPath: masterBundlePath)
+                                    let resolvedRunDir = runDirForExport.isEmpty ? "" : (resolveConcreteRunDir(baseRunsDir: URL(fileURLWithPath: runDirForExport))?.path ?? runDirForExport)
+        let deliverDisabled = isRunning || finalizeRunning || resolvedRunDir.isEmpty
                                     Button("Deliver (PDF)") {
-                                        if !masterBundlePath.isEmpty {
-                                            revealAndOpenFile(masterBundlePath)
-                                        }
+                                        runFinalizeIfNeeded(entry: entry, openOnSuccess: true)
                                     }
                                     .buttonStyle(.borderedProminent)
                                     .disabled(deliverDisabled)
                                     .opacity(buttonOpacity(disabled: deliverDisabled))
-                                    .help(deliverDisabled ? "MASTER_BUNDLE.pdf missing" : "Open MASTER_BUNDLE.pdf")
+                                    .help(deliverDisabled ? "Finalize and open MASTER_BUNDLE.pdf" : "Finalize and open MASTER_BUNDLE.pdf")
 
                                     let exportDisabled = isRunning || exportIsRunning
                                     let bundlePath = runDirForExport.isEmpty ? "" : (runDirForExport as NSString).appendingPathComponent("final/client_safe_bundle.zip")
@@ -2383,6 +2387,11 @@ struct ContentView: View {
                                     .font(.footnote)
                                     .foregroundColor(.secondary)
                                 if toolRunID == entry.id, let status = toolStatus {
+                                    Text(status)
+                                        .font(.footnote)
+                                        .foregroundColor(.secondary)
+                                }
+                                if finalizeRunID == entry.id, let status = finalizeStatus {
                                     Text(status)
                                         .font(.footnote)
                                         .foregroundColor(.secondary)
@@ -2955,12 +2964,12 @@ struct ContentView: View {
 
     private func openZIP(forLang lang: String) {
         guard let zipPath = shipZipPath(forLang: lang) else {
-            alertMissingPath(title: "ZIP missing", reason: "No ZIP recorded yet.", path: nil)
+            alertMissingPath(title: "ZIP missing", reason: "No run bundle found. Run Deliver (PDF) first.", path: nil)
             return
         }
         let url = URL(fileURLWithPath: zipPath)
         guard FileManager.default.fileExists(atPath: url.path) else {
-            alertMissingPath(title: "ZIP missing", reason: "ZIP file not found on disk.", path: url.path)
+            alertMissingPath(title: "ZIP missing", reason: "Run bundle not found on disk. Run Deliver (PDF) first.", path: url.path)
             return
         }
         withExportRootAccess {
@@ -3612,68 +3621,132 @@ struct ContentView: View {
         return (p.terminationStatus, output)
     }
 
-    private func rebuildFinalOutputs(runDir: String, repoRoot: String, env: [String: String]) -> Bool {
+    private func resolveConcreteRunDir(baseRunsDir: URL) -> URL? {
         let fm = FileManager.default
-        let buildScript = (repoRoot as NSString).appendingPathComponent("scripts/build_master_pdf.sh")
-        let bundleScript = (repoRoot as NSString).appendingPathComponent("scripts/build_master_bundle.py")
-        let packageScript = (repoRoot as NSString).appendingPathComponent("scripts/package_run_client_safe_zip.sh")
-        let verifyScript = (repoRoot as NSString).appendingPathComponent("scripts/verify_client_safe_zip.py")
-        let venvPy = (repoRoot as NSString).appendingPathComponent(".venv/bin/python3")
-        let pythonExec = fm.isExecutableFile(atPath: venvPy) ? venvPy : "/usr/bin/python3"
+        let required = ["audit", "action_scope", "proof_pack", "regression"]
+        let hasAll = required.allSatisfy { fm.fileExists(atPath: baseRunsDir.appendingPathComponent($0, isDirectory: true).path) }
+        if hasAll { return baseRunsDir }
+        guard let items = try? fm.contentsOfDirectory(at: baseRunsDir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
+            return nil
+        }
+        let dirs = items.filter { $0.hasDirectoryPath }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        return dirs.last
+    }
 
-        let buildResult = runToolProcess(
+    private func tailLines(_ text: String, count: Int) -> String {
+        let lines = text.split(separator: "\n")
+        let slice = lines.suffix(count)
+        return slice.joined(separator: "\n")
+    }
+
+    private func sanitizeError(_ text: String, runDir: URL, repoRoot: String, astraRoot: String) -> String {
+        var out = text
+        out = out.replacingOccurrences(of: runDir.path, with: "<RUN_DIR>")
+        out = out.replacingOccurrences(of: repoRoot, with: "<REPO>")
+        out = out.replacingOccurrences(of: astraRoot, with: "<ASTRA>")
+        return out
+    }
+
+    private func requiredFinalArtifacts() -> [String] {
+        return [
+            "final/MASTER_BUNDLE.pdf",
+            "final/client_safe_bundle.zip"
+        ]
+    }
+
+    private func ensureFinalArtifacts(runDir: URL, lang: String, repoRoot: String, env: [String: String]) -> (Bool, String?) {
+        let fm = FileManager.default
+        let requiredDirs = ["audit", "action_scope", "proof_pack", "regression"]
+        let hasAllDirs = requiredDirs.allSatisfy { fm.fileExists(atPath: runDir.appendingPathComponent($0, isDirectory: true).path) }
+        if !hasAllDirs {
+            return (false, "Invalid run directory")
+        }
+        let requiredFiles = [
+            "audit/report.pdf",
+            "action_scope/action_scope.pdf",
+            "proof_pack/proof_pack.pdf",
+            "regression/regression.pdf"
+        ]
+        let hasRequiredFiles = requiredFiles.allSatisfy { fm.fileExists(atPath: runDir.appendingPathComponent($0).path) }
+        if !hasRequiredFiles {
+            return (false, "missing tool artifacts")
+        }
+        let astraRoot = (NSHomeDirectory() as NSString).appendingPathComponent("Desktop/astra")
+        let finalizeScript = (repoRoot as NSString).appendingPathComponent("scripts/finalize_run.sh")
+
+        let finalizeResult = runToolProcess(
             executable: "/bin/bash",
-            arguments: [buildScript, runDir],
+            arguments: [finalizeScript, runDir.path, lang],
             cwd: repoRoot,
             env: env
         )
-        if buildResult.0 != 0 {
-            return false
-        }
-        let masterPdf = (runDir as NSString).appendingPathComponent("final/master.pdf")
-        if !fm.fileExists(atPath: masterPdf) {
-            return false
+        if finalizeResult.0 != 0 {
+            let msg = sanitizeError(tailLines(finalizeResult.1, count: 6), runDir: runDir, repoRoot: repoRoot, astraRoot: astraRoot)
+            return (false, msg)
         }
 
-        let bundleResult = runToolProcess(
-            executable: pythonExec,
-            arguments: [bundleScript, "--run-dir", runDir],
-            cwd: repoRoot,
-            env: env
-        )
-        if bundleResult.0 != 0 {
-            return false
-        }
-        let masterBundle = (runDir as NSString).appendingPathComponent("final/MASTER_BUNDLE.pdf")
-        if !fm.fileExists(atPath: masterBundle) {
-            return false
+        for rel in requiredFinalArtifacts() {
+            let p = runDir.appendingPathComponent(rel).path
+            if !fm.fileExists(atPath: p) {
+                return (false, "missing required: \(rel)")
+            }
         }
 
-        let packageResult = runToolProcess(
-            executable: "/bin/bash",
-            arguments: [packageScript, runDir],
-            cwd: repoRoot,
-            env: env
-        )
-        if packageResult.0 != 0 {
-            return false
-        }
+        return (true, nil)
+    }
 
-        let finalZip = (runDir as NSString).appendingPathComponent("final/client_safe_bundle.zip")
-        if !fm.fileExists(atPath: finalZip) {
-            return false
+    private func runFinalizeIfNeeded(entry: RunEntry, openOnSuccess: Bool) {
+        guard let baseRunDir = runRootPath(for: entry) else {
+            finalizeStatus = "ERROR: finalize: missing run dir"
+            finalizeRunID = entry.id
+            return
         }
+        guard let repoRoot = resolvedRepoRoot() else {
+            finalizeStatus = "ERROR: finalize: repo missing"
+            finalizeRunID = entry.id
+            return
+        }
+        guard let resolved = resolveConcreteRunDir(baseRunsDir: URL(fileURLWithPath: baseRunDir)) else {
+            finalizeStatus = "ERROR: finalize: invalid run directory"
+            finalizeRunID = entry.id
+            return
+        }
+        let langCode = entry.lang.lowercased() == "en" ? "EN" : "RO"
+        let masterBundlePath = resolved.appendingPathComponent("final/MASTER_BUNDLE.pdf").path
+        if FileManager.default.fileExists(atPath: masterBundlePath) {
+            if openOnSuccess {
+                revealAndOpenFile(masterBundlePath)
+            }
+            return
+        }
+        if finalizeRunning { return }
 
-        let verifyResult = runToolProcess(
-            executable: pythonExec,
-            arguments: [verifyScript, finalZip],
-            cwd: repoRoot,
-            env: env
-        )
-        if verifyResult.0 != 0 {
-            return false
+        finalizeRunning = true
+        finalizeRunID = entry.id
+        finalizeStatus = "Finalizing…"
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let venvBin = (repoRoot as NSString).appendingPathComponent(".venv/bin")
+            var env = ProcessInfo.processInfo.environment
+            env["PATH"] = venvBin + ":" + (env["PATH"] ?? "")
+
+            let result = self.ensureFinalArtifacts(runDir: resolved, lang: langCode, repoRoot: repoRoot, env: env)
+
+            DispatchQueue.main.async {
+                self.finalizeRunning = false
+                if result.0 {
+                    self.finalizeStatus = "OK: finalize"
+                    if openOnSuccess {
+                        if FileManager.default.fileExists(atPath: masterBundlePath) {
+                            self.revealAndOpenFile(masterBundlePath)
+                        }
+                    } 
+                } else {
+                    let msg = result.1 ?? "finalize"
+                    self.finalizeStatus = "ERROR: finalize: \(msg)"
+                }
+            }
         }
-        return true
     }
 
     private func lastMatch(in text: String, pattern: String) -> String? {
@@ -3779,13 +3852,31 @@ struct ContentView: View {
             DispatchQueue.main.async {
                 self.toolStatus = "Rebuilding final outputs…"
             }
-            let rebuildOk = self.rebuildFinalOutputs(runDir: runDir, repoRoot: repoRoot, env: env)
-
             DispatchQueue.main.async {
                 self.toolRunning = false
                 self.toolTask = nil
                 self.toolRunID = nil
-                self.toolStatus = rebuildOk ? "OK \(stepName)" : "Export failed: Finalize"
+                self.toolStatus = "OK \(stepName)"
+            }
+
+            if stepName == "Tool 4" {
+                let baseURL = URL(fileURLWithPath: runDir)
+                if let resolved = self.resolveConcreteRunDir(baseRunsDir: baseURL) {
+                    let langCode = resolved.lastPathComponent.lowercased().hasSuffix("_en") ? "EN" : "RO"
+                    let ensureResult = self.ensureFinalArtifacts(runDir: resolved, lang: langCode, repoRoot: repoRoot, env: env)
+                    DispatchQueue.main.async {
+                        if ensureResult.0 {
+                            self.toolStatus = "OK \(stepName)"
+                        } else {
+                            let msg = ensureResult.1 ?? "finalize"
+                            self.toolStatus = "ERROR: finalize: \(msg)"
+                        }
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        self.toolStatus = "ERROR: finalize: invalid run directory"
+                    }
+                }
             }
         }
     }
@@ -3824,12 +3915,12 @@ struct ContentView: View {
 
     private func runExportClientBundle(for entry: RunEntry) {
         guard !exportIsRunning else { return }
-        guard let runDir = runRootPath(for: entry) else {
+        guard let baseRunDir = runRootPath(for: entry) else {
             exportStatusText = "ERROR: Build master"
             return
         }
         var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: runDir, isDirectory: &isDir), isDir.boolValue else {
+        guard FileManager.default.fileExists(atPath: baseRunDir, isDirectory: &isDir), isDir.boolValue else {
             exportStatusText = "ERROR: Build master"
             return
         }
@@ -3837,6 +3928,11 @@ struct ContentView: View {
             exportStatusText = "ERROR: Build master"
             return
         }
+        guard let resolved = resolveConcreteRunDir(baseRunsDir: URL(fileURLWithPath: baseRunDir)) else {
+            exportStatusText = "ERROR: Invalid run directory"
+            return
+        }
+        let langCode = entry.lang.lowercased() == "en" ? "EN" : "RO"
 
         exportIsRunning = true
         runExportRunID = entry.id
@@ -3850,17 +3946,9 @@ struct ContentView: View {
         exportSizesText = nil
 
         DispatchQueue.global(qos: .userInitiated).async {
-            let fm = FileManager.default
             let venvBin = (repoRoot as NSString).appendingPathComponent(".venv/bin")
             var env = ProcessInfo.processInfo.environment
             env["PATH"] = venvBin + ":/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
-
-            let buildScript = (repoRoot as NSString).appendingPathComponent("scripts/build_master_pdf.sh")
-            let bundleScript = (repoRoot as NSString).appendingPathComponent("scripts/build_master_bundle.py")
-            let packageScript = (repoRoot as NSString).appendingPathComponent("scripts/package_run_client_safe_zip.sh")
-            let verifyScript = (repoRoot as NSString).appendingPathComponent("scripts/verify_client_safe_zip.py")
-            let venvPy = (repoRoot as NSString).appendingPathComponent(".venv/bin/python3")
-            let pythonExec = FileManager.default.isExecutableFile(atPath: venvPy) ? venvPy : "/usr/bin/python3"
 
             func finish(_ status: String) {
                 DispatchQueue.main.async {
@@ -3875,103 +3963,24 @@ struct ContentView: View {
                 return
             }
 
-            let buildResult = self.runProcess(
-                executable: "/bin/bash",
-                arguments: [buildScript, runDir],
-                cwd: repoRoot,
-                env: env
-            )
-            if self.isRunExportCanceled() {
-                finish("ERROR: Build master")
-                return
-            }
-            if buildResult.0 != 0 {
-                finish("ERROR: Build master")
-                return
-            }
-            let masterPdf = (runDir as NSString).appendingPathComponent("final/master.pdf")
-            if !fm.fileExists(atPath: masterPdf) {
-                finish("ERROR: Build master")
+            let ensure = self.ensureFinalArtifacts(runDir: resolved, lang: langCode, repoRoot: repoRoot, env: env)
+            if !ensure.0 {
+                DispatchQueue.main.async {
+                    self.finalizeRunID = entry.id
+                    self.finalizeStatus = "ERROR: finalize: \(ensure.1 ?? "finalize")"
+                }
+                finish("ERROR: finalize")
                 return
             }
 
-            DispatchQueue.main.async {
-                self.exportStatusText = "Building MASTER_BUNDLE…"
-            }
-
-            let bundleResult = self.runProcess(
-                executable: pythonExec,
-                arguments: [bundleScript, "--run-dir", runDir],
-                cwd: repoRoot,
-                env: env
-            )
-            if self.isRunExportCanceled() {
-                finish("ERROR: Build bundle")
-                return
-            }
-            if bundleResult.0 != 0 {
-                finish("ERROR: Build bundle")
-                return
-            }
-            let masterBundlePdf = (runDir as NSString).appendingPathComponent("final/MASTER_BUNDLE.pdf")
-            if !fm.fileExists(atPath: masterBundlePdf) {
-                finish("ERROR: Build bundle")
-                return
-            }
-
-            DispatchQueue.main.async {
-                self.exportBuildEndTime = Date()
-                self.exportStatusText = "Packaging client bundle…"
-            }
-
-            let packageResult = self.runProcess(
-                executable: "/bin/bash",
-                arguments: [packageScript, runDir],
-                cwd: repoRoot,
-                env: env
-            )
-            if self.isRunExportCanceled() {
-                finish("ERROR: Package zip")
-                return
-            }
-            if packageResult.0 != 0 {
-                finish("ERROR: Package zip")
-                return
-            }
-
-            let finalDir = (runDir as NSString).appendingPathComponent("final")
-            let finalZip = (finalDir as NSString).appendingPathComponent("client_safe_bundle.zip")
-            if !fm.fileExists(atPath: finalZip) {
-                finish("ERROR: Package zip")
-                return
-            }
-
-            DispatchQueue.main.async {
-                self.exportPackageEndTime = Date()
-                self.exportStatusText = "Verifying bundle…"
-            }
-
-            let verifyResult = self.runProcess(
-                executable: pythonExec,
-                arguments: [verifyScript, finalZip],
-                cwd: repoRoot,
-                env: env
-            )
-            if verifyResult.0 != 0 {
-                finish("ERROR: Verify zip")
-                return
-            }
+            let masterBundlePdf = resolved.appendingPathComponent("final/MASTER_BUNDLE.pdf").path
+            let finalZip = resolved.appendingPathComponent("final/client_safe_bundle.zip").path
 
             DispatchQueue.main.async {
                 self.exportVerifyEndTime = Date()
-                let buildSecs = self.exportBuildEndTime?.timeIntervalSince(self.exportStartTime ?? Date())
-                let packageSecs = self.exportPackageEndTime?.timeIntervalSince(self.exportBuildEndTime ?? self.exportStartTime ?? Date())
-                let verifySecs = self.exportVerifyEndTime?.timeIntervalSince(self.exportPackageEndTime ?? self.exportStartTime ?? Date())
-                let totalSecs = self.exportVerifyEndTime?.timeIntervalSince(self.exportStartTime ?? Date())
-                self.exportMetricsText = "Build \(self.formatSeconds(buildSecs)) · Package \(self.formatSeconds(packageSecs)) · Verify \(self.formatSeconds(verifySecs)) · Total \(self.formatSeconds(totalSecs))"
-                let masterSize = self.fileSizeBytes(masterPdf)
+                let masterSize = self.fileSizeBytes(masterBundlePdf)
                 let zipSize = self.fileSizeBytes(finalZip)
-                self.exportSizesText = "master.pdf \(self.formatKB(masterSize)) · bundle \(self.formatKB(zipSize))"
+                self.exportSizesText = "MASTER_BUNDLE.pdf \(self.formatKB(masterSize)) · bundle \(self.formatKB(zipSize))"
                 self.exportStatusText = "Verified"
             }
             finish("OK: client_safe_bundle.zip")
@@ -4195,18 +4204,25 @@ struct ContentView: View {
         return zips.keys.sorted()
     }
 
+    private func latestRunEntry(forLang lang: String?) -> RunEntry? {
+        let runs = campaignScopedRunHistory().sorted { $0.timestamp > $1.timestamp }
+        guard let lang, lang.lowercased() != "both" else { return runs.first }
+        return runs.first { $0.lang.lowercased() == lang.lowercased() }
+    }
+
     private func shipZipPath(forLang lang: String) -> String? {
-        if let zips = result?.shipZipByLang, let path = zips[lang], !path.isEmpty {
-            return path
-        }
-        if let last = store.lastExportZipPath, !last.isEmpty {
-            return last
-        }
-        return nil
+        guard let entry = latestRunEntry(forLang: lang) else { return nil }
+        guard let runDir = runRootPath(for: entry) else { return nil }
+        let zipPath = (runDir as NSString).appendingPathComponent("final/client_safe_bundle.zip")
+        return FileManager.default.fileExists(atPath: zipPath) ? zipPath : nil
     }
 
     private func shipRootPath() -> String? {
-        return lastRunDeliverablesPath()
+        let preferredLang = (lang == "both") ? nil : lang
+        guard let entry = latestRunEntry(forLang: preferredLang) else { return nil }
+        guard let runDir = runRootPath(for: entry) else { return nil }
+        let finalDir = (runDir as NSString).appendingPathComponent("final")
+        return FileManager.default.fileExists(atPath: finalDir) ? finalDir : nil
     }
 
     private func shipDirPath(forLang lang: String) -> String? {
@@ -4296,12 +4312,12 @@ struct ContentView: View {
 
     private func openShipRoot() {
         guard let path = shipRootPath() else {
-            alertMissingPath(title: "Export root missing", reason: "No export root recorded yet.", path: nil)
+            alertMissingPath(title: "Export root missing", reason: "No run final folder found. Run Deliver (PDF) first.", path: nil)
             return
         }
         let url = URL(fileURLWithPath: path)
         guard FileManager.default.fileExists(atPath: url.path) else {
-            alertMissingPath(title: "Export root missing", reason: "Export root folder not found on disk.", path: url.path)
+            alertMissingPath(title: "Export root missing", reason: "Run final folder not found on disk.", path: url.path)
             return
         }
         NSWorkspace.shared.open(url)
