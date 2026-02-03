@@ -2010,7 +2010,7 @@ struct ContentView: View {
             guard resp == .OK, let destUrl = panel.url else { return }
             let store = self.campaignStore()
             let safeName = store?.campaignFolderName(for: campaign.name) ?? campaign.name
-            let zipName = "\(safeName)_ASTRA.zip"
+            let zipName = "\(safeName)_bundle.zip"
             let destPath = (destUrl.path as NSString).appendingPathComponent(zipName)
             let fm = FileManager.default
             try? fm.removeItem(atPath: destPath)
@@ -3672,7 +3672,10 @@ struct ContentView: View {
         if !hasRequiredFiles {
             return (false, "missing tool artifacts")
         }
-        let astraRoot = (NSHomeDirectory() as NSString).appendingPathComponent("Desktop/astra")
+        let astraRoot = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Desktop")
+            .appendingPathComponent("astra")
+            .path
         let finalizeScript = (repoRoot as NSString).appendingPathComponent("scripts/finalize_run.sh")
 
         let finalizeResult = runToolProcess(
@@ -4497,7 +4500,7 @@ struct ContentView: View {
                     continue
                 }
                 let safeCampaign = store.campaignFolderName(for: campaign)
-                let zipName = "\(safeCampaign)_\(lang.uppercased())_ASTRA.zip"
+                let zipName = "\(safeCampaign)_\(lang.uppercased())_bundle.zip"
                 let zipPath = (destFolder as NSString).appendingPathComponent(zipName)
                 try? fm.removeItem(atPath: zipPath)
                 do {
