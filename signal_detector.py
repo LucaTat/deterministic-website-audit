@@ -14,10 +14,10 @@ def normalize_text(s: str) -> str:
 # Regex Patterns
 # \b boundary ensures we match "book" but not "bookkeeper" (unless desired)
 PATTERNS = {
-    "booking": r"\b(book|booking|bookings|appointment|appointments|reservation|reservations|schedule|programare|programari|rezervare|rezervari)\b",
-    "contact": r"\b(contact|contacts|contact us|contacteaza|contactează|email|phone|call|whatsapp|adresă|adresa|locație|locatie|location|locations)\b",
-    "pricing": r"\b(price|prices|pricing|cost|costs|rates|lei|ron|eur|€|preț|pret|prețuri|preturi|tarif|tarife)\b",
-    "services": r"\b(services|service|servicii|serviciu|menu|oferta|oferte|tuns|vopsit|manichiura|pedichiura|coafat|tratament|tratamente)\b"
+    "booking": r"\b(book|appointment|reservation|schedule|programare|rezervare)\b",
+    "contact": r"\b(contact|email|phone|call|whatsapp|adresă|locație|location)\b",
+    "pricing": r"\b(price|pricing|cost|rates|lei|ron|eur|€|preț|tarif|tarife)\b",
+    "services": r"\b(services|servicii|menu|oferta|tuns|vopsit|manichiura|pedichiura|coafat|tratament)\b"
 }
 
 def detect_page_signals(html: str) -> dict:
@@ -50,21 +50,4 @@ def detect_page_signals(html: str) -> dict:
     if results.get("pricing_detected"): score += 15
     results["score"] = score
 
-    return results
-
-def detect_url_signals(url: str) -> dict:
-    """
-    Analyzes URL string for business signals.
-    """
-    text = normalize_text(url)
-    results = {}
-    found_any = False
-    
-    for key, pattern in PATTERNS.items():
-        found = bool(re.search(pattern, text, re.IGNORECASE))
-        results[f"{key}_detected"] = found
-        if found:
-            found_any = True
-            
-    results["found_any"] = found_any
     return results

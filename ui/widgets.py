@@ -31,9 +31,7 @@ class ScoreGauge(Flowable):
         r_inner = self.size * 0.85
         
         # Background Circle (Light)
-        # Handle HexColor to Color conversion for fading
-        bg_color = colors.Color(c.red, c.green, c.blue, alpha=0.15)
-        self.canv.setFillColor(bg_color)
+        self.canv.setFillColor(colors.fade(c, 0.2))
         self.canv.circle(cx, cy, r_outer, stroke=0, fill=1)
         
         # Segment (Arc)
