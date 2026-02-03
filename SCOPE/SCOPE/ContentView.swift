@@ -2963,15 +2963,16 @@ struct ContentView: View {
     }
 
     private func openZIP(forLang lang: String) {
-        guard let zipPath = shipZipPath(forLang: lang) else {
-            alertMissingPath(title: "ZIP missing", reason: "No run bundle found. Run Deliver (PDF) first.", path: nil)
+        guard let runDir = canonicalDeliveryRunDir(forLang: lang) else {
+            alert(title: "Bundle missing", message: "Bundle missing. Run Deliver (PDF) first.")
+            return
+        }
+        let zipPath = (runDir as NSString).appendingPathComponent("final/client_safe_bundle.zip")
+        guard FileManager.default.fileExists(atPath: zipPath) else {
+            alert(title: "Bundle missing", message: "Bundle missing. Run Deliver (PDF) first.")
             return
         }
         let url = URL(fileURLWithPath: zipPath)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            alertMissingPath(title: "ZIP missing", reason: "Run bundle not found on disk. Run Deliver (PDF) first.", path: url.path)
-            return
-        }
         withExportRootAccess {
             NSWorkspace.shared.activateFileViewerSelecting([url])
         }
@@ -4210,17 +4211,27 @@ struct ContentView: View {
         return runs.first { $0.lang.lowercased() == lang.lowercased() }
     }
 
+    private func canonicalDeliveryRunDir(forLang lang: String?) -> String? {
+        let preferredLang = (lang == "both") ? nil : lang
+        guard let entry = latestRunEntry(forLang: preferredLang),
+              let runDir = runRootPath(for: entry) else { return nil }
+        let trimmed = runDir.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDir), isDir.boolValue else {
+            return nil
+        }
+        return trimmed
+    }
+
     private func shipZipPath(forLang lang: String) -> String? {
-        guard let entry = latestRunEntry(forLang: lang) else { return nil }
-        guard let runDir = runRootPath(for: entry) else { return nil }
+        guard let runDir = canonicalDeliveryRunDir(forLang: lang) else { return nil }
         let zipPath = (runDir as NSString).appendingPathComponent("final/client_safe_bundle.zip")
         return FileManager.default.fileExists(atPath: zipPath) ? zipPath : nil
     }
 
     private func shipRootPath() -> String? {
-        let preferredLang = (lang == "both") ? nil : lang
-        guard let entry = latestRunEntry(forLang: preferredLang) else { return nil }
-        guard let runDir = runRootPath(for: entry) else { return nil }
+        guard let runDir = canonicalDeliveryRunDir(forLang: lang) else { return nil }
         let finalDir = (runDir as NSString).appendingPathComponent("final")
         return FileManager.default.fileExists(atPath: finalDir) ? finalDir : nil
     }
@@ -4311,16 +4322,16 @@ struct ContentView: View {
     }
 
     private func openShipRoot() {
-        guard let path = shipRootPath() else {
-            alertMissingPath(title: "Export root missing", reason: "No run final folder found. Run Deliver (PDF) first.", path: nil)
+        guard let runDir = canonicalDeliveryRunDir(forLang: lang) else {
+            alert(title: "Export root missing", message: "Export root missing. Run Deliver (PDF) first.")
             return
         }
-        let url = URL(fileURLWithPath: path)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            alertMissingPath(title: "Export root missing", reason: "Run final folder not found on disk.", path: url.path)
+        let finalPath = (runDir as NSString).appendingPathComponent("final")
+        guard FileManager.default.fileExists(atPath: finalPath) else {
+            alert(title: "Export root missing", message: "Export root missing. Run Deliver (PDF) first.")
             return
         }
-        NSWorkspace.shared.open(url)
+        NSWorkspace.shared.open(URL(fileURLWithPath: finalPath))
     }
 
     private func resolvedEngineURL() -> URL? {
