@@ -18,6 +18,7 @@ from net_guardrails import (
     robots_disallows,
     validate_url,
 )
+from visual_check import capture_screenshot
 
 HEADERS = DEFAULT_HEADERS
 
@@ -113,31 +114,21 @@ def page_signals(html: str) -> dict:
 
     clickable = " ".join(clickable_texts)
 
+    # Updated regex matching for precision
     def has_any(keywords, haystack):
-        return any(k in haystack for k in keywords)
+        pattern = r"\b(" + "|".join(map(re.escape, keywords)) + r")\b"
+        return bool(re.search(pattern, haystack))
 
     booking = has_any(BOOKING_KEYWORDS, text) or has_any(BOOKING_KEYWORDS, clickable)
     contact = has_any(CONTACT_KEYWORDS, text) or has_any(CONTACT_KEYWORDS, clickable)
 
-    has_price = any(
-        x in text
-        for x in [
-            "lei", "ron", "€", "eur",
-            "price", "pret", "preț",
-            "preturi", "prețuri", "tarif", "tarife"
-        ]
-    )
+    # Pricing regex (more robust)
+    price_pattern = r"(lei|ron|€|eur|price|pret|preț|tarif|tarife)\b"
+    has_price = bool(re.search(price_pattern, text))
 
-    has_services = any(
-        x in text
-        for x in [
-            "services", "servicii", "tuns", "vopsit",
-            "manichiura", "manichiură",
-            "pedichiura", "pedichiură",
-            "coafat", "tratament",
-            "abonament", "abonamente", "membership"
-        ]
-    )
+    # Services regex
+    services_pattern = r"(services|servicii|tuns|vopsit|manichiura|manichiură|pedichiura|pedichiură|coafat|tratament|abonament|membership)\b"
+    has_services = bool(re.search(services_pattern, text))
 
     score = 0
     score += 40 if booking else 0
@@ -185,11 +176,33 @@ def build_all_signals(html: str, page_url: str | None = None) -> dict:
     combined.update(base)
     combined.update(social)
 
+
     # Share preview meta (Open Graph / Twitter). Stored as a nested dict to keep signals readable.
     try:
         combined["share_meta"] = extract_share_meta(html, page_url=page_url)
     except Exception as e:
         combined["share_meta"] = {"error": str(e)}
+
+    # --- NEW SKILLS INTEGRATION ---
+    try:
+        import tech_detective
+        import accessibility_heuristic
+        import copy_critic
+
+        # 1. Tech Stack
+        combined["tech_stack"] = tech_detective.detect_tech_stack(html, {}) 
+        
+        # 2. Accessibility
+        combined["a11y_report"] = accessibility_heuristic.audit_a11y(html)
+        
+        # 3. Copy Quality (extract text first)
+        soup_text = BeautifulSoup(html, "html.parser").get_text(" ", strip=True)
+        combined["content_quality"] = copy_critic.analyze_copy(soup_text)
+        
+    except ImportError:
+        pass
+    except Exception as e:
+        combined["skills_error"] = str(e)
 
     return combined
 

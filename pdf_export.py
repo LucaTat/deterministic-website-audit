@@ -12,6 +12,7 @@ from reportlab.platypus import (
     SimpleDocTemplate,
     Paragraph,
     Spacer,
+    Image,
     Table,
     TableStyle,
     HRFlowable,
@@ -23,6 +24,20 @@ from reportlab.platypus import (
 )
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+
+# --- PREMIUM UI ---
+try:
+    from ui import Theme, ScoreGauge, create_card_table
+    HAS_UI = True
+except ImportError:
+    HAS_UI = False
+    class Theme:
+        # Fallback if UI package missing
+        PRIMARY = colors.black
+        SECONDARY = colors.black
+        TEXT_MAIN = colors.black
+        @staticmethod
+        def get_stylesheet(): return getSampleStyleSheet()
 
 import config
 
@@ -99,6 +114,72 @@ def _get_crawl_v1(audit_result: dict) -> dict:
     signals = audit_result.get("signals", {}) or {}
     crawl = signals.get("crawl_v1")
     return crawl if isinstance(crawl, dict) else {}
+
+
+def _build_skills_section(signals: dict, lang: str) -> list[Flowable]:
+    styles = Theme.get_stylesheet()
+    story = []
+    
+    # helper for localized headers
+    h_tech = "Technology Stack Detected" if lang == "en" else "Tehnologii Detectate"
+    h_a11y = "Accessibility Audit" if lang == "en" else "Audit Accesibilitate"
+    h_content = "Content Quality Analysis" if lang == "en" else "Analiza Calității Conținutului"
+
+    # 1. Tech Stack
+    tech = signals.get("tech_stack", {})
+    if tech:
+        story.extend(_section_heading(h_tech))
+        for category, items in tech.items():
+            if items:
+                line = f"<b>{category}:</b> {', '.join(items)}"
+                story.append(Paragraph(line, styles["BodyText"]))
+        story.append(Spacer(1, 6))
+
+    # 2. Accessibility
+    a11y = signals.get("a11y_report", {})
+    if a11y:
+        story.extend(_section_heading(h_a11y))
+        issues = a11y.get("issues", [])
+        score_penalty = a11y.get("score_penalty", 0)
+        
+        status = "Good" if score_penalty < 10 else "Needs Improvement"
+        if score_penalty > 30: status = "Critical Issues Found"
+        
+        # Visual Gauge (Health = 100 - penalty)
+        health = max(0, 100 - score_penalty)
+        if HAS_UI:
+             story.append(KeepTogether([
+                 ScoreGauge(health, label="A11y Score", size=25),
+                 Spacer(1, 6),
+                 Paragraph(f"Status: <b>{status}</b>", styles["Body"])
+             ]))
+        else:
+             story.append(Paragraph(f"Status: <b>{status}</b> (Penalty: {score_penalty})", styles["BodyText"]))
+
+        if issues:
+            for issue in issues[:5]: # Top 5
+                story.append(Paragraph(f"• {issue}", styles["BodyText"]))
+        else:
+             story.append(Paragraph("No major structural issues detected.", styles["BodyText"]))
+        story.append(Spacer(1, 6))
+
+    # 3. Content Quality
+    quality = signals.get("content_quality", {})
+    if quality and "error" not in quality:
+        story.extend(_section_heading(h_content))
+        
+        flesch = quality.get("flesch_score")
+        difficulty = quality.get("difficulty_label")
+        tone = quality.get("tone_label")
+        
+        story.append(Paragraph(f"Reading Level: <b>{difficulty}</b> (Score: {flesch})", styles["BodyText"]))
+        story.append(Paragraph(f"Tone: <b>{tone}</b>", styles["BodyText"]))
+        
+        ratio = quality.get("you_we_ratio", "N/A")
+        story.append(Paragraph(f"Client-Focus Ratio (You:We): {ratio}", styles["BodyText"]))
+        story.append(Spacer(1, 6))
+
+    return story
 
 
 def _select_crawl_evidence(crawl_v1: dict, max_items: int = 4) -> list[dict]:
@@ -1099,9 +1180,116 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
 
     story.append(Paragraph("COVERAGE & VALIDITATEA DECIZIEI", styles["H1"]))
     story.append(Spacer(1, 6))
-    story.extend(_coverage_section())
+    story.append(ScorecardFlowable(audit_result, lang))
     story.append(Spacer(1, 12))
 
+    # --- Mobile & Desktop Comparsion & Performance ---
+    story.extend(_section_heading("Experience & Performance" if lang == "en" else "Experiență și Performanță"))
+    
+    # Locate assets
+    base_dir = os.path.dirname(os.path.abspath(out_path))
+    
+    def _find_asset(name):
+        cands = [
+            os.path.join(base_dir, "scope", name),
+            os.path.join(base_dir, "evidence", name),
+            os.path.join(base_dir, name),
+        ]
+        for c in cands:
+             if os.path.exists(c): return c
+        return None
+
+    desktop_img_path = _find_asset("home.png")
+    mobile_img_path = _find_asset("home_mobile.png")
+    perf_path = _find_asset("performance.json")
+
+    # Load Metrics
+    import json
+    metrics = {}
+    if perf_path:
+        try:
+            with open(perf_path, "r", encoding="utf-8") as f:
+                metrics = json.load(f)
+        except Exception:
+            pass
+
+    # Helper to create Image flowable
+    def _make_img(path, width):
+        try:
+            img = Image(path)
+            aspect = img.drawHeight / float(img.drawWidth)
+            img.drawWidth = width
+            img.drawHeight = width * aspect
+            return img
+        except Exception:
+            return Paragraph("[Image Error]", styles["Small"])
+
+    # Prepare Data for Table
+    # Desktop Data
+    d_metrics = metrics.get("desktop", {})
+    d_load = d_metrics.get("load_time_ms")
+    d_load_txt = f"{d_load/1000:.1f}s Load" if d_load else "N/A"
+    d_color = "#16a34a" if d_load and d_load < 2500 else ("#dc2626" if d_load and d_load > 4000 else "#ca8a04")
+    
+    # Mobile Data
+    m_metrics = metrics.get("mobile", {})
+    m_load = m_metrics.get("load_time_ms")
+    m_load_txt = f"{m_load/1000:.1f}s Load" if m_load else "N/A"
+    m_color = "#16a34a" if m_load and m_load < 2500 else ("#dc2626" if m_load and m_load > 4000 else "#ca8a04")
+
+    # Cells
+    cell_d_img = _make_img(desktop_img_path, 80*mm) if desktop_img_path else Paragraph("No Desktop Image", styles["Small"])
+    cell_m_img = _make_img(mobile_img_path, 75*mm) if mobile_img_path else Paragraph("No Mobile Image", styles["Small"]) # Mobile slightly smaller width to fit aspect? No, fit width.
+    
+    # Constrain Mobile Image Width to be proportional? 
+    # Usually mobile screenshots are tall. If we force width=80mm it will be very tall.
+    # Let's constrain by height.
+    if mobile_img_path:
+         # Redo mobile image with height constraint if needed
+         try:
+             img = Image(mobile_img_path)
+             aspect = img.drawHeight / float(img.drawWidth)
+             # Target similar height to desktop (approx 45mm for 16:9 desktop)
+             # Desktop 80mm width => 45mm height.
+             # Mobile: if we match height 45mm => width = 45/aspect.
+             # iPhone aspect ~2.16. Width ~ 20mm. Too small.
+             # Let's give it more prominence. Side by side.
+             target_h = 70*mm
+             target_w = target_h / aspect
+             img.drawHeight = target_h
+             img.drawWidth = target_w
+             cell_m_img = img
+         except: pass
+
+    # Table Layout
+    # Row 1: Headers
+    # Row 2: Images
+    # Row 3: Metrics
+    
+    data = [
+        [Paragraph("Desktop View (1280px)", styles["Small"]), Paragraph("Mobile View (iPhone)", styles["Small"])],
+        [cell_d_img, cell_m_img],
+        [Paragraph(f'<font color="{d_color}"><b>{d_load_txt}</b></font>', styles["Body"]), 
+         Paragraph(f'<font color="{m_color}"><b>{m_load_txt}</b></font>', styles["Body"])]
+    ]
+    
+    t = Table(data, colWidths=[85*mm, 85*mm])
+    t.setStyle(TableStyle([
+        ("ALIGN", (0,0), (-1,-1), "CENTER"),
+        ("VALIGN", (0,0), (-1,-1), "TOP"),
+        ("TOPPADDING", (0,1), (-1,1), 6),
+        ("BOTTOMPADDING", (0,1), (-1,1), 6),
+    ]))
+    
+    story.append(t)
+    story.append(Spacer(1, 12))
+    
+    # --- Deep Audit Skills Section ---
+    story.extend(_build_skills_section(audit_result.get("signals", {}), lang))
+
+    # --- Overview ---
+    if overview_filtered:
+        title = "Overview" if lang == "en" else "Prezentare generală"
     evidence_pack = audit_result.get("evidence_pack") or {}
     crawl_pages = evidence_pack.get("crawl_pages") if isinstance(evidence_pack, dict) else []
     if isinstance(crawl_pages, list) and crawl_pages:

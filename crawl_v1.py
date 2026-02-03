@@ -21,6 +21,7 @@ from net_guardrails import (
     robots_disallows,
     validate_url,
 )
+
 from defusedxml import ElementTree as ET
 
 HEADERS = DEFAULT_HEADERS
@@ -175,6 +176,55 @@ def _save_evidence_pages(evidence_dir: str, homepage: str, extra_urls: list[str]
         pages_meta.append({"url": url, "file": filename})
 
     write_page(homepage, "home.html")
+    
+    # NEW: Capture visual evidence (Screenshot) for the homepage
+    # NEW: Capture visual evidence (Desktop & Mobile)
+    # NEW: Capture visual evidence (Desktop & Mobile) using persistent browser
+    try:
+        from pathlib import Path
+        from visual_check import VisualVerifier
+        
+        with VisualVerifier() as vv:
+            # Desktop
+            desktop_path = os.path.join(evidence_dir, "home.png")
+            desktop_res = vv.capture(homepage, Path(desktop_path), device_type="desktop")
+            
+            # Mobile
+            mobile_path = os.path.join(evidence_dir, "home_mobile.png")
+            mobile_res = vv.capture(homepage, Path(mobile_path), device_type="mobile")
+            
+            # Record Desktop file
+            if desktop_res.get("ok"):
+                 pages_meta.append({
+                     "url": homepage, 
+                     "file": "home.png", 
+                     "type": "screenshot",
+                     "device": "desktop",
+                     "metrics": desktop_res.get("metrics")
+                 })
+
+            # Record Mobile file
+            if mobile_res.get("ok"):
+                 pages_meta.append({
+                     "url": homepage, 
+                     "file": "home_mobile.png", 
+                     "type": "screenshot",
+                     "device": "mobile",
+                     "metrics": mobile_res.get("metrics")
+                 })
+
+            # Save Performance Metrics separately for easy parsing
+            perf_data = {
+                "desktop": desktop_res.get("metrics") if desktop_res.get("ok") else {},
+                "mobile": mobile_res.get("metrics") if mobile_res.get("ok") else {},
+            }
+            with open(os.path.join(evidence_dir, "performance.json"), "w", encoding="utf-8") as f:
+                json.dump(perf_data, f, indent=2)
+
+    except Exception as e:
+        print(f"Visual check error: {e}") 
+        pass
+
     for idx, url in enumerate(extra_urls[:4], start=1):
         write_page(url, f"page_{idx:02d}.html")
 
