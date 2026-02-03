@@ -16,6 +16,12 @@ def write_pdf(path: Path, pages: int) -> None:
 
 def test_build_master_bundle_success(tmp_path: Path) -> None:
     run_dir = tmp_path / "run_ro"
+    deliverables_dir = run_dir / "deliverables"
+    deliverables_dir.mkdir(parents=True, exist_ok=True)
+    (deliverables_dir / "verdict.json").write_text(
+        '{"status":"ok","summary":"test verdict"}',
+        encoding="utf-8",
+    )
     write_pdf(run_dir / "audit" / "report.pdf", 1)
     write_pdf(run_dir / "action_scope" / "action_scope.pdf", 1)
     write_pdf(run_dir / "proof_pack" / "proof_pack.pdf", 1)
@@ -33,7 +39,7 @@ def test_build_master_bundle_success(tmp_path: Path) -> None:
     out_pdf = run_dir / "final" / "MASTER_BUNDLE.pdf"
     assert out_pdf.is_file()
     reader = PdfReader(str(out_pdf))
-    assert len(reader.pages) == 5
+    assert len(reader.pages) == 6
 
 
 def test_build_master_bundle_missing_input(tmp_path: Path) -> None:
