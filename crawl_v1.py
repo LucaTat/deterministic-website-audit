@@ -242,36 +242,54 @@ def _save_evidence_pages(evidence_dir: str, homepage: str, extra_urls: list[str]
 
 def _fetch(url: str, max_bytes: int | None = MAX_HTML_BYTES) -> tuple[int | None, str, str, dict, str | None]:
     try:
-        session = safe_session()
-        session.max_redirects = MAX_REDIRECTS
-        session.trust_env = False
+        validate_url(url)
+    except ValueError:
+        return None, "", url, {}, "invalid_url"
+
+    session = requests.Session()
+    session.max_redirects = MAX_REDIRECTS
+    session.trust_env = False
+
+    current_url = url
+    redirects = 0
+    while True:
         try:
             resp = session.get(
-                url,
+                current_url,
                 headers=HEADERS,
                 timeout=DEFAULT_TIMEOUT,
                 stream=True,
-                allow_redirects=True, # safe_session pins IP for every redirect
+                allow_redirects=False,
             )
         except requests.TooManyRedirects:
-             return None, "", url, {}, "too_many_redirects"
+            return None, "", current_url, {}, "too_many_redirects"
         except ValueError:
-             return None, "", url, {}, "invalid_url"
-        
+            return None, "", current_url, {}, "invalid_url"
+        except requests.exceptions.RequestException:
+            return None, "", current_url, {}, "fetch_error"
+        except Exception:
+            return None, "", current_url, {}, "fetch_error"
+
         status = resp.status_code
-        content_type = resp.headers.get("Content-Type", "") or ""
-        
-        # Check size on final response
+        if status in (301, 302, 303, 307, 308):
+            location = (resp.headers or {}).get("Location")
+            if not location:
+                return None, "", current_url, redact_headers(resp.headers or {}), "fetch_error"
+            redirects += 1
+            if redirects > MAX_REDIRECTS:
+                return None, "", current_url, {}, "too_many_redirects"
+            next_url = urljoin(current_url, location)
+            try:
+                validate_url(next_url)
+            except ValueError:
+                return None, "", next_url, {}, "invalid_url"
+            current_url = next_url
+            continue
+
         text, too_large = read_limited_text(resp, max_bytes)
         if too_large:
             return status, "", resp.url, redact_headers(resp.headers or {}), "too_large"
-        
         return status, text or "", resp.url, redact_headers(resp.headers or {}), None
-            
-    except requests.exceptions.RequestException:
-        return None, "", url, {}, "fetch_error"
-    except Exception:
-        return None, "", url, {}, "fetch_error"
 
 
 def _parse_robots_sitemaps(text: str) -> list[str]:
