@@ -3,4 +3,5 @@ urllib3==2.2.2
 beautifulsoup4==4.12.3
 lxml==5.1.0
 defusedxml==0.7.1
+reportlab
 playwright>=1.49.0
