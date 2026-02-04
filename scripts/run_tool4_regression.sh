@@ -14,20 +14,22 @@ if [[ ! -d "$RUN_DIR" ]]; then
   echo "ERROR tool4 run dir missing: $RUN_DIR"
   exit 2
 fi
+RUN_DIR="$(cd "$RUN_DIR" && pwd)"
 
 # Detect effective run dir and verdict.json location
-if [[ -f "$RUN_DIR/astra/verdict.json" ]]; then
-  EFFECTIVE_RUN_DIR="$RUN_DIR/astra"
-  VERDICT_PATH="$RUN_DIR/astra/verdict.json"
-elif [[ -f "$RUN_DIR/astra/audit/verdict.json" ]]; then
-  EFFECTIVE_RUN_DIR="$RUN_DIR/astra"
-  VERDICT_PATH="$RUN_DIR/astra/audit/verdict.json"
-elif [[ -f "$RUN_DIR/audit/verdict.json" ]]; then
+# Prefer canonical run dir first; fall back to legacy subfolders if needed.
+if [[ -f "$RUN_DIR/audit/verdict.json" ]]; then
   EFFECTIVE_RUN_DIR="$RUN_DIR"
   VERDICT_PATH="$RUN_DIR/audit/verdict.json"
 elif [[ -f "$RUN_DIR/verdict.json" ]]; then
   EFFECTIVE_RUN_DIR="$RUN_DIR"
   VERDICT_PATH="$RUN_DIR/verdict.json"
+elif [[ -f "$RUN_DIR/astra/verdict.json" ]]; then
+  EFFECTIVE_RUN_DIR="$RUN_DIR/astra"
+  VERDICT_PATH="$RUN_DIR/astra/verdict.json"
+elif [[ -f "$RUN_DIR/astra/audit/verdict.json" ]]; then
+  EFFECTIVE_RUN_DIR="$RUN_DIR/astra"
+  VERDICT_PATH="$RUN_DIR/astra/audit/verdict.json"
 else
   echo "ERROR tool4 no verdict.json found in $RUN_DIR"
   exit 2
@@ -88,7 +90,22 @@ PY
   
   if [[ -n "$URL" ]]; then
     RUNS_ROOT=$(dirname "$EFFECTIVE_RUN_DIR")
-    if "$ASTRA_PY" -m astra.tool4.run --url "$URL" --out-root "$RUNS_ROOT" --lang "$LANG" 2>&1; then
+    set +e
+    astra_output="$("$ASTRA_PY" -m astra.tool4.run --url "$URL" --out-root "$RUNS_ROOT" --lang "$LANG" --run-dir "$RUN_DIR" 2>&1)"
+    astra_status=$?
+    set -e
+    if [[ -n "$astra_output" ]]; then
+      echo "$astra_output"
+    fi
+    actual_run_dir="$(echo "$astra_output" | sed -n 's/^ASTRA_RUN_DIR=//p' | head -n 1 | tr -d '\r')"
+    if [[ -n "$actual_run_dir" ]]; then
+      resolved_actual="$(cd "$actual_run_dir" 2>/dev/null && pwd || echo "$actual_run_dir")"
+      if [[ "$resolved_actual" != "$RUN_DIR" ]]; then
+        echo "ERROR tool4 run dir mismatch"
+        exit 2
+      fi
+    fi
+    if [[ "$astra_status" -eq 0 ]]; then
       echo "Premium Astra tool4 completed"
     else
       echo "WARN: Astra tool4 failed"

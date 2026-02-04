@@ -16,18 +16,19 @@ if [[ ! -d "$RUN_DIR" ]]; then
 fi
 
 # Detect effective run dir and verdict.json location
-if [[ -f "$RUN_DIR/astra/verdict.json" ]]; then
-  EFFECTIVE_RUN_DIR="$RUN_DIR/astra"
-  VERDICT_PATH="$RUN_DIR/astra/verdict.json"
-elif [[ -f "$RUN_DIR/astra/audit/verdict.json" ]]; then
-  EFFECTIVE_RUN_DIR="$RUN_DIR/astra"
-  VERDICT_PATH="$RUN_DIR/astra/audit/verdict.json"
-elif [[ -f "$RUN_DIR/audit/verdict.json" ]]; then
+# Prefer canonical run dir first; fall back to legacy subfolders if needed.
+if [[ -f "$RUN_DIR/audit/verdict.json" ]]; then
   EFFECTIVE_RUN_DIR="$RUN_DIR"
   VERDICT_PATH="$RUN_DIR/audit/verdict.json"
 elif [[ -f "$RUN_DIR/verdict.json" ]]; then
   EFFECTIVE_RUN_DIR="$RUN_DIR"
   VERDICT_PATH="$RUN_DIR/verdict.json"
+elif [[ -f "$RUN_DIR/astra/verdict.json" ]]; then
+  EFFECTIVE_RUN_DIR="$RUN_DIR/astra"
+  VERDICT_PATH="$RUN_DIR/astra/verdict.json"
+elif [[ -f "$RUN_DIR/astra/audit/verdict.json" ]]; then
+  EFFECTIVE_RUN_DIR="$RUN_DIR/astra"
+  VERDICT_PATH="$RUN_DIR/astra/audit/verdict.json"
 else
   echo "ERROR tool3 no verdict.json found in $RUN_DIR"
   exit 2
