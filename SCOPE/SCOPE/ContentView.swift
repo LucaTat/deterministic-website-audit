@@ -145,15 +145,13 @@ struct RunMetrics {
         actionScope = exists("astra/action_scope/action_scope.pdf") || exists("action_scope/action_scope.pdf")
         proofPack = exists("astra/proof_pack/proof_pack.pdf") || exists("proof_pack/proof_pack.pdf")
         regression = exists("astra/regression/regression.pdf") || exists("regression/regression.pdf")
-        masterPdf = exists("astra/final/master.pdf") || exists("final/master.pdf")
-        masterBundle = exists("astra/final/MASTER_BUNDLE.pdf") || exists("final/MASTER_BUNDLE.pdf")
-        bundleZip = exists("astra/final/client_safe_bundle.zip") || exists("final/client_safe_bundle.zip")
-        checksums = exists("astra/final/checksums.sha256") || exists("final/checksums.sha256")
+        masterPdf = exists("final/master.pdf")
+        masterBundle = exists("final/MASTER_BUNDLE.pdf")
+        bundleZip = exists("final/client_safe_bundle.zip")
+        checksums = exists("final/checksums.sha256")
 
-        // Helper to find path in astra/final/ or final/
+        // Helper to find path in final/
         func finalPath(_ rel: String) -> URL {
-            let astraPath = runDir.appendingPathComponent("astra/final/\(rel)")
-            if fm.fileExists(atPath: astraPath.path) { return astraPath }
             return runDir.appendingPathComponent("final/\(rel)")
         }
 
@@ -951,8 +949,7 @@ struct ContentView: View {
                                     }
                                     HStack(spacing: 8) {
                                         let runDirForExport = runRootPath(for: entry) ?? ""
-                                        let resolvedRunDir = runDirForExport.isEmpty ? "" : (resolveConcreteRunDir(baseRunsDir: URL(fileURLWithPath: runDirForExport))?.path ?? runDirForExport)
-        let deliverDisabled = isRunning || finalizeRunning || resolvedRunDir.isEmpty
+                                        let deliverDisabled = isRunning || finalizeRunning || runDirForExport.isEmpty
                                         Button("Deliver (PDF)") {
                                             runFinalizeIfNeeded(entry: entry, openOnSuccess: true)
                                         }
@@ -1151,7 +1148,7 @@ struct ContentView: View {
                                             Text("regression \(metrics.regression ? "✅" : "❌") · master.pdf \(metrics.masterPdf ? "✅" : "❌") · MASTER_BUNDLE \(metrics.masterBundle ? "✅" : "❌") · bundle.zip \(metrics.bundleZip ? "✅" : "❌")")
                                                 .font(.system(.caption, design: .monospaced))
                                                 .foregroundStyle(.primary)
-                                            let checksumsLine = metrics.checksums ? "checksums ✅" : (metrics.bundleZip ? "checksums ❌" : "checksums (export-only) —")
+                                            let checksumsLine = metrics.checksums ? "checksums ✅" : "checksums ❌"
                                             Text(checksumsLine)
                                                 .font(.system(.caption, design: .monospaced))
                                                 .foregroundStyle(.primary)
@@ -2015,9 +2012,10 @@ struct ContentView: View {
 
         panel.begin { resp in
             guard resp == .OK, let destUrl = panel.url else { return }
-            let store = self.campaignStore()
-            let safeName = store?.campaignFolderName(for: campaign.name) ?? campaign.name
-            let zipName = "\(safeName)_ASTRA.zip"
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyyMMdd_HHmmss"
+            let stamp = formatter.string(from: Date())
+            let zipName = "campaign_archive_\(stamp).zip"
             let destPath = (destUrl.path as NSString).appendingPathComponent(zipName)
             let fm = FileManager.default
             try? fm.removeItem(atPath: destPath)
@@ -2277,8 +2275,7 @@ struct ContentView: View {
                                     .opacity(buttonOpacity(disabled: logDisabled))
 
                                     let runDirForExport = runRootPath(for: entry) ?? ""
-                                    let resolvedRunDir = runDirForExport.isEmpty ? "" : (resolveConcreteRunDir(baseRunsDir: URL(fileURLWithPath: runDirForExport))?.path ?? runDirForExport)
-        let deliverDisabled = isRunning || finalizeRunning || resolvedRunDir.isEmpty
+                                    let deliverDisabled = isRunning || finalizeRunning || runDirForExport.isEmpty
                                     Button("Deliver (PDF)") {
                                         runFinalizeIfNeeded(entry: entry, openOnSuccess: true)
                                     }
@@ -2496,10 +2493,10 @@ struct ContentView: View {
         }
     }
 
-    private func alertMissingPath(title: String, reason: String, path: String?) {
-        let trimmed = (path ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolved = trimmed.isEmpty ? "(none)" : trimmed
-        alert(title: title, message: "\(reason)\nResolved path: \(resolved)")
+    private func alertMissingPath(title: String, reason: String, fragment: String?) {
+        let trimmed = (fragment ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffix = trimmed.isEmpty ? "" : "\nExpected: \(trimmed)"
+        alert(title: title, message: "\(reason)\(suffix)")
     }
 
     private func withExportRootAccess(_ action: () -> Void) {
@@ -2514,61 +2511,6 @@ struct ContentView: View {
             return
         }
         action()
-    }
-
-    private func openRoDeliverables() {
-        let fm = FileManager.default
-        guard let path = shipDirPath(forLang: "ro") else {
-            alertMissingPath(title: "RO deliverables missing", reason: "No RO deliverables path recorded yet.", path: nil)
-            openExportRootFallback()
-            return
-        }
-        let baseURL = URL(fileURLWithPath: path)
-        guard fm.fileExists(atPath: baseURL.path) else {
-            alertMissingPath(title: "RO deliverables missing", reason: "RO deliverables not found on disk.", path: baseURL.path)
-            openExportRootFallback()
-            return
-        }
-        if baseURL.pathExtension.lowercased() == "pdf" {
-            withExportRootAccess {
-                NSWorkspace.shared.open(baseURL)
-            }
-            return
-        }
-        var isDir: ObjCBool = false
-        let isDirectory = fm.fileExists(atPath: baseURL.path, isDirectory: &isDir) && isDir.boolValue
-        if isDirectory {
-            for candidate in roReportCandidates(for: baseURL) {
-                if fm.fileExists(atPath: candidate.path) {
-                    withExportRootAccess {
-                        NSWorkspace.shared.open(candidate)
-                    }
-                    return
-                }
-            }
-            withExportRootAccess {
-                NSWorkspace.shared.open(baseURL)
-            }
-            return
-        }
-        withExportRootAccess {
-            NSWorkspace.shared.open(baseURL)
-        }
-    }
-
-    private func roReportCandidates(for baseURL: URL) -> [URL] {
-        [
-            baseURL.appendingPathComponent("Decision_Brief_RO.pdf"),
-            baseURL.appendingPathComponent("deliverables").appendingPathComponent("Decision_Brief_RO.pdf"),
-            baseURL.appendingPathComponent("astra").appendingPathComponent("deliverables").appendingPathComponent("Decision_Brief_RO.pdf")
-        ]
-    }
-
-    private func openExportRootFallback() {
-        guard let path = shipRootPath() else { return }
-        let url = URL(fileURLWithPath: path)
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        NSWorkspace.shared.open(url)
     }
 
     private func openCampaignSites(_ item: RecentCampaign) {
@@ -2976,7 +2918,7 @@ struct ContentView: View {
     }
 
     private func openZIP(forLang lang: String) {
-        guard let runDir = canonicalDeliveryRunDir(forLang: lang) else {
+        guard let runDir = canonicalRunDir(forLangSelection: lang) else {
             alert(title: "Bundle missing", message: "Bundle missing. Run Deliver (PDF) first.")
             return
         }
@@ -3694,8 +3636,10 @@ struct ContentView: View {
 
     private func requiredFinalArtifacts() -> [String] {
         return [
+            "final/master.pdf",
             "final/MASTER_BUNDLE.pdf",
-            "final/client_safe_bundle.zip"
+            "final/client_safe_bundle.zip",
+            "final/checksums.sha256"
         ]
     }
 
@@ -3708,18 +3652,15 @@ struct ContentView: View {
         // 3. runDir/audit/verdict.json (direct Astra run)
         // 4. runDir/verdict.json (legacy/simple format)
         let astraSubdir = runDir.appendingPathComponent("astra")
-        let effectiveDir: URL
-        if fm.fileExists(atPath: astraSubdir.appendingPathComponent("verdict.json").path) {
-            effectiveDir = astraSubdir
-        } else if fm.fileExists(atPath: astraSubdir.appendingPathComponent("audit/verdict.json").path) {
-            effectiveDir = astraSubdir
-        } else if fm.fileExists(atPath: runDir.appendingPathComponent("audit/verdict.json").path) {
-            effectiveDir = runDir
-        } else if fm.fileExists(atPath: runDir.appendingPathComponent("verdict.json").path) {
-            effectiveDir = runDir
-        } else {
-            return (false, "No verdict.json found")
-        }
+        let hasVerdict =
+              fm.fileExists(atPath: astraSubdir.appendingPathComponent("verdict.json").path) ||
+              fm.fileExists(atPath: astraSubdir.appendingPathComponent("audit/verdict.json").path) ||
+              fm.fileExists(atPath: runDir.appendingPathComponent("audit/verdict.json").path) ||
+              fm.fileExists(atPath: runDir.appendingPathComponent("verdict.json").path) ||
+              fm.fileExists(atPath: runDir.appendingPathComponent("deliverables/verdict.json").path)
+          guard hasVerdict else {
+              return (false, "No verdict.json found")
+          }
         let astraRoot = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Desktop")
             .appendingPathComponent("astra")
@@ -3761,14 +3702,19 @@ struct ContentView: View {
             finalizeRunID = entry.id
             return
         }
-        guard let resolved = resolveConcreteRunDir(baseRunsDir: URL(fileURLWithPath: baseRunDir)) else {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: baseRunDir, isDirectory: &isDir), isDir.boolValue else {
             finalizeStatus = "ERROR: finalize: invalid run directory"
             finalizeRunID = entry.id
             return
         }
+        let runURL = URL(fileURLWithPath: baseRunDir)
         let langCode = entry.lang.lowercased() == "en" ? "EN" : "RO"
-        let masterBundlePath = resolved.appendingPathComponent("final/MASTER_BUNDLE.pdf").path
-        if FileManager.default.fileExists(atPath: masterBundlePath) {
+        let masterBundlePath = runURL.appendingPathComponent("final/MASTER_BUNDLE.pdf").path
+        let hasAllFinal = requiredFinalArtifacts().allSatisfy { rel in
+            FileManager.default.fileExists(atPath: runURL.appendingPathComponent(rel).path)
+        }
+        if hasAllFinal {
             if openOnSuccess {
                 revealAndOpenFile(masterBundlePath)
             }
@@ -3785,7 +3731,7 @@ struct ContentView: View {
             var env = ProcessInfo.processInfo.environment
             env["PATH"] = venvBin + ":" + (env["PATH"] ?? "")
 
-            let result = self.ensureFinalArtifacts(runDir: resolved, lang: langCode, repoRoot: repoRoot, env: env)
+            let result = self.ensureFinalArtifacts(runDir: runURL, lang: langCode, repoRoot: repoRoot, env: env)
 
             DispatchQueue.main.async {
                 self.finalizeRunning = false
@@ -3935,20 +3881,14 @@ struct ContentView: View {
 
             if stepName == "Tool 4" {
                 let baseURL = URL(fileURLWithPath: runDir)
-                if let resolved = self.resolveConcreteRunDir(baseRunsDir: baseURL) {
-                    let langCode = resolved.lastPathComponent.lowercased().hasSuffix("_en") ? "EN" : "RO"
-                    let ensureResult = self.ensureFinalArtifacts(runDir: resolved, lang: langCode, repoRoot: repoRoot, env: env)
-                    DispatchQueue.main.async {
-                        if ensureResult.0 {
-                            self.toolStatus = "OK \(stepName)"
-                        } else {
-                            let msg = ensureResult.1 ?? "finalize"
-                            self.toolStatus = "ERROR: finalize: \(msg)"
-                        }
-                    }
-                } else {
-                    DispatchQueue.main.async {
-                        self.toolStatus = "ERROR: finalize: invalid run directory"
+                let langCode = entry.lang.lowercased() == "en" ? "EN" : "RO"
+                let ensureResult = self.ensureFinalArtifacts(runDir: baseURL, lang: langCode, repoRoot: repoRoot, env: env)
+                DispatchQueue.main.async {
+                    if ensureResult.0 {
+                        self.toolStatus = "OK \(stepName)"
+                    } else {
+                        let msg = ensureResult.1 ?? "finalize"
+                        self.toolStatus = "ERROR: finalize: \(msg)"
                     }
                 }
             }
@@ -4005,10 +3945,7 @@ struct ContentView: View {
             exportStatusText = "ERROR: Build master"
             return
         }
-        guard let resolved = resolveConcreteRunDir(baseRunsDir: URL(fileURLWithPath: baseRunDir)) else {
-            exportStatusText = "ERROR: Invalid run directory"
-            return
-        }
+        let resolved = URL(fileURLWithPath: baseRunDir)
         let langCode = entry.lang.lowercased() == "en" ? "EN" : "RO"
 
         exportIsRunning = true
@@ -4287,8 +4224,8 @@ struct ContentView: View {
         return runs.first { $0.lang.lowercased() == lang.lowercased() }
     }
 
-    private func canonicalDeliveryRunDir(forLang lang: String?) -> String? {
-        let preferredLang = (lang == "both") ? nil : lang
+    private func canonicalRunDir(forLangSelection selection: String?) -> String? {
+        let preferredLang = (selection == "both") ? nil : selection
         guard let entry = latestRunEntry(forLang: preferredLang),
               let runDir = runRootPath(for: entry) else { return nil }
         let trimmed = runDir.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4301,13 +4238,13 @@ struct ContentView: View {
     }
 
     private func shipZipPath(forLang lang: String) -> String? {
-        guard let runDir = canonicalDeliveryRunDir(forLang: lang) else { return nil }
+        guard let runDir = canonicalRunDir(forLangSelection: lang) else { return nil }
         let zipPath = (runDir as NSString).appendingPathComponent("final/client_safe_bundle.zip")
         return FileManager.default.fileExists(atPath: zipPath) ? zipPath : nil
     }
 
     private func shipRootPath() -> String? {
-        guard let runDir = canonicalDeliveryRunDir(forLang: lang) else { return nil }
+        guard let runDir = canonicalRunDir(forLangSelection: lang) else { return nil }
         let finalDir = (runDir as NSString).appendingPathComponent("final")
         return FileManager.default.fileExists(atPath: finalDir) ? finalDir : nil
     }
@@ -4327,28 +4264,46 @@ struct ContentView: View {
         return nil
     }
 
-    private func lastRunDeliverablesPath() -> String? {
-        guard let astraDir = lastRunAstraDirPath() else { return nil }
-        let deliverables = (astraDir as NSString).appendingPathComponent("deliverables")
-        var isDir: ObjCBool = false
-        if FileManager.default.fileExists(atPath: deliverables, isDirectory: &isDir), isDir.boolValue {
-            return deliverables
+    private func decisionBriefFileName(forLang lang: String) -> String {
+        return (lang.lowercased() == "ro") ? "Decision_Brief_RO.pdf" : "Decision_Brief_EN.pdf"
+    }
+
+    private func appendixFileName(forLang lang: String) -> String {
+        return (lang.lowercased() == "ro") ? "Evidence_Appendix_RO.pdf" : "Evidence_Appendix_EN.pdf"
+    }
+
+    private func decisionBriefRelativePath(forLang lang: String) -> String {
+        return "deliverables/\(decisionBriefFileName(forLang: lang))"
+    }
+
+    private func appendixRelativePath(forLang lang: String) -> String {
+        return "deliverables/\(appendixFileName(forLang: lang))"
+    }
+
+    private func deliverablesFilePath(forLang lang: String, fileName: String) -> String? {
+        guard let runDir = canonicalRunDir(forLangSelection: lang) else { return nil }
+        let primaryURL = URL(fileURLWithPath: runDir)
+            .appendingPathComponent("deliverables", isDirectory: true)
+            .appendingPathComponent(fileName)
+        if FileManager.default.fileExists(atPath: primaryURL.path) {
+            return primaryURL.path
+        }
+        let fallbackURL = URL(fileURLWithPath: runDir)
+            .appendingPathComponent("astra", isDirectory: true)
+            .appendingPathComponent("deliverables", isDirectory: true)
+            .appendingPathComponent(fileName)
+        if FileManager.default.fileExists(atPath: fallbackURL.path) {
+            return fallbackURL.path
         }
         return nil
     }
 
     private func decisionBriefPath(forLang lang: String) -> String? {
-        guard let deliverables = lastRunDeliverablesPath() else { return nil }
-        let fileName = (lang.lowercased() == "ro") ? "Decision_Brief_RO.pdf" : "Decision_Brief_EN.pdf"
-        let path = (deliverables as NSString).appendingPathComponent(fileName)
-        return FileManager.default.fileExists(atPath: path) ? path : nil
+        return deliverablesFilePath(forLang: lang, fileName: decisionBriefFileName(forLang: lang))
     }
 
     private func appendixPath(forLang lang: String) -> String? {
-        guard let deliverables = lastRunDeliverablesPath() else { return nil }
-        let fileName = (lang.lowercased() == "ro") ? "Evidence_Appendix_RO.pdf" : "Evidence_Appendix_EN.pdf"
-        let path = (deliverables as NSString).appendingPathComponent(fileName)
-        return FileManager.default.fileExists(atPath: path) ? path : nil
+        return deliverablesFilePath(forLang: lang, fileName: appendixFileName(forLang: lang))
     }
 
     private func resolveRoDeliverablesPath(campaignURL: URL) -> String? {
@@ -4368,17 +4323,21 @@ struct ContentView: View {
     }
 
     private func openShipFolder(forLang lang: String) {
-        if lang.lowercased() == "ro" {
-            openRoDeliverables()
-            return
-        }
         guard let path = shipDirPath(forLang: lang) else {
-            alertMissingPath(title: "Decision Brief missing", reason: "No Decision Brief found yet.", path: nil)
+            alertMissingPath(
+                title: "Decision Brief missing",
+                reason: "No Decision Brief found yet.",
+                fragment: decisionBriefRelativePath(forLang: lang)
+            )
             return
         }
         let url = URL(fileURLWithPath: path)
         guard FileManager.default.fileExists(atPath: url.path) else {
-            alertMissingPath(title: "Decision Brief missing", reason: "Decision Brief not found on disk.", path: url.path)
+            alertMissingPath(
+                title: "Decision Brief missing",
+                reason: "Decision Brief not found on disk.",
+                fragment: decisionBriefRelativePath(forLang: lang)
+            )
             return
         }
         NSWorkspace.shared.open(url)
@@ -4386,23 +4345,30 @@ struct ContentView: View {
 
     private func openAppendix(forLang lang: String) {
         guard let path = appendixPath(forLang: lang) else {
-            alertMissingPath(title: "Evidence Appendix missing", reason: "No Evidence Appendix found yet.", path: nil)
+            alertMissingPath(
+                title: "Evidence Appendix missing",
+                reason: "No Evidence Appendix found yet.",
+                fragment: appendixRelativePath(forLang: lang)
+            )
             return
         }
         let url = URL(fileURLWithPath: path)
         guard FileManager.default.fileExists(atPath: url.path) else {
-            alertMissingPath(title: "Evidence Appendix missing", reason: "Evidence Appendix not found on disk.", path: url.path)
+            alertMissingPath(
+                title: "Evidence Appendix missing",
+                reason: "Evidence Appendix not found on disk.",
+                fragment: appendixRelativePath(forLang: lang)
+            )
             return
         }
         NSWorkspace.shared.open(url)
     }
 
     private func openShipRoot() {
-        guard let runDir = canonicalDeliveryRunDir(forLang: lang) else {
+        guard let finalPath = shipRootPath() else {
             alert(title: "Export root missing", message: "Export root missing. Run Deliver (PDF) first.")
             return
         }
-        let finalPath = (runDir as NSString).appendingPathComponent("final")
         guard FileManager.default.fileExists(atPath: finalPath) else {
             alert(title: "Export root missing", message: "Export root missing. Run Deliver (PDF) first.")
             return
@@ -4558,6 +4524,9 @@ struct ContentView: View {
             let destFolder = destUrl.path
             let fm = FileManager.default
             let store = self.campaignStore()
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyyMMdd_HHmmss"
+            let stamp = formatter.string(from: Date())
             var exported = 0
             var missing = 0
             var exportedZips: [String: String] = [:]
@@ -4572,8 +4541,7 @@ struct ContentView: View {
                     missing += 1
                     continue
                 }
-                let safeCampaign = store.campaignFolderName(for: campaign)
-                let zipName = "\(safeCampaign)_\(lang.uppercased())_ASTRA.zip"
+                let zipName = "client_safe_bundle_\(lang.uppercased())_\(stamp).zip"
                 let zipPath = (destFolder as NSString).appendingPathComponent(zipName)
                 try? fm.removeItem(atPath: zipPath)
                 do {
@@ -4988,8 +4956,8 @@ struct ContentView: View {
     }
 
     private func zipCountAvailable() -> Int {
-        guard let zips = result?.shipZipByLang else { return 0 }
-        return zips.values.filter { FileManager.default.fileExists(atPath: $0) }.count
+        let langs = ["ro", "en"]
+        return langs.filter { shipZipPath(forLang: $0) != nil }.count
     }
 
     private func langLabel(for lang: String) -> String {

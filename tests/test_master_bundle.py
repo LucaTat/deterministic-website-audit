@@ -1,5 +1,8 @@
+import hashlib
+import os
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
@@ -56,3 +59,68 @@ def test_build_master_bundle_missing_input(tmp_path: Path) -> None:
         text=True,
     )
     assert result.returncode != 0
+
+
+def test_finalize_run_creates_checksums(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run_ro"
+    deliverables_dir = run_dir / "deliverables"
+    deliverables_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "audit").mkdir(parents=True, exist_ok=True)
+
+    (run_dir / "audit" / "verdict.json").write_text(
+        '{"status":"ok","summary":"test verdict"}',
+        encoding="utf-8",
+    )
+    (deliverables_dir / "verdict.json").write_text(
+        '{"status":"ok","summary":"test verdict"}',
+        encoding="utf-8",
+    )
+
+    write_pdf(run_dir / "audit" / "report.pdf", 1)
+    write_pdf(deliverables_dir / "Decision_Brief_RO.pdf", 1)
+    write_pdf(deliverables_dir / "Evidence_Appendix_RO.pdf", 1)
+    write_pdf(run_dir / "action_scope" / "action_scope.pdf", 1)
+    write_pdf(run_dir / "proof_pack" / "proof_pack.pdf", 1)
+    write_pdf(run_dir / "regression" / "regression.pdf", 1)
+
+    write_pdf(run_dir / "final" / "master.pdf", 1)
+    write_pdf(run_dir / "final" / "MASTER_BUNDLE.pdf", 1)
+
+    zip_path = run_dir / "final" / "client_safe_bundle.zip"
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    zip_entries = [
+        "audit/report.pdf",
+        "deliverables/Decision_Brief_RO.pdf",
+        "deliverables/Evidence_Appendix_RO.pdf",
+        "deliverables/verdict.json",
+        "final/master.pdf",
+        "final/MASTER_BUNDLE.pdf",
+    ]
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        for rel in zip_entries:
+            zf.write(run_dir / rel, rel)
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "finalize_run.sh"
+    result = subprocess.run(
+        ["bash", str(script), str(run_dir), "RO"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "SCOPE_FINALIZE_SKIP_BUILD": "1"},
+    )
+    assert result.returncode == 0, result.stderr
+
+    checksums_path = run_dir / "final" / "checksums.sha256"
+    assert checksums_path.is_file()
+
+    lines = [line.strip() for line in checksums_path.read_text().splitlines() if line.strip()]
+    entries: dict[str, str] = {}
+    for line in lines:
+        digest, name = line.split(None, 1)
+        entries[name] = digest
+
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        names = [n for n in zf.namelist() if not n.endswith("/")]
+        for name in names:
+            data = zf.read(name)
+            expected = hashlib.sha256(data).hexdigest()
+            assert entries.get(name) == expected

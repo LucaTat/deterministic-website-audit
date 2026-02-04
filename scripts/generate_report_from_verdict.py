@@ -118,41 +118,90 @@ def main() -> int:
         print(f"ERROR: Report generation failed: {e}")
         print("Falling back to stub generation...")
     
-    # Fallback: generate a simple stub PDF
+    # Fallback: generate simple PDFs from verdict data
     try:
         from reportlab.lib.pagesizes import letter
         from reportlab.pdfgen import canvas
-        
+
+        def write_stub_pdf(path: Path, title: str, lines: list[str]) -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            c = canvas.Canvas(str(path), pagesize=letter)
+            c.setFont("Helvetica-Bold", 18)
+            c.drawString(72, 720, title)
+            c.setFont("Helvetica", 11)
+            y = 690
+            for line in lines:
+                if y < 72:
+                    c.showPage()
+                    c.setFont("Helvetica", 11)
+                    y = 720
+                c.drawString(72, y, str(line))
+                y -= 14
+            c.showPage()
+            c.save()
+
         report_path = audit_dir / "report.pdf"
-        c = canvas.Canvas(str(report_path), pagesize=letter)
-        c.setFont("Helvetica-Bold", 18)
-        c.drawString(72, 720, "ASTRA Audit Report")
-        c.setFont("Helvetica", 12)
-        c.drawString(72, 690, f"URL: {url}")
-        c.drawString(72, 670, f"Verdict: {verdict}")
-        c.drawString(72, 650, f"Language: {lang}")
-        c.drawString(72, 630, f"Generated: {timestamp_utc}")
-        
-        y = 600
-        c.setFont("Helvetica-Bold", 14)
-        c.drawString(72, y, "Categories:")
-        y -= 20
-        c.setFont("Helvetica", 11)
-        for cat_name, cat_data in categories.items():
-            status = cat_data.get("status", "UNKNOWN")
-            c.drawString(90, y, f"• {cat_name}: {status}")
-            y -= 18
-            if y < 100:
-                c.showPage()
-                y = 720
-        
-        c.showPage()
-        c.save()
-        print(f"Generated stub: {report_path}")
+        write_stub_pdf(
+            report_path,
+            "Audit Report (Fallback)",
+            [
+                f"URL: {url}",
+                f"Verdict: {verdict}",
+                f"Language: {lang}",
+                f"Generated: {timestamp_utc}",
+            ],
+        )
+
+        deliverables_dir = run_dir / "deliverables"
+        deliverables_dir.mkdir(parents=True, exist_ok=True)
+
+        brief_path = deliverables_dir / f"Decision_Brief_{lang}.pdf"
+        if not brief_path.exists():
+            write_stub_pdf(
+                brief_path,
+                f"Decision Brief ({lang})",
+                [
+                    f"URL: {url}",
+                    f"Verdict: {verdict}",
+                    f"Generated: {timestamp_utc}",
+                    "Summary: Auto-generated from verdict.json.",
+                ],
+            )
+
+        appendix_path = deliverables_dir / f"Evidence_Appendix_{lang}.pdf"
+        if not appendix_path.exists():
+            blocker_lines = []
+            for item in blockers[:12] if isinstance(blockers, list) else []:
+                blocker_lines.append(f"- {item}")
+            if not blocker_lines:
+                blocker_lines = ["- No blockers listed in verdict.json"]
+
+            signal_lines = []
+            if isinstance(signals, dict) and signals:
+                for key, value in list(signals.items())[:12]:
+                    signal_lines.append(f"- {key}: {value}")
+            else:
+                signal_lines.append("- No signals listed in verdict.json")
+
+            write_stub_pdf(
+                appendix_path,
+                f"Evidence Appendix ({lang})",
+                [
+                    f"URL: {url}",
+                    f"Verdict: {verdict}",
+                    f"Generated: {timestamp_utc}",
+                    "Blockers:",
+                    *blocker_lines,
+                    "Signals:",
+                    *signal_lines,
+                ],
+            )
+
+        print(f"Generated fallback PDFs in {deliverables_dir}")
         return 0
-        
+
     except Exception as e:
-        print(f"FATAL: Could not generate even stub PDF: {e}")
+        print(f"FATAL: Could not generate fallback PDFs: {e}")
         return 2
 
 
