@@ -94,70 +94,8 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
   PYTHON_BIN="python3"
 fi
 
-ASTRA_PY="$HOME/Desktop/astra/.venv/bin/python3"
-if [[ ! -x "$ASTRA_PY" ]]; then
-  ASTRA_PY="$PYTHON_BIN"
-fi
-
-AUDIT_BRIEF="$RUN_DIR/audit/report.pdf"
-AUDIT_BRIEF_LANG="$RUN_DIR/audit/Decision_Brief_${LANG}.pdf"
-AUDIT_EVID="$RUN_DIR/audit/Evidence_Appendix_${LANG}.pdf"
-
 # Sync deliverables from source if needed
-DELIVERABLES_SRC=""
-if [[ -d "$SOURCE_RUN_DIR/deliverables" ]]; then
-  DELIVERABLES_SRC="$SOURCE_RUN_DIR/deliverables"
-elif [[ -d "$SOURCE_RUN_DIR/final_decision" ]]; then
-  DELIVERABLES_SRC="$SOURCE_RUN_DIR/final_decision"
-fi
-
-# Generate audit/report.pdf or deliverables if missing
-need_report_gen=0
-if [[ ! -f "$RUN_DIR/audit/report.pdf" ]]; then
-  need_report_gen=1
-fi
-if [[ ! -f "$RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf" || ! -f "$RUN_DIR/deliverables/Evidence_Appendix_${LANG}.pdf" ]]; then
-  need_report_gen=1
-fi
-if [[ "$need_report_gen" -eq 1 ]]; then
-  echo "Generating audit/report.pdf from verdict.json..."
-  "$PYTHON_BIN" "$REPO_ROOT/scripts/generate_report_from_verdict.py" "$RUN_DIR" --lang "$LANG" || {
-    echo "WARN: Could not generate audit/report.pdf"
-  }
-fi
-
-# Copy Decision Brief if missing
-if [[ ! -f "$RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf" ]]; then
-  if [[ -f "$AUDIT_BRIEF_LANG" ]]; then
-    cp -f "$AUDIT_BRIEF_LANG" "$RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf"
-  elif [[ -f "$AUDIT_BRIEF" ]]; then
-    cp -f "$AUDIT_BRIEF" "$RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf"
-  elif [[ -n "$DELIVERABLES_SRC" && -f "$DELIVERABLES_SRC/Decision_Brief_${LANG}.pdf" ]]; then
-    cp -f "$DELIVERABLES_SRC/Decision_Brief_${LANG}.pdf" "$RUN_DIR/deliverables/"
-  elif [[ -f "$SOURCE_RUN_DIR/final_decision/ASTRA_Traffic_Readiness_Decision_${LANG}.pdf" ]]; then
-    cp -f "$SOURCE_RUN_DIR/final_decision/ASTRA_Traffic_Readiness_Decision_${LANG}.pdf" "$RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf"
-  fi
-fi
-
-# Copy Evidence Appendix if missing
-if [[ ! -f "$RUN_DIR/deliverables/Evidence_Appendix_${LANG}.pdf" ]]; then
-  if [[ -f "$AUDIT_EVID" ]]; then
-    cp -f "$AUDIT_EVID" "$RUN_DIR/deliverables/Evidence_Appendix_${LANG}.pdf"
-  elif [[ -n "$DELIVERABLES_SRC" && -f "$DELIVERABLES_SRC/Evidence_Appendix_${LANG}.pdf" ]]; then
-    cp -f "$DELIVERABLES_SRC/Evidence_Appendix_${LANG}.pdf" "$RUN_DIR/deliverables/"
-  fi
-fi
-
-# Copy verdict.json if missing
-if [[ ! -f "$RUN_DIR/deliverables/verdict.json" ]]; then
-  if [[ -f "$RUN_DIR/audit/verdict.json" ]]; then
-    cp -f "$RUN_DIR/audit/verdict.json" "$RUN_DIR/deliverables/verdict.json"
-  elif [[ -f "$VERDICT_PATH" ]]; then
-    cp -f "$VERDICT_PATH" "$RUN_DIR/deliverables/verdict.json"
-  fi
-fi
-
-# audit/report.pdf is required; generation handled above
+# No auto-generation or placeholder creation here. All required inputs must already exist.
 
 # Validate required inputs (fail-closed)
 missing_required=()
@@ -182,19 +120,13 @@ if [[ ${#missing_required[@]} -gt 0 ]]; then
 fi
 
 if [[ "$SKIP_BUILD" != "1" ]]; then
-  # Run ASTRA master_final (required)
-  echo "Running master_final..."
-  if ! "$ASTRA_PY" -m astra.master_final.run --run-dir "$RUN_DIR" 2>&1; then
-    echo "ERROR: master_final failed" >&2
-    exit 2
-  fi
-
-  # Build master bundle and client-safe zip
-  echo "Building master bundle..."
-  bash "$REPO_ROOT/scripts/build_master_pdf.sh" "$RUN_DIR"
+  # Build master.pdf, MASTER_BUNDLE.pdf, client_safe_bundle.zip
+  echo "Building master.pdf..."
+  bash "$REPO_ROOT/scripts/build_master_pdf.sh" "$RUN_DIR" "$LANG"
+  echo "Building MASTER_BUNDLE.pdf..."
   "$PYTHON_BIN" "$REPO_ROOT/scripts/build_master_bundle.py" --run-dir "$RUN_DIR"
+  echo "Packaging client_safe_bundle.zip..."
   bash "$REPO_ROOT/scripts/package_run_client_safe_zip.sh" "$RUN_DIR"
-  "$PYTHON_BIN" "$REPO_ROOT/scripts/verify_client_safe_zip.py" "$RUN_DIR/final/client_safe_bundle.zip"
 else
   echo "WARN: skipping build steps (SCOPE_FINALIZE_SKIP_BUILD=1)" >&2
 fi
@@ -213,6 +145,12 @@ if [[ ${#missing_outputs[@]} -gt 0 ]]; then
   printf "MISSING_REQUIRED: %s\n" "$(IFS=,; echo "${missing_outputs[*]}")" >&2
   exit 2
 fi
+
+# Verify client-safe bundle contents
+"$PYTHON_BIN" "$REPO_ROOT/scripts/verify_client_safe_zip.py" "$RUN_DIR/final/client_safe_bundle.zip" >/dev/null || {
+  echo "ERROR: bundle verify failed" >&2
+  exit 2
+}
 
 # Generate checksums for every file included in the client-safe bundle
 if [[ ! -f "$RUN_DIR/final/client_safe_bundle.zip" ]]; then

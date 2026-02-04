@@ -25,18 +25,16 @@ def main() -> int:
 
         required = {
             "audit/report.pdf",
+            "action_scope/action_scope.pdf",
+            "proof_pack/proof_pack.pdf",
+            "regression/regression.pdf",
             f"deliverables/Decision_Brief_{lang}.pdf",
             f"deliverables/Evidence_Appendix_{lang}.pdf",
             "deliverables/verdict.json",
             "final/master.pdf",
             "final/MASTER_BUNDLE.pdf",
         }
-        optional = {
-            "action_scope/action_scope.pdf",
-            "proof_pack/proof_pack.pdf",
-            "regression/regression.pdf",
-        }
-        allowlist = required | optional
+        allowlist = required
         for req in required:
             if req not in name_set:
                 print(f"ERROR missing required: {req}")

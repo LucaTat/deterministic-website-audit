@@ -6,7 +6,7 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 RUN_DIR="$TMP_DIR/run_ro"
-mkdir -p "$RUN_DIR/audit" "$RUN_DIR/astra" "$RUN_DIR/action_scope"
+mkdir -p "$RUN_DIR/audit" "$RUN_DIR/deliverables" "$RUN_DIR/action_scope" "$RUN_DIR/proof_pack" "$RUN_DIR/regression"
 
 python3 - <<'PY' "$RUN_DIR"
 import os
@@ -24,11 +24,14 @@ def make_pdf(path, pages=1):
     c.save()
 
 make_pdf(os.path.join(run_dir, "audit", "report.pdf"), pages=1)
-make_pdf(os.path.join(run_dir, "astra", "Decision Brief - example.com - RO.pdf"), pages=1)
+make_pdf(os.path.join(run_dir, "deliverables", "Decision_Brief_RO.pdf"), pages=1)
+make_pdf(os.path.join(run_dir, "deliverables", "Evidence_Appendix_RO.pdf"), pages=1)
 make_pdf(os.path.join(run_dir, "action_scope", "action_scope.pdf"), pages=1)
+make_pdf(os.path.join(run_dir, "proof_pack", "proof_pack.pdf"), pages=1)
+make_pdf(os.path.join(run_dir, "regression", "regression.pdf"), pages=1)
 PY
 
-bash "$ROOT/scripts/build_master_pdf.sh" "$RUN_DIR"
+bash "$ROOT/scripts/build_master_pdf.sh" "$RUN_DIR" "RO"
 
 OUT_PDF="$RUN_DIR/final/master.pdf"
 if [[ ! -f "$OUT_PDF" ]]; then

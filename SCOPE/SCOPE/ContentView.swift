@@ -141,10 +141,10 @@ struct RunMetrics {
             fm.fileExists(atPath: runDir.appendingPathComponent(rel).path)
         }
 
-        auditReport = exists("audit/report.pdf") || exists("astra/audit/report.pdf")
-        actionScope = exists("astra/action_scope/action_scope.pdf") || exists("action_scope/action_scope.pdf")
-        proofPack = exists("astra/proof_pack/proof_pack.pdf") || exists("proof_pack/proof_pack.pdf")
-        regression = exists("astra/regression/regression.pdf") || exists("regression/regression.pdf")
+        auditReport = exists("audit/report.pdf")
+        actionScope = exists("action_scope/action_scope.pdf")
+        proofPack = exists("proof_pack/proof_pack.pdf")
+        regression = exists("regression/regression.pdf")
         masterPdf = exists("final/master.pdf")
         masterBundle = exists("final/MASTER_BUNDLE.pdf")
         bundleZip = exists("final/client_safe_bundle.zip")
@@ -242,7 +242,6 @@ struct ContentView: View {
     @State private var recentCampaigns: [RecentCampaign] = []
     @State private var runHistory: [RunEntry] = []
     @State private var repoRoot: String? = nil
-    @State private var exportStatus: String? = nil
     @State private var showHiddenCampaigns: Bool = false
     @State private var campaignSearch: String = ""
     @State private var campaignFilter: CampaignFilter = .all
@@ -713,7 +712,7 @@ struct ContentView: View {
                     HStack(spacing: 8) {
                         let shipRootDisabled = isRunning || shipRootPath() == nil
                         Button { openShipRoot() } label: {
-                            Label("Open Export/Delivery Root", systemImage: "shippingbox.fill")
+                            Label("Open Delivery Root", systemImage: "shippingbox.fill")
                         }
                         .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                         .controlSize(.large)
@@ -721,138 +720,45 @@ struct ContentView: View {
                         .disabled(shipRootDisabled)
                         .opacity(buttonOpacity(disabled: shipRootDisabled))
                         .help(shipRootHelpText())
-                        InfoButton(text: "Opens the export/delivery root folder for this campaign.")
-                    }
-
-                    HStack(spacing: 8) {
-                        let exportDisabled = isRunning || resolvedRepoRoot() == nil || !campaignIsValidForExport()
-                        Button {
-                            exportCurrentCampaign()
-                        } label: {
-                            Label("Export Campaign…", systemImage: "square.and.arrow.up")
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(exportDisabled)
-                        .opacity(buttonOpacity(disabled: exportDisabled))
-                        .help(exportDisabled ? "Available after run" : "Export client-safe ZIPs to a folder")
-
-                        if let status = exportStatus {
-                            Text(status)
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        }
+                        InfoButton(text: "Opens the run/final folder for the latest run.")
                     }
 
                     let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
-                        if lang == "both" {
-                            HStack(spacing: 6) {
-                                let shipRoDisabled = isRunning || shipDirPath(forLang: "ro") == nil
-                                Button { openShipFolder(forLang: "ro") } label: {
-                                    Label("Decision Brief RO", systemImage: "doc.richtext")
-                                }
-                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                .disabled(shipRoDisabled)
-                                .opacity(buttonOpacity(disabled: shipRoDisabled))
-                                .help("Open Decision Brief (RO)")
-                                InfoButton(text: "Opens the Decision Brief PDF for this campaign/language.")
+                        HStack(spacing: 6) {
+                            let masterDisabled = isRunning || finalMasterPath(forLangSelection: lang) == nil
+                            Button { openFinalMaster() } label: {
+                                Label("Open master.pdf", systemImage: "doc.richtext")
                             }
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                            .disabled(masterDisabled)
+                            .opacity(buttonOpacity(disabled: masterDisabled))
+                            .help("Open final/master.pdf")
+                            InfoButton(text: "Opens the concatenated master PDF in run/final.")
+                        }
 
-                            HStack(spacing: 6) {
-                                let shipEnDisabled = isRunning || shipDirPath(forLang: "en") == nil
-                                Button { openShipFolder(forLang: "en") } label: {
-                                    Label("Decision Brief EN", systemImage: "doc.richtext")
-                                }
-                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                .disabled(shipEnDisabled)
-                                .opacity(buttonOpacity(disabled: shipEnDisabled))
-                                .help("Open Decision Brief (EN)")
-                                InfoButton(text: "Opens the Decision Brief PDF for this campaign/language.")
+                        HStack(spacing: 6) {
+                            let bundleDisabled = isRunning || finalBundlePath(forLangSelection: lang) == nil
+                            Button { openFinalBundle() } label: {
+                                Label("Open MASTER_BUNDLE.pdf", systemImage: "doc.richtext")
                             }
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                            .disabled(bundleDisabled)
+                            .opacity(buttonOpacity(disabled: bundleDisabled))
+                            .help("Open final/MASTER_BUNDLE.pdf")
+                            InfoButton(text: "Opens the full client bundle PDF in run/final.")
+                        }
 
-                            HStack(spacing: 6) {
-                                let appendixRoDisabled = isRunning || appendixPath(forLang: "ro") == nil
-                                Button { openAppendix(forLang: "ro") } label: {
-                                    Label("Evidence Appendix RO", systemImage: "doc.append")
-                                }
-                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                .disabled(appendixRoDisabled)
-                                .opacity(buttonOpacity(disabled: appendixRoDisabled))
-                                .help("Open Evidence Appendix (RO)")
-                                InfoButton(text: "Opens the Evidence Appendix PDF for this campaign/language.")
+                        HStack(spacing: 6) {
+                            let zipDisabled = isRunning || finalZipPath(forLangSelection: lang) == nil
+                            Button { openFinalZip() } label: {
+                                Label("Reveal ZIP", systemImage: "archivebox.fill")
                             }
-
-                            HStack(spacing: 6) {
-                                let appendixEnDisabled = isRunning || appendixPath(forLang: "en") == nil
-                                Button { openAppendix(forLang: "en") } label: {
-                                    Label("Evidence Appendix EN", systemImage: "doc.append")
-                                }
-                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                .disabled(appendixEnDisabled)
-                                .opacity(buttonOpacity(disabled: appendixEnDisabled))
-                                .help("Open Evidence Appendix (EN)")
-                                InfoButton(text: "Opens the Evidence Appendix PDF for this campaign/language.")
-                            }
-
-                            HStack(spacing: 6) {
-                                let zipRoDisabled = isRunning || shipZipPath(forLang: "ro") == nil
-                                Button { openZIP(forLang: "ro") } label: {
-                                    Label("Reveal ZIP RO", systemImage: "archivebox.fill")
-                                }
-                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                .disabled(zipRoDisabled)
-                                .opacity(buttonOpacity(disabled: zipRoDisabled))
-                                .help(zipHelpText(forLang: "ro"))
-                                InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
-                            }
-
-                            HStack(spacing: 6) {
-                                let zipEnDisabled = isRunning || shipZipPath(forLang: "en") == nil
-                                Button { openZIP(forLang: "en") } label: {
-                                    Label("Reveal ZIP EN", systemImage: "archivebox.fill")
-                                }
-                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                .disabled(zipEnDisabled)
-                                .opacity(buttonOpacity(disabled: zipEnDisabled))
-                                .help(zipHelpText(forLang: "en"))
-                                InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
-                            }
-                        } else {
-                            HStack(spacing: 6) {
-                                let shipSingleDisabled = isRunning || shipDirPath(forLang: lang) == nil
-                                Button { openShipFolder(forLang: lang) } label: {
-                                    Label(lang == "ro" ? "Decision Brief RO" : "Decision Brief EN", systemImage: "doc.richtext")
-                                }
-                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                .disabled(shipSingleDisabled)
-                                .opacity(buttonOpacity(disabled: shipSingleDisabled))
-                                .help("Open Decision Brief")
-                                InfoButton(text: "Opens the Decision Brief PDF for this campaign/language.")
-                            }
-
-                            HStack(spacing: 6) {
-                                let appendixSingleDisabled = isRunning || appendixPath(forLang: lang) == nil
-                                Button { openAppendix(forLang: lang) } label: {
-                                    Label(lang == "ro" ? "Evidence Appendix RO" : "Evidence Appendix EN", systemImage: "doc.append")
-                                }
-                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                .disabled(appendixSingleDisabled)
-                                .opacity(buttonOpacity(disabled: appendixSingleDisabled))
-                                .help("Open Evidence Appendix")
-                                InfoButton(text: "Opens the Evidence Appendix PDF for this campaign/language.")
-                            }
-
-                            HStack(spacing: 6) {
-                                let zipSingleDisabled = isRunning || shipZipPath(forLang: lang) == nil
-                                Button { openZIPIfAny() } label: {
-                                    Label("Reveal ZIP", systemImage: "archivebox.fill")
-                                }
-                                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
-                                .disabled(zipSingleDisabled)
-                                .opacity(buttonOpacity(disabled: zipSingleDisabled))
-                                .help(zipHelpText(forLang: lang))
-                                InfoButton(text: "Reveals the ZIP in Finder so you can attach it to an email.")
-                            }
+                            .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+                            .disabled(zipDisabled)
+                            .opacity(buttonOpacity(disabled: zipDisabled))
+                            .help(zipHelpText(forLang: lang))
+                            InfoButton(text: "Reveals run/final/client_safe_bundle.zip in Finder.")
                         }
 
                         HStack(spacing: 6) {
@@ -1297,11 +1203,6 @@ struct ContentView: View {
                                         Spacer()
                                         Button("Open") {
                                             openFolder(campaign.campaignURL.path)
-                                        }
-                                        .buttonStyle(.bordered)
-
-                                        Button("Export") {
-                                            exportCampaignFolder(campaign)
                                         }
                                         .buttonStyle(.bordered)
 
@@ -1793,7 +1694,7 @@ struct ContentView: View {
 
     private func shipDisabledReason() -> String? {
         if isRunning { return "Delivery disabled: Running…" }
-        if !hasShipForCurrentLang() { return "Delivery disabled: No export folder yet" }
+        if !hasShipForCurrentLang() { return "Delivery disabled: Run Deliver (PDF) first" }
         return nil
     }
 
@@ -1810,17 +1711,11 @@ struct ContentView: View {
     }
 
     private func hasShipForCurrentLang() -> Bool {
-        if lang == "both" {
-            return shipDirPath(forLang: "ro") != nil || shipDirPath(forLang: "en") != nil
-        }
-        return shipDirPath(forLang: lang) != nil
+        return finalRootPath(forLangSelection: lang) != nil
     }
 
     private func hasZipForCurrentLang() -> Bool {
-        if lang == "both" {
-            return shipZipPath(forLang: "ro") != nil || shipZipPath(forLang: "en") != nil
-        }
-        return shipZipPath(forLang: lang) != nil
+        return finalZipPath(forLangSelection: lang) != nil
     }
 
     private func runHelpText() -> String {
@@ -1830,28 +1725,17 @@ struct ContentView: View {
         return "Run the audit pipeline (requires Engine + ASTRA folders)"
     }
 
-    private func shipHelpText(forLang lang: String) -> String {
-        if let reason = shipDisabledReason() {
-            return "Open export/delivery folder. \(reason)"
-        }
-        if lang == "ro" { return "Open the RO export/delivery folder" }
-        if lang == "en" { return "Open the EN export/delivery folder" }
-        return "Open the export/delivery folder"
-    }
-
     private func shipRootHelpText() -> String {
         if shipRootPath() == nil {
-            return "Open run final folder. Available after Deliver (PDF)."
+            return "Open run/final folder. Available after Deliver (PDF)."
         }
-        return "Open the run final folder"
+        return "Open the run/final folder"
     }
 
     private func zipHelpText(forLang lang: String) -> String {
         if zipDisabledReason() != nil {
             return "Open ZIP for the last run. Available after Deliver (PDF)."
         }
-        if lang == "ro" { return "Open the RO ZIP" }
-        if lang == "en" { return "Open the EN ZIP" }
         return "Open the ZIP for the last run"
     }
 
@@ -2001,30 +1885,6 @@ struct ContentView: View {
             return
         }
         campaignsPanel = campaignStore()?.listCampaigns(exportRoot: exportRoot) ?? []
-    }
-
-    private func exportCampaignFolder(_ campaign: CampaignSummary) {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Select a destination folder for export"
-
-        panel.begin { resp in
-            guard resp == .OK, let destUrl = panel.url else { return }
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyyMMdd_HHmmss"
-            let stamp = formatter.string(from: Date())
-            let zipName = "campaign_archive_\(stamp).zip"
-            let destPath = (destUrl.path as NSString).appendingPathComponent(zipName)
-            let fm = FileManager.default
-            try? fm.removeItem(atPath: destPath)
-            do {
-                try zipFolderWithDitto(sourceFolder: campaign.campaignURL, zipPath: destPath)
-            } catch {
-                return
-            }
-        }
     }
 
     private func deleteCampaign(_ campaign: CampaignSummary) {
@@ -2493,26 +2353,6 @@ struct ContentView: View {
         }
     }
 
-    private func alertMissingPath(title: String, reason: String, fragment: String?) {
-        let trimmed = (fragment ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let suffix = trimmed.isEmpty ? "" : "\nExpected: \(trimmed)"
-        alert(title: title, message: "\(reason)\(suffix)")
-    }
-
-    private func withExportRootAccess(_ action: () -> Void) {
-        if store.isAppSandboxed, let rootURL = store.resolveExportRootURL() {
-            let granted = rootURL.startAccessingSecurityScopedResource()
-            defer {
-                if granted {
-                    rootURL.stopAccessingSecurityScopedResource()
-                }
-            }
-            action()
-            return
-        }
-        action()
-    }
-
     private func openCampaignSites(_ item: RecentCampaign) {
         if FileManager.default.fileExists(atPath: item.sitesPath) {
             openFolder(item.sitesPath)
@@ -2911,26 +2751,6 @@ struct ContentView: View {
         }
 
         openFolder(ScopeRepoLocator.appSupportDir)
-    }
-
-    private func openZIPIfAny() {
-        openZIP(forLang: lang)
-    }
-
-    private func openZIP(forLang lang: String) {
-        guard let runDir = canonicalRunDir(forLangSelection: lang) else {
-            alert(title: "Bundle missing", message: "Bundle missing. Run Deliver (PDF) first.")
-            return
-        }
-        let zipPath = (runDir as NSString).appendingPathComponent("final/client_safe_bundle.zip")
-        guard FileManager.default.fileExists(atPath: zipPath) else {
-            alert(title: "Bundle missing", message: "Bundle missing. Run Deliver (PDF) first.")
-            return
-        }
-        let url = URL(fileURLWithPath: zipPath)
-        withExportRootAccess {
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-        }
     }
 
     // MARK: - Repo chooser
@@ -3665,6 +3485,22 @@ struct ContentView: View {
             .appendingPathComponent("Desktop")
             .appendingPathComponent("astra")
             .path
+        let decisionBriefRel = "deliverables/Decision_Brief_\(lang.uppercased() == "EN" ? "EN" : "RO").pdf"
+        let appendixRel = "deliverables/Evidence_Appendix_\(lang.uppercased() == "EN" ? "EN" : "RO").pdf"
+        let briefPath = runDir.appendingPathComponent(decisionBriefRel).path
+        let appendixPath = runDir.appendingPathComponent(appendixRel).path
+        if !fm.fileExists(atPath: briefPath) || !fm.fileExists(atPath: appendixPath) {
+            let genScript = (repoRoot as NSString).appendingPathComponent("scripts/generate_report_from_verdict.py")
+            let genResult = runToolProcess(
+                executable: "/usr/bin/env",
+                arguments: ["python3", genScript, runDir.path, "--lang", lang],
+                cwd: repoRoot,
+                env: env
+            )
+            if genResult.0 != 0 {
+                return (false, "Missing required: \(decisionBriefRel),\(appendixRel)")
+            }
+        }
         let finalizeScript = (repoRoot as NSString).appendingPathComponent("scripts/finalize_run.sh")
 
         let finalizeResult = runToolProcess(
@@ -4237,20 +4073,32 @@ struct ContentView: View {
         return trimmed
     }
 
-    private func shipZipPath(forLang lang: String) -> String? {
-        guard let runDir = canonicalRunDir(forLangSelection: lang) else { return nil }
-        let zipPath = (runDir as NSString).appendingPathComponent("final/client_safe_bundle.zip")
-        return FileManager.default.fileExists(atPath: zipPath) ? zipPath : nil
-    }
-
-    private func shipRootPath() -> String? {
-        guard let runDir = canonicalRunDir(forLangSelection: lang) else { return nil }
+    private func finalRootPath(forLangSelection selection: String?) -> String? {
+        guard let runDir = canonicalRunDir(forLangSelection: selection) else { return nil }
         let finalDir = (runDir as NSString).appendingPathComponent("final")
         return FileManager.default.fileExists(atPath: finalDir) ? finalDir : nil
     }
 
-    private func shipDirPath(forLang lang: String) -> String? {
-        return decisionBriefPath(forLang: lang)
+    private func finalZipPath(forLangSelection selection: String?) -> String? {
+        guard let runDir = canonicalRunDir(forLangSelection: selection) else { return nil }
+        let zipPath = (runDir as NSString).appendingPathComponent("final/client_safe_bundle.zip")
+        return FileManager.default.fileExists(atPath: zipPath) ? zipPath : nil
+    }
+
+    private func finalMasterPath(forLangSelection selection: String?) -> String? {
+        guard let runDir = canonicalRunDir(forLangSelection: selection) else { return nil }
+        let path = (runDir as NSString).appendingPathComponent("final/master.pdf")
+        return FileManager.default.fileExists(atPath: path) ? path : nil
+    }
+
+    private func finalBundlePath(forLangSelection selection: String?) -> String? {
+        guard let runDir = canonicalRunDir(forLangSelection: selection) else { return nil }
+        let path = (runDir as NSString).appendingPathComponent("final/MASTER_BUNDLE.pdf")
+        return FileManager.default.fileExists(atPath: path) ? path : nil
+    }
+
+    private func shipRootPath() -> String? {
+        return finalRootPath(forLangSelection: lang)
     }
 
     private func lastRunAstraDirPath() -> String? {
@@ -4264,113 +4112,38 @@ struct ContentView: View {
         return nil
     }
 
-    private func decisionBriefFileName(forLang lang: String) -> String {
-        return (lang.lowercased() == "ro") ? "Decision_Brief_RO.pdf" : "Decision_Brief_EN.pdf"
-    }
-
-    private func appendixFileName(forLang lang: String) -> String {
-        return (lang.lowercased() == "ro") ? "Evidence_Appendix_RO.pdf" : "Evidence_Appendix_EN.pdf"
-    }
-
-    private func decisionBriefRelativePath(forLang lang: String) -> String {
-        return "deliverables/\(decisionBriefFileName(forLang: lang))"
-    }
-
-    private func appendixRelativePath(forLang lang: String) -> String {
-        return "deliverables/\(appendixFileName(forLang: lang))"
-    }
-
-    private func deliverablesFilePath(forLang lang: String, fileName: String) -> String? {
-        guard let runDir = canonicalRunDir(forLangSelection: lang) else { return nil }
-        let primaryURL = URL(fileURLWithPath: runDir)
-            .appendingPathComponent("deliverables", isDirectory: true)
-            .appendingPathComponent(fileName)
-        if FileManager.default.fileExists(atPath: primaryURL.path) {
-            return primaryURL.path
+    private func openFinalMaster() {
+        guard let path = finalMasterPath(forLangSelection: lang) else {
+            alert(title: "master.pdf missing", message: "master.pdf missing. Run Deliver (PDF) first.")
+            return
         }
-        let fallbackURL = URL(fileURLWithPath: runDir)
-            .appendingPathComponent("astra", isDirectory: true)
-            .appendingPathComponent("deliverables", isDirectory: true)
-            .appendingPathComponent(fileName)
-        if FileManager.default.fileExists(atPath: fallbackURL.path) {
-            return fallbackURL.path
+        revealAndOpenFile(path)
+    }
+
+    private func openFinalBundle() {
+        guard let path = finalBundlePath(forLangSelection: lang) else {
+            alert(title: "MASTER_BUNDLE missing", message: "MASTER_BUNDLE missing. Run Deliver (PDF) first.")
+            return
         }
-        return nil
+        revealAndOpenFile(path)
     }
 
-    private func decisionBriefPath(forLang lang: String) -> String? {
-        return deliverablesFilePath(forLang: lang, fileName: decisionBriefFileName(forLang: lang))
-    }
-
-    private func appendixPath(forLang lang: String) -> String? {
-        return deliverablesFilePath(forLang: lang, fileName: appendixFileName(forLang: lang))
-    }
-
-    private func resolveRoDeliverablesPath(campaignURL: URL) -> String? {
-        let fm = FileManager.default
-        guard let runURL = store.mostRecentRunURL(campaignURL: campaignURL, lang: "ro") else { return nil }
-        let reportURL = runURL
-            .appendingPathComponent("astra")
-            .appendingPathComponent("deliverables")
-            .appendingPathComponent("Decision_Brief_RO.pdf")
-        if fm.fileExists(atPath: reportURL.path) {
-            return reportURL.path
-        }
-        if fm.fileExists(atPath: runURL.path) {
-            return runURL.path
-        }
-        return nil
-    }
-
-    private func openShipFolder(forLang lang: String) {
-        guard let path = shipDirPath(forLang: lang) else {
-            alertMissingPath(
-                title: "Decision Brief missing",
-                reason: "No Decision Brief found yet.",
-                fragment: decisionBriefRelativePath(forLang: lang)
-            )
+    private func openFinalZip() {
+        guard let path = finalZipPath(forLangSelection: lang) else {
+            alert(title: "Bundle missing", message: "Bundle missing. Run Deliver (PDF) first.")
             return
         }
         let url = URL(fileURLWithPath: path)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            alertMissingPath(
-                title: "Decision Brief missing",
-                reason: "Decision Brief not found on disk.",
-                fragment: decisionBriefRelativePath(forLang: lang)
-            )
-            return
-        }
-        NSWorkspace.shared.open(url)
-    }
-
-    private func openAppendix(forLang lang: String) {
-        guard let path = appendixPath(forLang: lang) else {
-            alertMissingPath(
-                title: "Evidence Appendix missing",
-                reason: "No Evidence Appendix found yet.",
-                fragment: appendixRelativePath(forLang: lang)
-            )
-            return
-        }
-        let url = URL(fileURLWithPath: path)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            alertMissingPath(
-                title: "Evidence Appendix missing",
-                reason: "Evidence Appendix not found on disk.",
-                fragment: appendixRelativePath(forLang: lang)
-            )
-            return
-        }
-        NSWorkspace.shared.open(url)
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     private func openShipRoot() {
         guard let finalPath = shipRootPath() else {
-            alert(title: "Export root missing", message: "Export root missing. Run Deliver (PDF) first.")
+            alert(title: "Delivery root missing", message: "Delivery root missing. Run Deliver (PDF) first.")
             return
         }
         guard FileManager.default.fileExists(atPath: finalPath) else {
-            alert(title: "Export root missing", message: "Export root missing. Run Deliver (PDF) first.")
+            alert(title: "Delivery root missing", message: "Delivery root missing. Run Deliver (PDF) first.")
             return
         }
         NSWorkspace.shared.open(URL(fileURLWithPath: finalPath))
@@ -4447,25 +4220,6 @@ struct ContentView: View {
         openFolder(path)
     }
 
-    private func exportCurrentCampaign() {
-        guard let campaign = lastRunCampaign?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !campaign.isEmpty else {
-            setExportStatus("No ZIP found to export.")
-            return
-        }
-        let requestedLangs: [String]
-        if lang == "both" {
-            requestedLangs = ["ro", "en"]
-        } else if let last = lastRunLang, last.lowercased() != "both" {
-            requestedLangs = [last.lowercased()]
-        } else {
-            requestedLangs = [lang.lowercased()]
-        }
-        exportCampaign(campaign: campaign, langs: requestedLangs) { status in
-            setExportStatus(status)
-        }
-    }
-
     private func campaignScopedRunHistory() -> [RunEntry] {
         guard let root = campaignsRootPath() else { return runHistory }
         return runHistory.filter { $0.deliverablesDir.hasPrefix(root) }
@@ -4510,108 +4264,6 @@ struct ContentView: View {
 
     private func openTodaysArchive() {
         openArchiveRoot()
-    }
-
-    private func exportCampaign(campaign: String, langs: [String], statusHandler: @escaping (String) -> Void) {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Select a destination folder for export"
-
-        panel.begin { resp in
-            guard resp == .OK, let destUrl = panel.url else { return }
-            let destFolder = destUrl.path
-            let fm = FileManager.default
-            let store = self.campaignStore()
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyyMMdd_HHmmss"
-            let stamp = formatter.string(from: Date())
-            var exported = 0
-            var missing = 0
-            var exportedZips: [String: String] = [:]
-            var lastZipPath: String? = nil
-            var lastRoDeliverablesPath: String? = nil
-
-            for lang in langs {
-                guard let store else { continue }
-                guard let exportRoot = exportRootPath() else { continue }
-                let campaignURL = store.campaignLangURL(campaign: campaign, lang: lang, exportRoot: exportRoot)
-                if !fm.fileExists(atPath: campaignURL.path) {
-                    missing += 1
-                    continue
-                }
-                let zipName = "client_safe_bundle_\(lang.uppercased())_\(stamp).zip"
-                let zipPath = (destFolder as NSString).appendingPathComponent(zipName)
-                try? fm.removeItem(atPath: zipPath)
-                do {
-                    try zipFolderWithDitto(sourceFolder: campaignURL, zipPath: zipPath)
-                    exported += 1
-                    exportedZips[lang.lowercased()] = zipPath
-                    lastZipPath = zipPath
-                    if lang.lowercased() == "ro", lastRoDeliverablesPath == nil {
-                        lastRoDeliverablesPath = resolveRoDeliverablesPath(campaignURL: campaignURL)
-                    }
-                } catch {
-                    continue
-                }
-            }
-
-            DispatchQueue.main.async {
-                if exported > 0 {
-                    if self.result == nil { self.result = ScopeResult() }
-                    self.result?.shipRoot = destFolder
-                    for (lang, path) in exportedZips {
-                        self.result?.shipZipByLang[lang] = path
-                    }
-                    self.store.recordLastExport(exportRootURL: destUrl, zipPath: lastZipPath, roDeliverablesPath: lastRoDeliverablesPath)
-                    statusHandler("Exported \(exported) ZIP(s).")
-                } else if missing > 0 {
-                    statusHandler("Campaign folder not found.")
-                } else {
-                    statusHandler("No ZIP found to export.")
-                }
-            }
-        }
-    }
-
-    private func zipFolderWithDitto(sourceFolder: URL, zipPath: String) throws {
-        let zipURL = URL(fileURLWithPath: zipPath)
-        let fm = FileManager.default
-        if fm.fileExists(atPath: zipURL.path) {
-            try fm.removeItem(at: zipURL)
-        }
-
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        p.arguments = ["-c", "-k", "--sequesterRsrc", "--keepParent", sourceFolder.path, zipURL.path]
-
-        let pipe = Pipe()
-        p.standardError = pipe
-        p.standardOutput = pipe
-
-        try p.run()
-        p.waitUntilExit()
-
-        if p.terminationStatus != 0 {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let msg = String(data: data, encoding: .utf8) ?? "ditto failed"
-            throw NSError(domain: "SCOPE.Zip", code: Int(p.terminationStatus), userInfo: [NSLocalizedDescriptionKey: msg])
-        }
-    }
-
-    private func campaignIsValidForExport() -> Bool {
-        guard let c = lastRunCampaign?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
-        return !c.isEmpty
-    }
-
-    private func setExportStatus(_ text: String) {
-        exportStatus = text
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
-            if exportStatus == text {
-                exportStatus = nil
-            }
-        }
     }
 
     private func loadRunHistory() -> [RunEntry] {
@@ -4956,8 +4608,7 @@ struct ContentView: View {
     }
 
     private func zipCountAvailable() -> Int {
-        let langs = ["ro", "en"]
-        return langs.filter { shipZipPath(forLang: $0) != nil }.count
+        return finalZipPath(forLangSelection: lang) != nil ? 1 : 0
     }
 
     private func langLabel(for lang: String) -> String {

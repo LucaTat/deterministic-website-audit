@@ -29,40 +29,33 @@ if [[ -z "$LANG" ]]; then
   exit 2
 fi
 
-# Required files for master PDF (audit/report.pdf is optional - comes from main audit)
+# Required files for master PDF (strict, deterministic)
 REQ=(
-  "$RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf"
-  "$RUN_DIR/deliverables/Evidence_Appendix_${LANG}.pdf"
+  "deliverables/Decision_Brief_${LANG}.pdf"
+  "deliverables/Evidence_Appendix_${LANG}.pdf"
+  "audit/report.pdf"
+  "action_scope/action_scope.pdf"
+  "proof_pack/proof_pack.pdf"
+  "regression/regression.pdf"
 )
 
-for f in "${REQ[@]}"; do
-  if [[ ! -f "$f" ]]; then
-    echo "FATAL: missing required PDF: $f"
+for rel in "${REQ[@]}"; do
+  if [[ ! -f "$RUN_DIR/$rel" ]]; then
+    echo "FATAL: missing required PDF: $rel"
     exit 2
   fi
 done
 
-ORDERED=()
-if [[ -f "$RUN_DIR/final_decision/ASTRA_Traffic_Readiness_Decision_${LANG}.pdf" ]]; then
-  ORDERED+=("$RUN_DIR/final_decision/ASTRA_Traffic_Readiness_Decision_${LANG}.pdf")
-fi
-ORDERED+=(
+# Deterministic order:
+# Decision Brief -> Evidence Appendix -> Audit -> Tool2 -> Tool3 -> Tool4
+ORDERED=(
   "$RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf"
   "$RUN_DIR/deliverables/Evidence_Appendix_${LANG}.pdf"
+  "$RUN_DIR/audit/report.pdf"
+  "$RUN_DIR/action_scope/action_scope.pdf"
+  "$RUN_DIR/proof_pack/proof_pack.pdf"
+  "$RUN_DIR/regression/regression.pdf"
 )
-# audit/report.pdf is optional
-if [[ -f "$RUN_DIR/audit/report.pdf" ]]; then
-  ORDERED+=("$RUN_DIR/audit/report.pdf")
-fi
-if [[ -f "$RUN_DIR/action_scope/action_scope.pdf" ]]; then
-  ORDERED+=("$RUN_DIR/action_scope/action_scope.pdf")
-fi
-if [[ -f "$RUN_DIR/proof_pack/proof_pack.pdf" ]]; then
-  ORDERED+=("$RUN_DIR/proof_pack/proof_pack.pdf")
-fi
-if [[ -f "$RUN_DIR/regression/regression.pdf" ]]; then
-  ORDERED+=("$RUN_DIR/regression/regression.pdf")
-fi
 
 if command -v qpdf >/dev/null 2>&1; then
   qpdf --empty --pages "${ORDERED[@]}" -- "$OUT_PDF" || { echo "FATAL: qpdf merge failed"; exit 2; }

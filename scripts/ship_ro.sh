@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Deprecated: legacy campaign export. Use finalize_run.sh + run/final artifacts.
+echo "FATAL: ship_ro.sh is deprecated. Use finalize_run.sh with run/final outputs." >&2
+exit 2
+
 # Usage:
 #   ./scripts/ship_ro.sh targets.txt CAMPANIE
 #
