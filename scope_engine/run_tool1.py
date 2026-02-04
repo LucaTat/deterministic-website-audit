@@ -112,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     _capture_visual_evidence(final_url, str(scope_dir))
 
     # Run deterministic audit (Tool 1) into run_dir/audit
-    result = audit_one(url, lang.lower())
+    result = audit_one(url, lang.lower(), max_pages=max_pages)
     result["url_input"] = url
     result["final_url"] = final_url
     result["tool_version"] = get_tool_version()

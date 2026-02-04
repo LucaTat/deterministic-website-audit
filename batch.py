@@ -512,7 +512,7 @@ def get_tool_version() -> str:
     except Exception:
         return "unknown"
 
-def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
+def audit_one(url: str, lang: str, business_inputs: dict | None = None, max_pages: int | None = None) -> dict:
     lang = (lang or "en").lower().strip()
     if lang not in ("en", "ro"):
         lang = "en"
@@ -606,7 +606,7 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
     try:
         html, headers = fetch_html(u)
         try:
-            crawl_payload = crawl_site(u, analysis_mode=analysis_mode)
+            crawl_payload = crawl_site(u, analysis_mode=analysis_mode, max_pages=max_pages)
         except Exception as crawl_exc:
             crawl_payload = {
                 "analysis_mode": analysis_mode,
