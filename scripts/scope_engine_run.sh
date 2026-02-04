@@ -7,4 +7,5 @@ if [[ ! -x "$PYTHON" ]]; then
   PYTHON="python3"
 fi
 
-exec "$PYTHON" -m scope_engine.run_tool1 "$@"
+cd "$ROOT_DIR"
+PYTHONPATH="$ROOT_DIR" exec "$PYTHON" -m scope_engine.run_tool1 "$@"
