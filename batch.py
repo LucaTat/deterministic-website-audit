@@ -59,6 +59,8 @@ CRITICAL_SEVERITIES = {"critical", "warning"}
 
 
 def _capture_visual_evidence(url: str, evidence_dir: str) -> None:
+    if os.environ.get("SCOPE_DISABLE_VISUAL") == "1":
+        return
     try:
         from visual_engine import VisualVerifier, PLAYWRIGHT_AVAILABLE
     except Exception:
