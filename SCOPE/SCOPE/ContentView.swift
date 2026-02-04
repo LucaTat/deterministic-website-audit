@@ -3099,6 +3099,7 @@ struct ContentView: View {
             environment["SCOPE_USE_AI"] = useAI ? "1" : "0"
             environment["SCOPE_ANALYSIS_MODE"] = analysisMode
             task.environment = environment
+            let runEnv = environment
 
             let outPipe = Pipe()
             let errPipe = Pipe()
@@ -3148,7 +3149,50 @@ struct ContentView: View {
                     }
 
                     DispatchQueue.global(qos: .userInitiated).async {
-                        let runDir = self.resolveAstraRunDir(from: logSnapshot)
+                        let runDir = pinnedRunDir
+                        let runDirURL = URL(fileURLWithPath: runDir)
+                        let repoRoot = self.resolvedRepoRoot() ?? ""
+
+                        func appendToRunLog(_ text: String) {
+                            guard !text.isEmpty,
+                                  let data = text.data(using: .utf8),
+                                  let handle = FileHandle(forWritingAtPath: logPath) else { return }
+                            handle.seekToEndOfFile()
+                            handle.write(data)
+                            handle.closeFile()
+                        }
+
+                        var masterFinalExit: Int32 = 1
+                        var masterFinalOutput = ""
+                        if !wasCanceled, !wasTimedOut, code == 0 {
+                            let header = "\n== ASTRA master_final • \(spec.lang.uppercased()) • \(spec.url) ==\n"
+                            DispatchQueue.main.async {
+                                self.logOutput += header
+                            }
+                            appendToRunLog(header)
+                            let masterResult = self.runToolProcess(
+                                executable: pythonPath,
+                                arguments: ["-m", "astra.master_final.run", "--run-dir", runDir],
+                                cwd: normalizedAstraRoot,
+                                env: runEnv
+                            )
+                            masterFinalExit = masterResult.0
+                            masterFinalOutput = masterResult.1
+                            if !masterFinalOutput.isEmpty {
+                                DispatchQueue.main.async {
+                                    self.logOutput += masterFinalOutput
+                                }
+                                appendToRunLog(masterFinalOutput)
+                            }
+                        }
+
+                        var masterFinalError: String? = nil
+                        if !wasCanceled, !wasTimedOut, code == 0, masterFinalExit != 0 {
+                            let snippet = self.tailLines(masterFinalOutput, count: 6)
+                            let sanitized = self.sanitizeError(snippet, runDir: runDirURL, repoRoot: repoRoot, astraRoot: normalizedAstraRoot)
+                            masterFinalError = sanitized.isEmpty ? "Master final failed." : sanitized
+                        }
+
                     var delivery = (
                         campaignLangPath: String?,
                         deliveredDir: String?,
@@ -3159,7 +3203,7 @@ struct ContentView: View {
                         verdictPath: String?,
                         success: Bool
                     )(nil, nil, nil, nil, nil, nil, nil, false)
-                    if let runDir, let campaignName = self.lastRunCampaign {
+                    if masterFinalExit == 0, let campaignName = self.lastRunCampaign {
                         delivery = self.deliverAstraRun(
                             runDir: runDir,
                             url: spec.url,
@@ -3169,30 +3213,34 @@ struct ContentView: View {
                         )
                     }
 
-                    let deliverablesPath = runDir == nil ? "" : (runDir! as NSString).appendingPathComponent("deliverables")
+                    let deliverablesPath = (runDir as NSString).appendingPathComponent("deliverables")
                     let verdictPath = deliverablesPath.isEmpty ? "" : (deliverablesPath as NSString).appendingPathComponent("verdict.json")
                     let verdictExists = !verdictPath.isEmpty && FileManager.default.fileExists(atPath: verdictPath)
                     let briefName = (spec.lang.lowercased() == "en") ? "Decision_Brief_EN.pdf" : "Decision_Brief_RO.pdf"
                     let appendixName = (spec.lang.lowercased() == "en") ? "Evidence_Appendix_EN.pdf" : "Evidence_Appendix_RO.pdf"
                     let decisionBriefPath = deliverablesPath.isEmpty ? nil : (deliverablesPath as NSString).appendingPathComponent(briefName)
                         _ = deliverablesPath.isEmpty ? nil : (deliverablesPath as NSString).appendingPathComponent(appendixName)
-                    let scopeLogPath = runDir == nil ? nil : (runDir! as NSString).appendingPathComponent("scope_run.log")
-                    let scopeLogExists = scopeLogPath != nil && FileManager.default.fileExists(atPath: scopeLogPath ?? "")
+                    let scopeLogPath = (runDir as NSString).appendingPathComponent("scope_run.log")
+                    let scopeLogExists = FileManager.default.fileExists(atPath: scopeLogPath)
 
-                    let status: String
+                    let finalOk = self.finalArtifactsExist(runDir: runDir)
+                    var status: String
                     if wasCanceled {
                         status = "Canceled"
                     } else if wasTimedOut {
                         status = "FAILED"
+                    } else if code == 0 {
+                        status = masterFinalExit == 0 && verdictExists ? "SUCCESS" : "FAILED"
                     } else if verdictExists {
-                        status = (code == 0) ? "SUCCESS" : "WARNING"
+                        status = "WARNING"
                     } else {
                         status = "FAILED"
                     }
+                    if finalOk { status = "SUCCESS" }
 
                     let deliverablesDir = delivery.runFolderPath ?? delivery.deliveredDir ?? ""
                     let astraRunDir = deliverablesDir.isEmpty
-                        ? (runDir ?? "")
+                        ? runDir
                         : (deliverablesDir as NSString).appendingPathComponent("astra")
                     var auditReportPath: String? = nil
                     var auditCopyError: String? = nil
@@ -3255,9 +3303,16 @@ struct ContentView: View {
                         self.currentTask = nil
                         self.lastExitCode = code
 
-                        if status == "FAILED" {
-                            sawError = true
-                            self.runState = .error
+                        if finalOk {
+                            sawError = false
+                            self.runState = .done
+                        } else {
+                            if status == "FAILED" {
+                                sawError = true
+                                self.runState = .error
+                            } else if status == "SUCCESS" {
+                                self.runState = .done
+                            }
                         }
 
                         self.lastRunDomain = delivery.domain ?? self.domainFromURLString(spec.url)
@@ -3265,16 +3320,7 @@ struct ContentView: View {
                             self.lastRunLogPath = resolvedLogPath
                         }
                         if self.lastRunDir == nil || !(FileManager.default.fileExists(atPath: self.lastRunDir ?? "")) {
-                            if let runDir {
-                                self.lastRunDir = runDir
-                            } else if !astraRunDir.isEmpty {
-                                self.lastRunDir = astraRunDir
-                            } else if let campaignLangPath = delivery.campaignLangPath {
-                                self.lastRunDir = campaignLangPath
-                            } else if let campaignName = self.lastRunCampaign,
-                                      let fallbackCampaignPath = self.campaignFolderPath(campaignName: campaignName, lang: spec.lang) {
-                                self.lastRunDir = fallbackCampaignPath
-                            }
+                            self.lastRunDir = runDir
                         }
 
                         if let campaignName = self.lastRunCampaign,
@@ -3312,12 +3358,18 @@ struct ContentView: View {
                         self.campaignsPanel = campaignsSnapshot
 
                         self.lastRunLang = spec.lang
-                        self.lastRunStatus = status
+                        self.lastRunStatus = finalOk ? "SUCCESS" : status
                         if let auditCopyError {
                             self.lastRunStatus = "FAILED"
                             self.runState = .error
                             self.readyToSend = false
                             self.logOutput += "\n\(auditCopyError)"
+                        }
+                        if let masterFinalError {
+                            self.lastRunStatus = "FAILED"
+                            self.runState = .error
+                            self.readyToSend = false
+                            self.logOutput += "\nERROR: master_final failed\n\(masterFinalError)"
                         }
                         if let campaignLangPath = delivery.campaignLangPath {
                             if self.result == nil { self.result = ScopeResult() }
@@ -3328,7 +3380,7 @@ struct ContentView: View {
                             if self.result == nil { self.result = ScopeResult() }
                             self.result?.pdfPaths = [reportPath]
                         }
-                        self.readyToSend = (status == "SUCCESS" || status == "WARNING")
+                        self.readyToSend = finalOk || status == "SUCCESS" || status == "WARNING"
 
                         if wasCanceled {
                             self.cancelRequested = false
@@ -3466,6 +3518,7 @@ struct ContentView: View {
         p.currentDirectoryURL = URL(fileURLWithPath: cwd)
         p.environment = env
 
+        // Combine stdout + stderr so failures are visible.
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = pipe
@@ -3564,6 +3617,13 @@ struct ContentView: View {
             "final/client_safe_bundle.zip",
             "final/checksums.sha256"
         ]
+    }
+
+    private func finalArtifactsExist(runDir: String) -> Bool {
+        let fm = FileManager.default
+        return requiredFinalArtifacts().allSatisfy { rel in
+            fm.fileExists(atPath: (runDir as NSString).appendingPathComponent(rel))
+        }
     }
 
     private func ensureFinalArtifacts(runDir: URL, lang: String, repoRoot: String, env: [String: String]) -> (Bool, String?) {
@@ -3790,10 +3850,7 @@ struct ContentView: View {
                 return
             }
 
-            // Scripts write to astra/expectedFolder/ so check there first
-            let astraFolderPath = (runDir as NSString).appendingPathComponent("astra/\(expectedFolder)")
-            let rootFolderPath = (runDir as NSString).appendingPathComponent(expectedFolder)
-            let folderPath = FileManager.default.fileExists(atPath: astraFolderPath) ? astraFolderPath : rootFolderPath
+            let folderPath = (runDir as NSString).appendingPathComponent(expectedFolder)
             print("[DEBUG runTool] Checking for PDF in: \(folderPath)")
             let pdfFound = (try? FileManager.default.contentsOfDirectory(atPath: folderPath))?.contains(where: { $0.lowercased().hasSuffix(".pdf") }) ?? false
             print("[DEBUG runTool] pdfFound: \(pdfFound)")
@@ -3839,17 +3896,14 @@ struct ContentView: View {
         switch tool {
         case "tool2":
             return URL(fileURLWithPath: runDir)
-                .appendingPathComponent("astra", isDirectory: true)
                 .appendingPathComponent("action_scope", isDirectory: true)
                 .appendingPathComponent("action_scope.pdf").path
         case "tool3":
             return URL(fileURLWithPath: runDir)
-                .appendingPathComponent("astra", isDirectory: true)
                 .appendingPathComponent("proof_pack", isDirectory: true)
                 .appendingPathComponent("proof_pack.pdf").path
         case "tool4":
             return URL(fileURLWithPath: runDir)
-                .appendingPathComponent("astra", isDirectory: true)
                 .appendingPathComponent("regression", isDirectory: true)
                 .appendingPathComponent("regression.pdf").path
         default:
