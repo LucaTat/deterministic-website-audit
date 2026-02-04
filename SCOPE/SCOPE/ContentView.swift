@@ -630,7 +630,7 @@ struct ContentView: View {
                         .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                         .disabled(demoDisabled)
                         .opacity(buttonOpacity(disabled: demoDisabled))
-                        .help("Run a deterministic demo using example.com")
+                        .help("Run a deterministic demo using example.com (requires SCOPE_TEST_MODE=1)")
 
                         Spacer()
 
@@ -666,7 +666,7 @@ struct ContentView: View {
                         .opacity(buttonOpacity(disabled: outputDisabled))
                         .help(outputHelpText())
 
-                        let logsDisabled = isRunning || scopeRunLogPath() == nil
+                        let logsDisabled = isRunning
                         Button { openLogs() } label: {
                             Label("Open Logs", systemImage: "doc.text.magnifyingglass")
                         }
@@ -675,18 +675,14 @@ struct ContentView: View {
                         .opacity(buttonOpacity(disabled: logsDisabled))
                         .help(logsHelpText())
 
-                        let runFolderDisabled = isRunning || lastRunDir == nil
-                        Button {
-                            if let path = lastRunDir {
-                                openFolder(path)
-                            }
-                        } label: {
+                        let runFolderDisabled = isRunning
+                        Button { openPinnedRunFolder() } label: {
                             Label("Open Run Folder", systemImage: "folder.fill")
                         }
                         .buttonStyle(.bordered)
                         .disabled(runFolderDisabled)
                         .opacity(buttonOpacity(disabled: runFolderDisabled))
-                        .help("Open the latest run folder")
+                        .help("Open the last run folder")
                     }
 
                     if demoDeliverablePath != nil {
@@ -720,7 +716,7 @@ struct ContentView: View {
                         .disabled(shipRootDisabled)
                         .opacity(buttonOpacity(disabled: shipRootDisabled))
                         .help(shipRootHelpText())
-                        InfoButton(text: "Opens the run/final folder for the latest run.")
+                        InfoButton(text: "Opens the run/final folder for the last run.")
                     }
 
                     let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
@@ -762,7 +758,7 @@ struct ContentView: View {
                         }
 
                         HStack(spacing: 6) {
-                            let logsDisabled = isRunning || scopeRunLogPath() == nil
+                            let logsDisabled = isRunning
                             Button { openLogs() } label: {
                                 Label("Open Logs", systemImage: "doc.text.magnifyingglass")
                             }
@@ -771,7 +767,7 @@ struct ContentView: View {
                             .disabled(logsDisabled)
                             .opacity(buttonOpacity(disabled: logsDisabled))
                             .help(logsHelpText())
-                            InfoButton(text: "Opens the latest run log for troubleshooting.")
+                            InfoButton(text: "Opens the last run log for troubleshooting.")
                         }
                     }
 
@@ -1363,12 +1359,12 @@ struct ContentView: View {
                             .disabled(isRunning || lastRunDir == nil)
                             .opacity(buttonOpacity(disabled: isRunning || lastRunDir == nil))
 
-                            Button { openLogOutputModal() } label: {
+                            Button { openLogs() } label: {
                                 Label("Show log output", systemImage: "doc.text")
                             }
                             .buttonStyle(.bordered)
-                            .disabled(isRunning || logOutput.isEmpty)
-                            .opacity(buttonOpacity(disabled: isRunning || logOutput.isEmpty))
+                            .disabled(isRunning)
+                            .opacity(buttonOpacity(disabled: isRunning))
 
                             Button { clearLogOutput() } label: {
                                 Label("Clear log output", systemImage: "trash")
@@ -1621,6 +1617,22 @@ struct ContentView: View {
         return urls
     }
 
+    private func isTestModeEnabled() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        return env["SCOPE_TEST_MODE"] == "1"
+    }
+
+    private func blockedDummyHosts(in urls: [String]) -> [String] {
+        var blocked: Set<String> = []
+        for value in urls {
+            guard let host = URL(string: value)?.host?.lowercased() else { continue }
+            if host == "example.invalid" || host == "example.com" || host.hasSuffix(".example.invalid") {
+                blocked.insert(host)
+            }
+        }
+        return blocked.sorted()
+    }
+
     private func validateTargetsContent(_ text: String) -> (valid: [String], invalid: [String]) {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         var valid: [String] = []
@@ -1665,6 +1677,17 @@ struct ContentView: View {
         if validLines.isEmpty {
             alert(title: "No valid URLs", message: "Adaugă cel puțin un URL valid (http/https).")
             return nil
+        }
+        if !isTestModeEnabled() {
+            let blocked = blockedDummyHosts(in: validLines)
+            if !blocked.isEmpty {
+                let listed = blocked.joined(separator: ", ")
+                alert(
+                    title: "Dummy domains blocked",
+                    message: "Remove dummy domains (\(listed)) or set SCOPE_TEST_MODE=1 for test runs."
+                )
+                return nil
+            }
         }
         return validLines
     }
@@ -1740,20 +1763,17 @@ struct ContentView: View {
     }
 
     private func outputHelpText() -> String {
-        if store.selectedCampaignID == nil {
-            return "Select a campaign to reveal output."
-        }
         if outputFolderPath() == nil {
-            return "Open campaign folder. Available after run."
+            return "No run folder available for the last run."
         }
-        return "Open campaign folder"
+        return "Open run folder"
     }
 
     private func logsHelpText() -> String {
         if scopeRunLogPath() == nil {
-            return "scope_run.log not found yet. Finish a run to enable logs."
+            return "Run log not found yet. Finish a run to enable logs."
         }
-        return "Open scope_run.log for the last run"
+        return "Open run.log for the last run"
     }
 
     private func evidenceHelpText() -> String {
@@ -2353,6 +2373,15 @@ struct ContentView: View {
         }
     }
 
+    private func openPinnedRunFolder() {
+        guard let path = lastRunDir,
+              FileManager.default.fileExists(atPath: path) else {
+            alert(title: "No run folder", message: "No run folder available for the last run.")
+            return
+        }
+        openFolder(path)
+    }
+
     private func openCampaignSites(_ item: RecentCampaign) {
         if FileManager.default.fileExists(atPath: item.sitesPath) {
             openFolder(item.sitesPath)
@@ -2536,7 +2565,8 @@ struct ContentView: View {
         runDir: String,
         url: String,
         campaignName: String,
-        lang: String
+        lang: String,
+        pinnedRunDir: String?
     ) -> (campaignLangPath: String?, deliveredDir: String?, runFolderPath: String?, domain: String?, reportPath: String?, scopeLogPath: String?, verdictPath: String?, success: Bool) {
         guard let domain = domainFromURLString(url) else {
             return (nil, nil, nil, nil, nil, nil, nil, false)
@@ -2557,14 +2587,19 @@ struct ContentView: View {
             return (campaignLangURL.path, nil, nil, domain, nil, nil, nil, false)
         }
 
-        let runFolderURL = store.runFolderURL(
-            campaign: campaignName,
-            lang: lang,
-            domain: domain,
-            timestamp: timestampString,
-            exportRoot: exportRoot
-        )
-        if fm.fileExists(atPath: runFolderURL.path) {
+        let runFolderURL: URL
+        if let pinned = pinnedRunDir, !pinned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            runFolderURL = URL(fileURLWithPath: pinned)
+        } else {
+            runFolderURL = store.runFolderURL(
+                campaign: campaignName,
+                lang: lang,
+                domain: domain,
+                timestamp: timestampString,
+                exportRoot: exportRoot
+            )
+        }
+        if pinnedRunDir == nil, fm.fileExists(atPath: runFolderURL.path) {
             try? fm.removeItem(at: runFolderURL)
         }
         store.ensureDirectory(runFolderURL.path)
@@ -2649,7 +2684,9 @@ struct ContentView: View {
         let verdictExists = fm.fileExists(atPath: verdictPath)
         let success = verdictExists
         if !success {
-            try? fm.removeItem(at: runFolderURL)
+            if pinnedRunDir == nil {
+                try? fm.removeItem(at: runFolderURL)
+            }
             return (campaignLangURL.path, nil, nil, domain, reportExists ? reportPath : nil, nil, verdictExists ? verdictPath : nil, false)
         }
 
@@ -2732,8 +2769,19 @@ struct ContentView: View {
     // MARK: - Finder actions
 
     private func openLogs() {
-        guard let log = scopeRunLogPath() else { return }
-        revealAndOpenFile(log)
+        if let logPath = lastRunLogPath,
+           FileManager.default.fileExists(atPath: logPath) {
+            revealAndOpenFile(logPath)
+            return
+        }
+        if let runDir = lastRunDir {
+            let fallback = (runDir as NSString).appendingPathComponent("logs/run.log")
+            if FileManager.default.fileExists(atPath: fallback) {
+                revealAndOpenFile(fallback)
+                return
+            }
+        }
+        alert(title: "No log file", message: "No log file found for the last run.")
     }
 
     private func openEvidence() {
@@ -2870,6 +2918,10 @@ struct ContentView: View {
             alert(title: "ASTRA folder missing", message: "Select ASTRA Folder to continue.")
             return
         }
+        if !isTestModeEnabled() {
+            alert(title: "Demo disabled", message: "Set SCOPE_TEST_MODE=1 to run demo with example.com.")
+            return
+        }
         guard let engineURL = beginEngineAccess() else {
             alert(title: "Engine folder missing", message: "Select Engine Folder to continue.")
             return
@@ -2928,6 +2980,46 @@ struct ContentView: View {
         runAstraSequence(specs: specs, engineURL: engineURL, astraRoot: astraRoot, onRunRecorded: nil)
     }
 
+    private func preparePinnedRunDir(spec: RunSpec, campaignName: String) -> (runDir: String, logPath: String)? {
+        guard let store = campaignStore(), let exportRoot = exportRootPath() else { return nil }
+        let fm = FileManager.default
+        let domain = domainFromURLString(spec.url) ?? "unknown"
+        let baseTimestamp = iso8601String(Date())
+        var attempt = 0
+        var runURL: URL
+        while true {
+            let ts = attempt == 0 ? baseTimestamp : "\(baseTimestamp)-\(attempt)"
+            runURL = store.runFolderURL(
+                campaign: campaignName,
+                lang: spec.lang,
+                domain: domain,
+                timestamp: ts,
+                exportRoot: exportRoot
+            )
+            if !fm.fileExists(atPath: runURL.path) { break }
+            attempt += 1
+        }
+
+        store.ensureDirectory(runURL.path)
+        let logsDir = runURL.appendingPathComponent("logs")
+        store.ensureDirectory(logsDir.path)
+        let logURL = logsDir.appendingPathComponent("run.log")
+        if !fm.fileExists(atPath: logURL.path) {
+            fm.createFile(atPath: logURL.path, contents: Data())
+        }
+
+        let safeCampaign = store.campaignFolderName(for: campaignName)
+        let manifest = CampaignManifest.new(
+            campaign: campaignName,
+            campaign_fs: safeCampaign,
+            lang: spec.lang,
+            now: iso8601String(Date())
+        )
+        store.writeManifestAtomic(manifest, to: runURL.appendingPathComponent("manifest.json"))
+
+        return (runURL.path, logURL.path)
+    }
+
     private func runAstraSequence(
         specs: [RunSpec],
         engineURL: URL,
@@ -2970,9 +3062,26 @@ struct ContentView: View {
 
             let spec = specs[index]
             index += 1
-            let logPath = makeAstraLogFilePath(url: spec.url, lang: spec.lang)
+
+            guard let campaignName = self.lastRunCampaign,
+                  let pinned = self.preparePinnedRunDir(spec: spec, campaignName: campaignName) else {
+                DispatchQueue.main.async {
+                    self.lastRunStatus = "FAILED"
+                    self.runState = .error
+                    self.isRunning = false
+                    endAccessIfNeeded()
+                    self.alert(title: "Run failed", message: "Could not prepare run folder.")
+                }
+                return
+            }
+
+            let pinnedRunDir = pinned.runDir
+            let logPath = pinned.logPath
             fm.createFile(atPath: logPath, contents: nil)
-            lastRunLogPath = logPath
+            DispatchQueue.main.async {
+                self.lastRunDir = pinnedRunDir
+                self.lastRunLogPath = logPath
+            }
 
             logOutput += "\n== ASTRA run \(index)/\(specs.count) • \(spec.lang.uppercased()) • \(spec.url) ==\n"
 
@@ -2982,7 +3091,7 @@ struct ContentView: View {
                 .appendingPathComponent(".venv/bin/python").path
             let pythonPath = fm.isExecutableFile(atPath: venvPython) ? venvPython : "/usr/bin/python3"
             task.executableURL = URL(fileURLWithPath: pythonPath)
-            task.arguments = ["-m", "astra", "run", spec.url, "--lang", spec.lang]
+            task.arguments = ["-m", "astra", "run", spec.url, "--lang", spec.lang, "--run-dir", pinnedRunDir]
             task.currentDirectoryURL = URL(fileURLWithPath: normalizedAstraRoot)
             var environment = task.environment ?? ProcessInfo.processInfo.environment
             environment["SCOPE_REPO"] = engineRoot
@@ -3039,7 +3148,7 @@ struct ContentView: View {
                     }
 
                     DispatchQueue.global(qos: .userInitiated).async {
-                        let runDir = self.resolveAstraRunDir(from: logSnapshot, astraRoot: normalizedAstraRoot)
+                        let runDir = self.resolveAstraRunDir(from: logSnapshot)
                     var delivery = (
                         campaignLangPath: String?,
                         deliveredDir: String?,
@@ -3051,7 +3160,13 @@ struct ContentView: View {
                         success: Bool
                     )(nil, nil, nil, nil, nil, nil, nil, false)
                     if let runDir, let campaignName = self.lastRunCampaign {
-                        delivery = self.deliverAstraRun(runDir: runDir, url: spec.url, campaignName: campaignName, lang: spec.lang)
+                        delivery = self.deliverAstraRun(
+                            runDir: runDir,
+                            url: spec.url,
+                            campaignName: campaignName,
+                            lang: spec.lang,
+                            pinnedRunDir: pinnedRunDir
+                        )
                     }
 
                     let deliverablesPath = runDir == nil ? "" : (runDir! as NSString).appendingPathComponent("deliverables")
@@ -3116,7 +3231,7 @@ struct ContentView: View {
                     let reportPath = auditReportPath
                         ?? ((decisionBriefPath != nil && FileManager.default.fileExists(atPath: decisionBriefPath ?? "")) ? decisionBriefPath : nil)
                     let reportExists = reportPath != nil
-                    let resolvedLogPath = scopeLogExists ? scopeLogPath : delivery.scopeLogPath
+                    let resolvedLogPath = self.lastRunLogPath ?? (scopeLogExists ? scopeLogPath : delivery.scopeLogPath)
 
                     let campaignsSnapshot: [CampaignSummary] = {
                         guard let exportRoot = self.exportRootPath() else { return [] }
@@ -3146,16 +3261,20 @@ struct ContentView: View {
                         }
 
                         self.lastRunDomain = delivery.domain ?? self.domainFromURLString(spec.url)
-                        self.lastRunLogPath = resolvedLogPath
-                        if let runDir {
-                            self.lastRunDir = runDir
-                        } else if !astraRunDir.isEmpty {
-                            self.lastRunDir = astraRunDir
-                        } else if let campaignLangPath = delivery.campaignLangPath {
-                            self.lastRunDir = campaignLangPath
-                        } else if let campaignName = self.lastRunCampaign,
-                                  let fallbackCampaignPath = self.campaignFolderPath(campaignName: campaignName, lang: spec.lang) {
-                            self.lastRunDir = fallbackCampaignPath
+                        if self.lastRunLogPath == nil, let resolvedLogPath {
+                            self.lastRunLogPath = resolvedLogPath
+                        }
+                        if self.lastRunDir == nil || !(FileManager.default.fileExists(atPath: self.lastRunDir ?? "")) {
+                            if let runDir {
+                                self.lastRunDir = runDir
+                            } else if !astraRunDir.isEmpty {
+                                self.lastRunDir = astraRunDir
+                            } else if let campaignLangPath = delivery.campaignLangPath {
+                                self.lastRunDir = campaignLangPath
+                            } else if let campaignName = self.lastRunCampaign,
+                                      let fallbackCampaignPath = self.campaignFolderPath(campaignName: campaignName, lang: spec.lang) {
+                                self.lastRunDir = fallbackCampaignPath
+                            }
                         }
 
                         if let campaignName = self.lastRunCampaign,
@@ -3400,32 +3519,16 @@ struct ContentView: View {
     private func resolveConcreteRunDir(baseRunsDir: URL) -> URL? {
         let fm = FileManager.default
         let required = ["audit", "action_scope", "proof_pack", "regression"]
-        
+
         // Check if baseRunsDir itself has required dirs (direct run folder)
         let hasAll = required.allSatisfy { fm.fileExists(atPath: baseRunsDir.appendingPathComponent($0, isDirectory: true).path) }
         if hasAll { return baseRunsDir }
-        
+
         // Check if baseRunsDir/astra has required dirs (campaign folder structure)
         let astraSubdir = baseRunsDir.appendingPathComponent("astra")
         let astraHasAll = required.allSatisfy { fm.fileExists(atPath: astraSubdir.appendingPathComponent($0, isDirectory: true).path) }
         if astraHasAll { return astraSubdir }
-        
-        // Fallback: look in subdirectories for the newest one with required dirs
-        guard let items = try? fm.contentsOfDirectory(at: baseRunsDir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
-            return nil
-        }
-        let dirs = items.filter { $0.hasDirectoryPath }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-        
-        // For each subdir, check if it or its astra/ subfolder has required dirs
-        for dir in dirs.reversed() {
-            let dirHas = required.allSatisfy { fm.fileExists(atPath: dir.appendingPathComponent($0, isDirectory: true).path) }
-            if dirHas { return dir }
-            
-            let subAstra = dir.appendingPathComponent("astra")
-            let subHas = required.allSatisfy { fm.fileExists(atPath: subAstra.appendingPathComponent($0, isDirectory: true).path) }
-            if subHas { return subAstra }
-        }
-        
+
         return nil
     }
 
@@ -3978,45 +4081,11 @@ struct ContentView: View {
         return nil
     }
 
-    private func resolveAstraRunDir(from output: String, astraRoot: String) -> String? {
+    private func resolveAstraRunDir(from output: String) -> String? {
         if let marker = parseAstraRunDirMarker(from: output) {
             return marker
         }
-        return findLatestAstraRunDir(in: astraRoot)
-    }
-
-    private func findLatestAstraRunDir(in astraRoot: String) -> String? {
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(
-            at: URL(fileURLWithPath: astraRoot),
-            includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else { return nil }
-
-        var bestPath: String? = nil
-        var bestDate: Date = Date.distantPast
-
-        for case let url as URL in enumerator {
-            guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey]),
-                  values.isDirectory == true else { continue }
-            let deliverables = url.appendingPathComponent("deliverables")
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: deliverables.path, isDirectory: &isDir), isDir.boolValue else { continue }
-            let reportRo = deliverables.appendingPathComponent("Decision_Brief_RO.pdf")
-            let reportEn = deliverables.appendingPathComponent("Decision_Brief_EN.pdf")
-            let verdictPath = deliverables.appendingPathComponent("verdict.json")
-            guard fm.fileExists(atPath: reportRo.path)
-                || fm.fileExists(atPath: reportEn.path)
-                || fm.fileExists(atPath: verdictPath.path)
-            else { continue }
-            let modified = values.contentModificationDate ?? Date.distantPast
-            if modified > bestDate {
-                bestDate = modified
-                bestPath = url.path
-            }
-        }
-
-        return bestPath
+        return nil
     }
 
     private func makeAstraLogFilePath(url: String, lang: String) -> String {
@@ -4201,22 +4270,30 @@ struct ContentView: View {
     }
 
     private func outputFolderPath() -> String? {
-        guard let selected = store.selectedCampaign else { return nil }
-        if let runURL = store.mostRecentRunURL(campaignURL: selected.campaignURL),
-           FileManager.default.fileExists(atPath: runURL.path) {
-            return runURL.path
+        if let runDir = lastRunDir,
+           FileManager.default.fileExists(atPath: runDir) {
+            return runDir
         }
-        return FileManager.default.fileExists(atPath: selected.campaignURL.path) ? selected.campaignURL.path : nil
+        return nil
     }
 
     private func scopeRunLogPath() -> String? {
-        guard let runDir = lastRunAstraDirPath() else { return nil }
-        let path = (runDir as NSString).appendingPathComponent("scope_run.log")
-        return FileManager.default.fileExists(atPath: path) ? path : nil
+        let fm = FileManager.default
+        if let logPath = lastRunLogPath, fm.fileExists(atPath: logPath) {
+            return logPath
+        }
+        if let runDir = lastRunDir {
+            let fallback = (runDir as NSString).appendingPathComponent("logs/run.log")
+            return fm.fileExists(atPath: fallback) ? fallback : nil
+        }
+        return nil
     }
 
     private func openOutputFolder() {
-        guard let path = outputFolderPath() else { return }
+        guard let path = outputFolderPath() else {
+            alert(title: "No run folder", message: "No run folder available for the last run.")
+            return
+        }
         openFolder(path)
     }
 

@@ -161,6 +161,46 @@ def test_finalize_run_missing_required(tmp_path: Path) -> None:
     assert result.returncode != 0
 
 
+def test_finalize_run_no_cross_run_fallback(tmp_path: Path) -> None:
+    run_a = tmp_path / "run_a"
+    run_b = tmp_path / "run_b"
+
+    deliverables_a = run_a / "deliverables"
+    deliverables_b = run_b / "deliverables"
+    deliverables_a.mkdir(parents=True, exist_ok=True)
+    deliverables_b.mkdir(parents=True, exist_ok=True)
+    (run_a / "audit").mkdir(parents=True, exist_ok=True)
+    (run_b / "audit").mkdir(parents=True, exist_ok=True)
+
+    (run_a / "audit" / "verdict.json").write_text("{}", encoding="utf-8")
+    (run_b / "audit" / "verdict.json").write_text("{}", encoding="utf-8")
+    (deliverables_a / "verdict.json").write_text("{}", encoding="utf-8")
+    (deliverables_b / "verdict.json").write_text("{}", encoding="utf-8")
+
+    write_pdf(run_a / "audit" / "report.pdf", 1)
+    write_pdf(run_a / "action_scope" / "action_scope.pdf", 1)
+    write_pdf(run_a / "proof_pack" / "proof_pack.pdf", 1)
+    # regression.pdf intentionally missing in run_a
+    write_pdf(deliverables_a / "Decision_Brief_RO.pdf", 1)
+    write_pdf(deliverables_a / "Evidence_Appendix_RO.pdf", 1)
+
+    write_pdf(run_b / "audit" / "report.pdf", 1)
+    write_pdf(run_b / "action_scope" / "action_scope.pdf", 1)
+    write_pdf(run_b / "proof_pack" / "proof_pack.pdf", 1)
+    write_pdf(run_b / "regression" / "regression.pdf", 1)
+    write_pdf(deliverables_b / "Decision_Brief_RO.pdf", 1)
+    write_pdf(deliverables_b / "Evidence_Appendix_RO.pdf", 1)
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "finalize_run.sh"
+    result = subprocess.run(
+        ["bash", str(script), str(run_a), "RO"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "SCOPE_FINALIZE_SKIP_BUILD": "1"},
+    )
+    assert result.returncode != 0
+
+
 def test_verify_client_safe_zip_allowlist(tmp_path: Path) -> None:
     run_dir = tmp_path / "run_ro"
     deliverables_dir = run_dir / "deliverables"
