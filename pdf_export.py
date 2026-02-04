@@ -116,6 +116,14 @@ def _get_crawl_v1(audit_result: dict) -> dict:
     return crawl if isinstance(crawl, dict) else {}
 
 
+def _section_heading(title: str, styles: dict) -> list[Flowable]:
+    return [
+        Paragraph(title, styles["H2"]),
+        HRFlowable(color=colors.HexColor("#e5e7eb"), thickness=0.6, width="100%"),
+        Spacer(1, 4),
+    ]
+
+
 def _build_skills_section(signals: dict, lang: str) -> list[Flowable]:
     styles = Theme.get_stylesheet()
     story = []
@@ -129,17 +137,17 @@ def _build_skills_section(signals: dict, lang: str) -> list[Flowable]:
     # 1. Tech Stack
     tech = signals.get("tech_stack", {})
     if tech:
-        story.extend(_section_heading(h_tech))
+        story.extend(_section_heading(h_tech, styles))
         for category, items in tech.items():
             if items:
                 line = f"<b>{category}:</b> {', '.join(items)}"
-                story.append(Paragraph(line, styles["BodyText"]))
+                story.append(Paragraph(line, styles["Body"]))
         story.append(Spacer(1, 6))
 
     # 2. Accessibility
     a11y = signals.get("a11y_report", {})
     if a11y:
-        story.extend(_section_heading(h_a11y))
+        story.extend(_section_heading(h_a11y, styles))
         issues = a11y.get("issues", [])
         score_penalty = a11y.get("score_penalty", 0)
         
@@ -155,19 +163,19 @@ def _build_skills_section(signals: dict, lang: str) -> list[Flowable]:
                  Paragraph(f"Status: <b>{status}</b>", styles["Body"])
              ]))
         else:
-             story.append(Paragraph(f"Status: <b>{status}</b> (Penalty: {score_penalty})", styles["BodyText"]))
+             story.append(Paragraph(f"Status: <b>{status}</b> (Penalty: {score_penalty})", styles["Body"]))
 
         if issues:
             for issue in issues[:5]: # Top 5
-                story.append(Paragraph(f"• {issue}", styles["BodyText"]))
+                story.append(Paragraph(f"• {issue}", styles["Body"]))
         else:
-             story.append(Paragraph("No major structural issues detected.", styles["BodyText"]))
+             story.append(Paragraph("No major structural issues detected.", styles["Body"]))
         story.append(Spacer(1, 6))
 
     # 3. Content Quality
     quality = signals.get("content_quality", {})
     if quality and "error" not in quality:
-        story.extend(_section_heading(h_content))
+        story.extend(_section_heading(h_content, styles))
         
         flesch = quality.get("flesch_score")
         difficulty = quality.get("difficulty_label")
@@ -1354,5 +1362,15 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         canvas.drawRightString(right, footer_y, f"Pagina {canvas.getPageNumber()}")
         canvas.restoreState()
 
-    doc.build(story, onFirstPage=draw_header_footer, onLaterPages=draw_header_footer)
+    try:
+        doc.build(story, onFirstPage=draw_header_footer, onLaterPages=draw_header_footer)
+    except PermissionError:
+        # If permission denied, likely file is locked/open. 
+        # Attempt to save to a slightly different name or notify.
+        import time
+        alt_path = out_path.replace(".pdf", f"_{int(time.time())}.pdf")
+        doc.filename = alt_path
+        doc.build(story, onFirstPage=draw_header_footer, onLaterPages=draw_header_footer)
+        return alt_path
+
     return out_path

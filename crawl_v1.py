@@ -21,8 +21,13 @@ from net_guardrails import (
     robots_disallows,
     validate_url,
 )
+from safe_fetch import safe_session
+import signal_detector
 
-from defusedxml import ElementTree as ET
+try:
+    from defusedxml import ElementTree as ET
+except ImportError:
+    import xml.etree.ElementTree as ET # Fallback if defusedxml is missing
 
 HEADERS = DEFAULT_HEADERS
 
@@ -142,8 +147,10 @@ def _select_evidence_urls(homepage: str, discovered_urls: list[str], max_extra: 
             break
         if not eligible(url):
             continue
-        path = (urlparse(url).path or "").lower()
-        if any(k in path for k in keywords):
+            
+        # Use robust signal detection
+        signals = signal_detector.detect_url_signals(url)
+        if signals.get("found_any"):
             chosen.append(url)
             seen.add(url)
 
@@ -235,35 +242,34 @@ def _save_evidence_pages(evidence_dir: str, homepage: str, extra_urls: list[str]
 
 def _fetch(url: str, max_bytes: int | None = MAX_HTML_BYTES) -> tuple[int | None, str, str, dict, str | None]:
     try:
-        session = requests.Session()
+        session = safe_session()
         session.max_redirects = MAX_REDIRECTS
         session.trust_env = False
-        current_url = url
-        for _ in range(MAX_REDIRECTS + 1):
-            validate_url(current_url)
+        try:
             resp = session.get(
-                current_url,
+                url,
                 headers=HEADERS,
                 timeout=DEFAULT_TIMEOUT,
                 stream=True,
-                allow_redirects=False,
+                allow_redirects=True, # safe_session pins IP for every redirect
             )
-            status = resp.status_code
-            if status is not None and 300 <= status < 400:
-                location = resp.headers.get("Location") or resp.headers.get("location")
-                if not location:
-                    return status, "", resp.url or current_url, redact_headers(resp.headers or {}), None
-                next_url = urljoin(current_url, location)
-                validate_url(next_url)
-                current_url = next_url
-                continue
-            text, too_large = read_limited_text(resp, max_bytes)
-            if too_large:
-                return status, "", resp.url or current_url, redact_headers(resp.headers or {}), "too_large"
-            return status, text or "", resp.url or current_url, redact_headers(resp.headers or {}), None
-        return None, "", current_url, {}, "too_many_redirects"
-    except ValueError:
-        return None, "", url, {}, "invalid_url"
+        except requests.TooManyRedirects:
+             return None, "", url, {}, "too_many_redirects"
+        except ValueError:
+             return None, "", url, {}, "invalid_url"
+        
+        status = resp.status_code
+        content_type = resp.headers.get("Content-Type", "") or ""
+        
+        # Check size on final response
+        text, too_large = read_limited_text(resp, max_bytes)
+        if too_large:
+            return status, "", resp.url, redact_headers(resp.headers or {}), "too_large"
+        
+        return status, text or "", resp.url, redact_headers(resp.headers or {}), None
+            
+    except requests.exceptions.RequestException:
+        return None, "", url, {}, "fetch_error"
     except Exception:
         return None, "", url, {}, "fetch_error"
 
@@ -558,15 +564,15 @@ def fetch_pages(urls: list[str], robots_policy: dict | None = None) -> list[dict
         status = None
         html = ""
         try:
-            session = requests.Session()
+            session = safe_session()
             session.max_redirects = MAX_REDIRECTS
             req_headers = HEADERS
-            validate_url(url)
+            # validate_url(url) - safe_session handles this
             resp = session.get(
                 url,
                 headers=req_headers,
                 timeout=DEFAULT_TIMEOUT,
-                allow_redirects=True,
+                allow_redirects=True, # safe_session pins IP for every redirect
                 stream=True,
             )
             status = resp.status_code
@@ -599,6 +605,15 @@ def fetch_pages(urls: list[str], robots_policy: dict | None = None) -> list[dict
                 "title": None,
                 "snippets": [],
                 "error": "too_many_redirects",
+            })
+            continue
+        except ValueError: # Validation failed
+            pages.append({
+                "url": url,
+                "status": None,
+                "title": None,
+                "snippets": [],
+                "error": "invalid_url",
             })
             continue
         except Exception:
