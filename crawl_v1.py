@@ -373,6 +373,7 @@ def _parse_sitemap_xml(body: str) -> tuple[list[str], str]:
 def _discover_urls_with_sources(site_root: str) -> tuple[list[str], dict, dict]:
     discovered: list[str] = []
     seen: set[str] = set()
+    skip_sitemaps = os.environ.get("SCOPE_SKIP_SITEMAP") == "1"
     sources: dict = {
         "robots": {"url": "", "status": None},
         "sitemaps": {"declared": [], "fetched": [], "urls_added": 0},
@@ -398,7 +399,7 @@ def _discover_urls_with_sources(site_root: str) -> tuple[list[str], dict, dict]:
     if robots_policy.get("http_status") == 200 and robots_policy.get("body"):
         declared_sitemaps = _parse_robots_sitemaps(robots_policy.get("body") or "")
 
-    if not declared_sitemaps and base:
+    if not declared_sitemaps and base and not skip_sitemaps:
         declared_sitemaps = [
             urljoin(base + "/", "sitemap.xml"),
             urljoin(base + "/", "sitemap_index.xml"),
@@ -406,45 +407,46 @@ def _discover_urls_with_sources(site_root: str) -> tuple[list[str], dict, dict]:
 
     sources["sitemaps"]["declared"] = declared_sitemaps[:]
 
-    sitemap_queue = deque(declared_sitemaps)
-    fetched_sitemaps: set[str] = set()
-    while sitemap_queue and len(discovered) < HARD_CAP_DISCOVERED:
-        sm_url_raw = sitemap_queue.popleft()
-        sm_url = _normalize_url(sm_url_raw, base) if base else _normalize_url(sm_url_raw, sm_url_raw)
-        if not sm_url or sm_url in fetched_sitemaps:
-            continue
-        fetched_sitemaps.add(sm_url)
-        status, body, _, _, error = _fetch(sm_url)
-        sources["sitemaps"]["fetched"].append({"url": sm_url, "status": status})
-        if error or status != 200 or not body:
-            continue
-        try:
-            urls, kind = _parse_sitemap_xml(body)
-        except Exception:
-            continue
-        if kind == "sitemapindex":
-            for child in urls:
+    if not skip_sitemaps:
+        sitemap_queue = deque(declared_sitemaps)
+        fetched_sitemaps: set[str] = set()
+        while sitemap_queue and len(discovered) < HARD_CAP_DISCOVERED:
+            sm_url_raw = sitemap_queue.popleft()
+            sm_url = _normalize_url(sm_url_raw, base) if base else _normalize_url(sm_url_raw, sm_url_raw)
+            if not sm_url or sm_url in fetched_sitemaps:
+                continue
+            fetched_sitemaps.add(sm_url)
+            status, body, _, _, error = _fetch(sm_url)
+            sources["sitemaps"]["fetched"].append({"url": sm_url, "status": status})
+            if error or status != 200 or not body:
+                continue
+            try:
+                urls, kind = _parse_sitemap_xml(body)
+            except Exception:
+                continue
+            if kind == "sitemapindex":
+                for child in urls:
+                    if len(discovered) >= HARD_CAP_DISCOVERED:
+                        break
+                    sitemap_queue.append(child)
+                continue
+            for loc in urls:
                 if len(discovered) >= HARD_CAP_DISCOVERED:
                     break
-                sitemap_queue.append(child)
-            continue
-        for loc in urls:
-            if len(discovered) >= HARD_CAP_DISCOVERED:
-                break
-            normalized = _normalize_url(loc, base or loc)
-            if not normalized:
-                continue
-            if not _same_host(normalized, base):
-                continue
-            if "/cdn-cgi/" in normalized:
-                continue
-            if not _is_html_candidate(normalized):
-                continue
-            if normalized in seen:
-                continue
-            discovered.append(normalized)
-            seen.add(normalized)
-            sources["sitemaps"]["urls_added"] += 1
+                normalized = _normalize_url(loc, base or loc)
+                if not normalized:
+                    continue
+                if not _same_host(normalized, base):
+                    continue
+                if "/cdn-cgi/" in normalized:
+                    continue
+                if not _is_html_candidate(normalized):
+                    continue
+                if normalized in seen:
+                    continue
+                discovered.append(normalized)
+                seen.add(normalized)
+                sources["sitemaps"]["urls_added"] += 1
 
     queue = deque([homepage]) if homepage else deque()
     while queue and len(discovered) < HARD_CAP_DISCOVERED:
