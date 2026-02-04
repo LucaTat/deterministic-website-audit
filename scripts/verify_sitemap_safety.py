@@ -6,7 +6,10 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from crawl_v1 import _parse_sitemap_xml
-from defusedxml import ElementTree as ET
+try:
+    from defusedxml import ElementTree as ET
+except ImportError:
+    import xml.etree.ElementTree as ET # Fallback if defusedxml is missing
 
 def test_sitemap_parsing():
     print("Testing sitemap parsing with defusedxml...")

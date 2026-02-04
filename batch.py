@@ -573,7 +573,7 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
         u = "https://" + u
 
     try:
-        html = fetch_html(u)
+        html, headers = fetch_html(u)
         try:
             crawl_payload = crawl_site(u, analysis_mode=analysis_mode)
         except Exception as crawl_exc:
@@ -589,7 +589,7 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
                 "fallback_triggered": False,
                 "fallback_threshold": 5,
             }
-        signals = build_all_signals(html, page_url=u)
+        signals = build_all_signals(html, page_url=u, headers=headers)
         idx_signals = extract_indexability_signals(url=u, html=html, signals=signals)
         signals["indexability"] = idx_signals
 

@@ -21,7 +21,13 @@ from net_guardrails import (
     robots_disallows,
     validate_url,
 )
-from defusedxml import ElementTree as ET
+from safe_fetch import safe_session
+import signal_detector
+
+try:
+    from defusedxml import ElementTree as ET
+except ImportError:
+    import xml.etree.ElementTree as ET # Fallback if defusedxml is missing
 
 HEADERS = DEFAULT_HEADERS
 
@@ -141,8 +147,10 @@ def _select_evidence_urls(homepage: str, discovered_urls: list[str], max_extra: 
             break
         if not eligible(url):
             continue
-        path = (urlparse(url).path or "").lower()
-        if any(k in path for k in keywords):
+            
+        # Use robust signal detection
+        signals = signal_detector.detect_url_signals(url)
+        if signals.get("found_any"):
             chosen.append(url)
             seen.add(url)
 
@@ -175,6 +183,55 @@ def _save_evidence_pages(evidence_dir: str, homepage: str, extra_urls: list[str]
         pages_meta.append({"url": url, "file": filename})
 
     write_page(homepage, "home.html")
+    
+    # NEW: Capture visual evidence (Screenshot) for the homepage
+    # NEW: Capture visual evidence (Desktop & Mobile)
+    # NEW: Capture visual evidence (Desktop & Mobile) using persistent browser
+    try:
+        from pathlib import Path
+        from visual_check import VisualVerifier
+        
+        with VisualVerifier() as vv:
+            # Desktop
+            desktop_path = os.path.join(evidence_dir, "home.png")
+            desktop_res = vv.capture(homepage, Path(desktop_path), device_type="desktop")
+            
+            # Mobile
+            mobile_path = os.path.join(evidence_dir, "home_mobile.png")
+            mobile_res = vv.capture(homepage, Path(mobile_path), device_type="mobile")
+            
+            # Record Desktop file
+            if desktop_res.get("ok"):
+                 pages_meta.append({
+                     "url": homepage, 
+                     "file": "home.png", 
+                     "type": "screenshot",
+                     "device": "desktop",
+                     "metrics": desktop_res.get("metrics")
+                 })
+
+            # Record Mobile file
+            if mobile_res.get("ok"):
+                 pages_meta.append({
+                     "url": homepage, 
+                     "file": "home_mobile.png", 
+                     "type": "screenshot",
+                     "device": "mobile",
+                     "metrics": mobile_res.get("metrics")
+                 })
+
+            # Save Performance Metrics separately for easy parsing
+            perf_data = {
+                "desktop": desktop_res.get("metrics") if desktop_res.get("ok") else {},
+                "mobile": mobile_res.get("metrics") if mobile_res.get("ok") else {},
+            }
+            with open(os.path.join(evidence_dir, "performance.json"), "w", encoding="utf-8") as f:
+                json.dump(perf_data, f, indent=2)
+
+    except Exception as e:
+        print(f"Visual check error: {e}") 
+        pass
+
     for idx, url in enumerate(extra_urls[:4], start=1):
         write_page(url, f"page_{idx:02d}.html")
 
@@ -185,12 +242,18 @@ def _save_evidence_pages(evidence_dir: str, homepage: str, extra_urls: list[str]
 
 def _fetch(url: str, max_bytes: int | None = MAX_HTML_BYTES) -> tuple[int | None, str, str, dict, str | None]:
     try:
-        session = requests.Session()
-        session.max_redirects = MAX_REDIRECTS
-        session.trust_env = False
-        current_url = url
-        for _ in range(MAX_REDIRECTS + 1):
-            validate_url(current_url)
+        validate_url(url)
+    except ValueError:
+        return None, "", url, {}, "invalid_url"
+
+    session = safe_session()
+    session.max_redirects = MAX_REDIRECTS
+    session.trust_env = False
+
+    current_url = url
+    redirects = 0
+    while True:
+        try:
             resp = session.get(
                 current_url,
                 headers=HEADERS,
@@ -198,24 +261,35 @@ def _fetch(url: str, max_bytes: int | None = MAX_HTML_BYTES) -> tuple[int | None
                 stream=True,
                 allow_redirects=False,
             )
-            status = resp.status_code
-            if status is not None and 300 <= status < 400:
-                location = resp.headers.get("Location") or resp.headers.get("location")
-                if not location:
-                    return status, "", resp.url or current_url, redact_headers(resp.headers or {}), None
-                next_url = urljoin(current_url, location)
+        except requests.TooManyRedirects:
+            return None, "", current_url, {}, "too_many_redirects"
+        except ValueError:
+            return None, "", current_url, {}, "invalid_url"
+        except requests.exceptions.RequestException:
+            return None, "", current_url, {}, "fetch_error"
+        except Exception:
+            return None, "", current_url, {}, "fetch_error"
+
+        status = resp.status_code
+        if status in (301, 302, 303, 307, 308):
+            location = (resp.headers or {}).get("Location")
+            if not location:
+                return None, "", current_url, redact_headers(resp.headers or {}), "fetch_error"
+            redirects += 1
+            if redirects > MAX_REDIRECTS:
+                return None, "", current_url, {}, "too_many_redirects"
+            next_url = urljoin(current_url, location)
+            try:
                 validate_url(next_url)
-                current_url = next_url
-                continue
-            text, too_large = read_limited_text(resp, max_bytes)
-            if too_large:
-                return status, "", resp.url or current_url, redact_headers(resp.headers or {}), "too_large"
-            return status, text or "", resp.url or current_url, redact_headers(resp.headers or {}), None
-        return None, "", current_url, {}, "too_many_redirects"
-    except ValueError:
-        return None, "", url, {}, "invalid_url"
-    except Exception:
-        return None, "", url, {}, "fetch_error"
+            except ValueError:
+                return None, "", next_url, {}, "invalid_url"
+            current_url = next_url
+            continue
+
+        text, too_large = read_limited_text(resp, max_bytes)
+        if too_large:
+            return status, "", resp.url, redact_headers(resp.headers or {}), "too_large"
+        return status, text or "", resp.url, redact_headers(resp.headers or {}), None
 
 
 def _parse_robots_sitemaps(text: str) -> list[str]:
@@ -506,15 +580,15 @@ def fetch_pages(urls: list[str], robots_policy: dict | None = None) -> list[dict
         status = None
         html = ""
         try:
-            session = requests.Session()
+            session = safe_session()
             session.max_redirects = MAX_REDIRECTS
             req_headers = HEADERS
-            validate_url(url)
+            # validate_url(url) - safe_session handles this
             resp = session.get(
                 url,
                 headers=req_headers,
                 timeout=DEFAULT_TIMEOUT,
-                allow_redirects=True,
+                allow_redirects=True, # safe_session pins IP for every redirect
                 stream=True,
             )
             status = resp.status_code
@@ -547,6 +621,15 @@ def fetch_pages(urls: list[str], robots_policy: dict | None = None) -> list[dict
                 "title": None,
                 "snippets": [],
                 "error": "too_many_redirects",
+            })
+            continue
+        except ValueError: # Validation failed
+            pages.append({
+                "url": url,
+                "status": None,
+                "title": None,
+                "snippets": [],
+                "error": "invalid_url",
             })
             continue
         except Exception:

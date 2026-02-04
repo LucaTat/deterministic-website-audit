@@ -29,8 +29,8 @@ if [[ -z "$LANG" ]]; then
   exit 2
 fi
 
+# Required files for master PDF (audit/report.pdf is optional - comes from main audit)
 REQ=(
-  "$RUN_DIR/audit/report.pdf"
   "$RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf"
   "$RUN_DIR/deliverables/Evidence_Appendix_${LANG}.pdf"
 )
@@ -49,8 +49,11 @@ fi
 ORDERED+=(
   "$RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf"
   "$RUN_DIR/deliverables/Evidence_Appendix_${LANG}.pdf"
-  "$RUN_DIR/audit/report.pdf"
 )
+# audit/report.pdf is optional
+if [[ -f "$RUN_DIR/audit/report.pdf" ]]; then
+  ORDERED+=("$RUN_DIR/audit/report.pdf")
+fi
 if [[ -f "$RUN_DIR/action_scope/action_scope.pdf" ]]; then
   ORDERED+=("$RUN_DIR/action_scope/action_scope.pdf")
 fi

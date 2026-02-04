@@ -141,24 +141,31 @@ struct RunMetrics {
             fm.fileExists(atPath: runDir.appendingPathComponent(rel).path)
         }
 
-        auditReport = exists("audit/report.pdf")
-        actionScope = exists("action_scope/action_scope.pdf")
-        proofPack = exists("proof_pack/proof_pack.pdf")
-        regression = exists("regression/regression.pdf")
-        masterPdf = exists("final/master.pdf")
-        masterBundle = exists("final/MASTER_BUNDLE.pdf")
-        bundleZip = exists("final/client_safe_bundle.zip")
-        checksums = exists("final/checksums.sha256")
+        auditReport = exists("audit/report.pdf") || exists("astra/audit/report.pdf")
+        actionScope = exists("astra/action_scope/action_scope.pdf") || exists("action_scope/action_scope.pdf")
+        proofPack = exists("astra/proof_pack/proof_pack.pdf") || exists("proof_pack/proof_pack.pdf")
+        regression = exists("astra/regression/regression.pdf") || exists("regression/regression.pdf")
+        masterPdf = exists("astra/final/master.pdf") || exists("final/master.pdf")
+        masterBundle = exists("astra/final/MASTER_BUNDLE.pdf") || exists("final/MASTER_BUNDLE.pdf")
+        bundleZip = exists("astra/final/client_safe_bundle.zip") || exists("final/client_safe_bundle.zip")
+        checksums = exists("astra/final/checksums.sha256") || exists("final/checksums.sha256")
 
-        masterSize = Self.formatSize(path: runDir.appendingPathComponent("final/master.pdf"))
-        masterBundleSize = Self.formatSize(path: runDir.appendingPathComponent("final/MASTER_BUNDLE.pdf"))
-        bundleSize = Self.formatSize(path: runDir.appendingPathComponent("final/client_safe_bundle.zip"))
-        if masterPdf, let doc = PDFDocument(url: runDir.appendingPathComponent("final/master.pdf")) {
+        // Helper to find path in astra/final/ or final/
+        func finalPath(_ rel: String) -> URL {
+            let astraPath = runDir.appendingPathComponent("astra/final/\(rel)")
+            if fm.fileExists(atPath: astraPath.path) { return astraPath }
+            return runDir.appendingPathComponent("final/\(rel)")
+        }
+
+        masterSize = Self.formatSize(path: finalPath("master.pdf"))
+        masterBundleSize = Self.formatSize(path: finalPath("MASTER_BUNDLE.pdf"))
+        bundleSize = Self.formatSize(path: finalPath("client_safe_bundle.zip"))
+        if masterPdf, let doc = PDFDocument(url: finalPath("master.pdf")) {
             masterPages = doc.pageCount
         } else {
             masterPages = nil
         }
-        if masterBundle, let doc = PDFDocument(url: runDir.appendingPathComponent("final/MASTER_BUNDLE.pdf")) {
+        if masterBundle, let doc = PDFDocument(url: finalPath("MASTER_BUNDLE.pdf")) {
             masterBundlePages = doc.pageCount
         } else {
             masterBundlePages = nil
@@ -2010,7 +2017,7 @@ struct ContentView: View {
             guard resp == .OK, let destUrl = panel.url else { return }
             let store = self.campaignStore()
             let safeName = store?.campaignFolderName(for: campaign.name) ?? campaign.name
-            let zipName = "\(safeName)_bundle.zip"
+            let zipName = "\(safeName)_ASTRA.zip"
             let destPath = (destUrl.path as NSString).appendingPathComponent(zipName)
             let fm = FileManager.default
             try? fm.removeItem(atPath: destPath)
@@ -2805,6 +2812,7 @@ struct ContentView: View {
         let auditReportDest = auditDir.appendingPathComponent("report.pdf")
         if !fm.fileExists(atPath: auditReportDest.path) {
             let auditCandidates = [
+                astraDest.appendingPathComponent("audit").appendingPathComponent("report.pdf").path,
                 astraDest.appendingPathComponent("deliverables").appendingPathComponent("report.pdf").path,
                 runDirURL.appendingPathComponent("deliverables", isDirectory: true).appendingPathComponent("report.pdf").path,
                 runDirURL.appendingPathComponent("scope", isDirectory: true).appendingPathComponent("report.pdf").path,
@@ -2818,6 +2826,7 @@ struct ContentView: View {
         let auditReportJsonDest = auditDir.appendingPathComponent("report.json")
         if !fm.fileExists(atPath: auditReportJsonDest.path) {
             let jsonCandidates = [
+                astraDest.appendingPathComponent("audit").appendingPathComponent("report.json").path,
                 astraDest.appendingPathComponent("deliverables").appendingPathComponent("report.json").path,
                 runDirURL.appendingPathComponent("deliverables", isDirectory: true).appendingPathComponent("report.json").path,
                 runDirURL.appendingPathComponent("scope", isDirectory: true).appendingPathComponent("report.json").path,
@@ -2834,10 +2843,14 @@ struct ContentView: View {
             try? fm.copyItem(atPath: scopeLogSource, toPath: scopeLogDest.path)
         }
 
+        let verdictSourceInAudit = (runDir as NSString).appendingPathComponent("audit/verdict.json")
         let verdictSourceInDeliverables = (deliverablesSource as NSString).appendingPathComponent("verdict.json")
         let verdictSourceAtRoot = (runDir as NSString).appendingPathComponent("verdict.json")
         let verdictDest = astraDest.appendingPathComponent("verdict.json")
-        if fm.fileExists(atPath: verdictSourceInDeliverables), !fm.fileExists(atPath: verdictDest.path) {
+        
+        if fm.fileExists(atPath: verdictSourceInAudit), !fm.fileExists(atPath: verdictDest.path) {
+            try? fm.copyItem(atPath: verdictSourceInAudit, toPath: verdictDest.path)
+        } else if fm.fileExists(atPath: verdictSourceInDeliverables), !fm.fileExists(atPath: verdictDest.path) {
             try? fm.copyItem(atPath: verdictSourceInDeliverables, toPath: verdictDest.path)
         } else if fm.fileExists(atPath: verdictSourceAtRoot), !fm.fileExists(atPath: verdictDest.path) {
             try? fm.copyItem(atPath: verdictSourceAtRoot, toPath: verdictDest.path)
@@ -2849,7 +2862,7 @@ struct ContentView: View {
         let reportPath = fm.fileExists(atPath: auditReportPath)
             ? auditReportPath
             : deliverablesDest.appendingPathComponent(decisionBriefName).path
-        let verdictPath = deliverablesDest.appendingPathComponent("verdict.json").path
+        let verdictPath = verdictDest.path
         let reportExists = fm.fileExists(atPath: reportPath)
         let verdictExists = fm.fileExists(atPath: verdictPath)
         let success = verdictExists
@@ -3625,19 +3638,50 @@ struct ContentView: View {
     private func resolveConcreteRunDir(baseRunsDir: URL) -> URL? {
         let fm = FileManager.default
         let required = ["audit", "action_scope", "proof_pack", "regression"]
+        
+        // Check if baseRunsDir itself has required dirs (direct run folder)
         let hasAll = required.allSatisfy { fm.fileExists(atPath: baseRunsDir.appendingPathComponent($0, isDirectory: true).path) }
         if hasAll { return baseRunsDir }
+        
+        // Check if baseRunsDir/astra has required dirs (campaign folder structure)
+        let astraSubdir = baseRunsDir.appendingPathComponent("astra")
+        let astraHasAll = required.allSatisfy { fm.fileExists(atPath: astraSubdir.appendingPathComponent($0, isDirectory: true).path) }
+        if astraHasAll { return astraSubdir }
+        
+        // Fallback: look in subdirectories for the newest one with required dirs
         guard let items = try? fm.contentsOfDirectory(at: baseRunsDir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
             return nil
         }
         let dirs = items.filter { $0.hasDirectoryPath }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-        return dirs.last
+        
+        // For each subdir, check if it or its astra/ subfolder has required dirs
+        for dir in dirs.reversed() {
+            let dirHas = required.allSatisfy { fm.fileExists(atPath: dir.appendingPathComponent($0, isDirectory: true).path) }
+            if dirHas { return dir }
+            
+            let subAstra = dir.appendingPathComponent("astra")
+            let subHas = required.allSatisfy { fm.fileExists(atPath: subAstra.appendingPathComponent($0, isDirectory: true).path) }
+            if subHas { return subAstra }
+        }
+        
+        return nil
     }
 
     private func tailLines(_ text: String, count: Int) -> String {
         let lines = text.split(separator: "\n")
         let slice = lines.suffix(count)
         return slice.joined(separator: "\n")
+    }
+
+    private func missingRequiredMessage(from output: String) -> String? {
+        for lineSub in output.split(separator: "\n") {
+            let line = lineSub.trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.hasPrefix("MISSING_REQUIRED:") {
+                let tail = line.dropFirst("MISSING_REQUIRED:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+                return tail.isEmpty ? nil : String(tail)
+            }
+        }
+        return nil
     }
 
     private func sanitizeError(_ text: String, runDir: URL, repoRoot: String, astraRoot: String) -> String {
@@ -3657,20 +3701,24 @@ struct ContentView: View {
 
     private func ensureFinalArtifacts(runDir: URL, lang: String, repoRoot: String, env: [String: String]) -> (Bool, String?) {
         let fm = FileManager.default
-        let requiredDirs = ["audit", "action_scope", "proof_pack", "regression"]
-        let hasAllDirs = requiredDirs.allSatisfy { fm.fileExists(atPath: runDir.appendingPathComponent($0, isDirectory: true).path) }
-        if !hasAllDirs {
-            return (false, "Invalid run directory")
-        }
-        let requiredFiles = [
-            "audit/report.pdf",
-            "action_scope/action_scope.pdf",
-            "proof_pack/proof_pack.pdf",
-            "regression/regression.pdf"
-        ]
-        let hasRequiredFiles = requiredFiles.allSatisfy { fm.fileExists(atPath: runDir.appendingPathComponent($0).path) }
-        if !hasRequiredFiles {
-            return (false, "missing tool artifacts")
+        
+        // Support multiple folder structures (matching shell script detection):
+        // 1. runDir/astra/verdict.json (campaign folder with astra/ subfolder)
+        // 2. runDir/astra/audit/verdict.json (alternative location)
+        // 3. runDir/audit/verdict.json (direct Astra run)
+        // 4. runDir/verdict.json (legacy/simple format)
+        let astraSubdir = runDir.appendingPathComponent("astra")
+        let effectiveDir: URL
+        if fm.fileExists(atPath: astraSubdir.appendingPathComponent("verdict.json").path) {
+            effectiveDir = astraSubdir
+        } else if fm.fileExists(atPath: astraSubdir.appendingPathComponent("audit/verdict.json").path) {
+            effectiveDir = astraSubdir
+        } else if fm.fileExists(atPath: runDir.appendingPathComponent("audit/verdict.json").path) {
+            effectiveDir = runDir
+        } else if fm.fileExists(atPath: runDir.appendingPathComponent("verdict.json").path) {
+            effectiveDir = runDir
+        } else {
+            return (false, "No verdict.json found")
         }
         let astraRoot = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Desktop")
@@ -3685,6 +3733,9 @@ struct ContentView: View {
             env: env
         )
         if finalizeResult.0 != 0 {
+            if let missing = missingRequiredMessage(from: finalizeResult.1) {
+                return (false, "Missing required: \(missing)")
+            }
             let msg = sanitizeError(tailLines(finalizeResult.1, count: 6), runDir: runDir, repoRoot: repoRoot, astraRoot: astraRoot)
             return (false, msg)
         }
@@ -3800,20 +3851,29 @@ struct ContentView: View {
     }
 
     private func runTool(stepName: String, scriptPath: String, entry: RunEntry, expectedFolder: String) {
-        guard !toolRunning else { return }
+        print("[DEBUG runTool] Starting stepName=\(stepName) scriptPath=\(scriptPath)")
+        guard !toolRunning else {
+            print("[DEBUG runTool] ABORT: toolRunning=true")
+            return
+        }
         guard let runDir = runRootPath(for: entry) else {
+            print("[DEBUG runTool] ABORT: runRootPath returned nil for entry id=\(entry.id)")
             toolStatus = "Export failed: \(stepName)"
             return
         }
+        print("[DEBUG runTool] runDir=\(runDir)")
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: runDir, isDirectory: &isDir), isDir.boolValue else {
+            print("[DEBUG runTool] ABORT: runDir does not exist or is not directory")
             toolStatus = "Export failed: \(stepName)"
             return
         }
         guard let repoRoot = resolvedRepoRoot() else {
+            print("[DEBUG runTool] ABORT: resolvedRepoRoot returned nil")
             toolStatus = "Export failed: \(stepName)"
             return
         }
+        print("[DEBUG runTool] repoRoot=\(repoRoot)")
 
         toolRunning = true
         toolRunID = entry.id
@@ -3824,14 +3884,18 @@ struct ContentView: View {
             var env = ProcessInfo.processInfo.environment
             env["PATH"] = venvBin + ":" + (env["PATH"] ?? "")
 
+            print("[DEBUG runTool] Calling script with args: bash \(scriptPath) \(runDir)")
             let result = self.runToolProcess(
                 executable: "/usr/bin/env",
                 arguments: ["bash", scriptPath, runDir],
                 cwd: repoRoot,
                 env: env
             )
+            print("[DEBUG runTool] Script exit code: \(result.0)")
+            print("[DEBUG runTool] Script output: \(result.1)")
 
             if result.0 != 0 {
+                print("[DEBUG runTool] ABORT: script failed with exit code \(result.0)")
                 DispatchQueue.main.async {
                     self.toolRunning = false
                     self.toolTask = nil
@@ -3841,9 +3905,15 @@ struct ContentView: View {
                 return
             }
 
-            let folderPath = (runDir as NSString).appendingPathComponent(expectedFolder)
+            // Scripts write to astra/expectedFolder/ so check there first
+            let astraFolderPath = (runDir as NSString).appendingPathComponent("astra/\(expectedFolder)")
+            let rootFolderPath = (runDir as NSString).appendingPathComponent(expectedFolder)
+            let folderPath = FileManager.default.fileExists(atPath: astraFolderPath) ? astraFolderPath : rootFolderPath
+            print("[DEBUG runTool] Checking for PDF in: \(folderPath)")
             let pdfFound = (try? FileManager.default.contentsOfDirectory(atPath: folderPath))?.contains(where: { $0.lowercased().hasSuffix(".pdf") }) ?? false
+            print("[DEBUG runTool] pdfFound: \(pdfFound)")
             if !pdfFound {
+                print("[DEBUG runTool] ABORT: no PDF found in folder")
                 DispatchQueue.main.async {
                     self.toolRunning = false
                     self.toolTask = nil
@@ -3890,14 +3960,17 @@ struct ContentView: View {
         switch tool {
         case "tool2":
             return URL(fileURLWithPath: runDir)
+                .appendingPathComponent("astra", isDirectory: true)
                 .appendingPathComponent("action_scope", isDirectory: true)
                 .appendingPathComponent("action_scope.pdf").path
         case "tool3":
             return URL(fileURLWithPath: runDir)
+                .appendingPathComponent("astra", isDirectory: true)
                 .appendingPathComponent("proof_pack", isDirectory: true)
                 .appendingPathComponent("proof_pack.pdf").path
         case "tool4":
             return URL(fileURLWithPath: runDir)
+                .appendingPathComponent("astra", isDirectory: true)
                 .appendingPathComponent("regression", isDirectory: true)
                 .appendingPathComponent("regression.pdf").path
         default:
@@ -4500,7 +4573,7 @@ struct ContentView: View {
                     continue
                 }
                 let safeCampaign = store.campaignFolderName(for: campaign)
-                let zipName = "\(safeCampaign)_\(lang.uppercased())_bundle.zip"
+                let zipName = "\(safeCampaign)_\(lang.uppercased())_ASTRA.zip"
                 let zipPath = (destFolder as NSString).appendingPathComponent(zipName)
                 try? fm.removeItem(atPath: zipPath)
                 do {
