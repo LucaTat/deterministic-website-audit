@@ -39,6 +39,7 @@ from proof_completeness_shadow import write_proof_completeness_shadow
 
 import logging
 import config
+from pathlib import Path
 
 # Setup logging
 logging.basicConfig(
@@ -55,6 +56,36 @@ CRITICAL_FINDING_IDS = {
     "CONVLOSS_SITE_UNREACHABLE",
 }
 CRITICAL_SEVERITIES = {"critical", "warning"}
+
+
+def _capture_visual_evidence(url: str, evidence_dir: str) -> None:
+    try:
+        from visual_engine import VisualVerifier, PLAYWRIGHT_AVAILABLE
+    except Exception:
+        return
+
+    if not PLAYWRIGHT_AVAILABLE:
+        return
+
+    try:
+        os.makedirs(evidence_dir, exist_ok=True)
+        perf = {}
+        with VisualVerifier(headless=True) as vv:
+            desktop = vv.capture(url, Path(evidence_dir) / "home.png", device_type="desktop")
+            mobile = vv.capture(url, Path(evidence_dir) / "home_mobile.png", device_type="mobile")
+            if isinstance(desktop, dict):
+                perf["desktop"] = desktop.get("metrics", {}) or {}
+            if isinstance(mobile, dict):
+                perf["mobile"] = mobile.get("metrics", {}) or {}
+
+        if perf:
+            perf_path = os.path.join(evidence_dir, "performance.json")
+            with open(perf_path, "w", encoding="utf-8") as f:
+                json.dump(perf, f, ensure_ascii=False, indent=2)
+                f.write("\n")
+    except Exception:
+        # Visual capture is best-effort; never fail the audit for it.
+        return
 
 def classify_audit(mode: str, findings: list[dict]) -> tuple[str, str]:
     """
@@ -875,6 +906,7 @@ def main():
         if result.get("mode") == "ok":
             evidence_dir = os.path.join(out_folder, "evidence")
             save_html_evidence(result.get("html", ""), evidence_dir, "home.html")
+            _capture_visual_evidence(url, evidence_dir)
 
         pdf_path = os.path.join(out_folder, f"audit_{lang}.pdf")
         json_path = os.path.join(out_folder, f"audit_{lang}.json")

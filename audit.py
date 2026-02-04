@@ -197,6 +197,7 @@ def build_all_signals(html: str, page_url: str | None = None, headers: dict | No
         import tech_detective
         import accessibility_heuristic
         import copy_critic
+        import security_sentry
 
         # 1. Tech Stack
         combined["tech_stack"] = tech_detective.detect_tech_stack(html, headers or {}) 
@@ -207,6 +208,9 @@ def build_all_signals(html: str, page_url: str | None = None, headers: dict | No
         # 3. Copy Quality (extract text first)
         soup_text = BeautifulSoup(html, "html.parser").get_text(" ", strip=True)
         combined["content_quality"] = copy_critic.analyze_copy(soup_text)
+
+        # 4. Security headers / trust signals
+        combined["security_issues"] = security_sentry.check_security_headers(headers or {})
         
     except ImportError:
         pass
