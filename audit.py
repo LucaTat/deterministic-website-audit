@@ -18,6 +18,7 @@ from net_guardrails import (
     robots_disallows,
     validate_url,
 )
+from safe_fetch import safe_session, safe_get
 from visual_check import capture_screenshot
 
 HEADERS = DEFAULT_HEADERS
@@ -66,9 +67,10 @@ def _robots_allows_url(url: str) -> bool:
     if not base:
         return True
     robots_url = f"{base}/robots.txt"
-    session = requests.Session()
-    session.max_redirects = MAX_REDIRECTS
+    robots_url = f"{base}/robots.txt"
     try:
+        session = safe_session()
+        session.max_redirects = MAX_REDIRECTS
         resp = session.get(robots_url, headers=HEADERS, timeout=DEFAULT_TIMEOUT, stream=True)
         status = resp.status_code
         text, too_large = read_limited_text(resp, MAX_HTML_BYTES)
@@ -81,19 +83,26 @@ def _robots_allows_url(url: str) -> bool:
         return True
 
 
-def fetch_html(url: str) -> str:
-    session = requests.Session()
+def fetch_html(url: str) -> tuple[str, dict]:
+    # Use safe_session for DNS Pinning / SSRF protection
+    session = safe_session()
     session.max_redirects = MAX_REDIRECTS
     try:
-        validate_url(url)
+        # validate_url(url) is handled inside safe_session
         if not _robots_allows_url(url):
             raise FetchGuardrailError("robots_disallowed")
-        resp = session.get(url, headers=HEADERS, timeout=DEFAULT_TIMEOUT, stream=True)
+        
+        # safe_session handles validation + pinning
+        try:
+             resp = session.get(url, headers=HEADERS, timeout=DEFAULT_TIMEOUT, stream=True)
+        except ValueError: # safe_fetch raises ValueError on private IP
+             raise FetchGuardrailError("invalid_url_or_private_ip")
+        
         text, too_large = read_limited_text(resp, MAX_HTML_BYTES)
         if too_large:
             raise FetchGuardrailError("too_large")
         resp.raise_for_status()
-        return text
+        return text, dict(resp.headers)
     except requests.TooManyRedirects:
         raise FetchGuardrailError("too_many_redirects")
 
@@ -146,7 +155,7 @@ def page_signals(html: str) -> dict:
 
 
 
-def build_all_signals(html: str, page_url: str | None = None) -> dict:
+def build_all_signals(html: str, page_url: str | None = None, headers: dict | None = None) -> dict:
     """
     Returns a single dict containing:
     - conversion clarity signals from page_signals()
@@ -190,7 +199,7 @@ def build_all_signals(html: str, page_url: str | None = None) -> dict:
         import copy_critic
 
         # 1. Tech Stack
-        combined["tech_stack"] = tech_detective.detect_tech_stack(html, {}) 
+        combined["tech_stack"] = tech_detective.detect_tech_stack(html, headers or {}) 
         
         # 2. Accessibility
         combined["a11y_report"] = accessibility_heuristic.audit_a11y(html)
@@ -204,7 +213,14 @@ def build_all_signals(html: str, page_url: str | None = None) -> dict:
     except Exception as e:
         combined["skills_error"] = str(e)
 
+    try:
+        import marketing_pitch
+        combined["marketing_pitch"] = marketing_pitch.generate_pitch(combined, lang=lang)
+    except Exception:
+        pass
+
     return combined
+
 
 
 def user_insights(signals: dict) -> dict:
