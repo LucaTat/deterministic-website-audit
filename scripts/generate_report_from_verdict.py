@@ -48,7 +48,9 @@ def main() -> int:
     blockers = verdict_data.get("blockers", [])
     timestamp_utc = verdict_data.get("timestamp_utc", "")
     lang = args.lang or verdict_data.get("lang", "EN")
-    signals = verdict_data.get("v3x_flags")
+    signals = verdict_data.get("signals") or verdict_data.get("v3x_flags") or {}
+    if not isinstance(signals, dict):
+        signals = {}
     
     # Ensure audit directory exists
     audit_dir = run_dir / "audit"
