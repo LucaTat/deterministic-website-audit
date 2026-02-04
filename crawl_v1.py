@@ -246,7 +246,7 @@ def _fetch(url: str, max_bytes: int | None = MAX_HTML_BYTES) -> tuple[int | None
     except ValueError:
         return None, "", url, {}, "invalid_url"
 
-    session = requests.Session()
+    session = safe_session()
     session.max_redirects = MAX_REDIRECTS
     session.trust_env = False
 
