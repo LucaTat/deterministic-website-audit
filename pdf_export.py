@@ -125,7 +125,41 @@ def _section_heading(title: str, styles: dict) -> list[Flowable]:
 
 
 def _build_skills_section(signals: dict, lang: str) -> list[Flowable]:
+    # Obtain stylesheet from Theme (UI package) but be defensive: some Theme implementations
+    # may not include the standard ReportLab style names used by the code (BodyText, H2, etc.).
     styles = Theme.get_stylesheet()
+
+    # Ensure expected style names exist — copy them from a fresh sample stylesheet if missing.
+    try:
+        default_styles = getSampleStyleSheet()
+        required = {
+            "Body": ("Body", 10),
+            "BodyText": ("Body", 10),
+            "H1": ("Body", 18),
+            "H2": ("Body", 14),
+            "Small": ("Body", 9),
+            "Meta": ("Body", 8),
+            "CardTitle": ("Body", 15),
+        }
+        for name, (parent_name, size) in required.items():
+            if name not in getattr(styles, "byName", {}):
+                if getattr(styles, "byName", None) and parent_name in styles.byName:
+                    parent = styles.byName[parent_name]
+                else:
+                    parent = default_styles["Body"]
+                styles.add(
+                    ParagraphStyle(
+                        name=name,
+                        parent=parent,
+                        fontName=BODY_FONT,
+                        fontSize=size,
+                        leading=int(size * 1.3),
+                    )
+                )
+    except Exception:
+        # Best-effort fallback: if anything unexpected happens, continue — code later uses
+        # styles[...] and will raise a clearer error.
+        pass
     story = []
     
     # helper for localized headers
