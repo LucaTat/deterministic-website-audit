@@ -67,6 +67,10 @@ fi
 
 mkdir -p "$EFFECTIVE_RUN_DIR/deliverables" "$EFFECTIVE_RUN_DIR/final"
 
+AUDIT_BRIEF="$EFFECTIVE_RUN_DIR/audit/report.pdf"
+AUDIT_BRIEF_LANG="$EFFECTIVE_RUN_DIR/audit/Decision_Brief_${LANG}.pdf"
+AUDIT_EVID="$EFFECTIVE_RUN_DIR/audit/Evidence_Appendix_${LANG}.pdf"
+
 # Sync deliverables from astra subdirectory if needed
 DELIVERABLES_SRC=""
 if [[ -d "$EFFECTIVE_RUN_DIR/deliverables" ]]; then
@@ -75,9 +79,28 @@ elif [[ -d "$EFFECTIVE_RUN_DIR/final_decision" ]]; then
   DELIVERABLES_SRC="$EFFECTIVE_RUN_DIR/final_decision"
 fi
 
+# Generate audit/report.pdf or deliverables if missing
+need_report_gen=0
+if [[ ! -f "$EFFECTIVE_RUN_DIR/audit/report.pdf" ]]; then
+  need_report_gen=1
+fi
+if [[ ! -f "$EFFECTIVE_RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf" || ! -f "$EFFECTIVE_RUN_DIR/deliverables/Evidence_Appendix_${LANG}.pdf" ]]; then
+  need_report_gen=1
+fi
+if [[ "$need_report_gen" -eq 1 ]]; then
+  echo "Generating audit/report.pdf from verdict.json..."
+  "$ASTRA_PY" "$REPO_ROOT/scripts/generate_report_from_verdict.py" "$EFFECTIVE_RUN_DIR" --lang "$LANG" || {
+    echo "WARN: Could not generate audit/report.pdf"
+  }
+fi
+
 # Copy Decision Brief if missing
 if [[ ! -f "$EFFECTIVE_RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf" ]]; then
-  if [[ -n "$DELIVERABLES_SRC" && -f "$DELIVERABLES_SRC/Decision_Brief_${LANG}.pdf" ]]; then
+  if [[ -f "$AUDIT_BRIEF_LANG" ]]; then
+    cp -f "$AUDIT_BRIEF_LANG" "$EFFECTIVE_RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf"
+  elif [[ -f "$AUDIT_BRIEF" ]]; then
+    cp -f "$AUDIT_BRIEF" "$EFFECTIVE_RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf"
+  elif [[ -n "$DELIVERABLES_SRC" && -f "$DELIVERABLES_SRC/Decision_Brief_${LANG}.pdf" ]]; then
     cp -f "$DELIVERABLES_SRC/Decision_Brief_${LANG}.pdf" "$EFFECTIVE_RUN_DIR/deliverables/"
   elif [[ -f "$EFFECTIVE_RUN_DIR/final_decision/ASTRA_Traffic_Readiness_Decision_${LANG}.pdf" ]]; then
     cp -f "$EFFECTIVE_RUN_DIR/final_decision/ASTRA_Traffic_Readiness_Decision_${LANG}.pdf" "$EFFECTIVE_RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf"
@@ -86,7 +109,9 @@ fi
 
 # Copy Evidence Appendix if missing
 if [[ ! -f "$EFFECTIVE_RUN_DIR/deliverables/Evidence_Appendix_${LANG}.pdf" ]]; then
-  if [[ -n "$DELIVERABLES_SRC" && -f "$DELIVERABLES_SRC/Evidence_Appendix_${LANG}.pdf" ]]; then
+  if [[ -f "$AUDIT_EVID" ]]; then
+    cp -f "$AUDIT_EVID" "$EFFECTIVE_RUN_DIR/deliverables/Evidence_Appendix_${LANG}.pdf"
+  elif [[ -n "$DELIVERABLES_SRC" && -f "$DELIVERABLES_SRC/Evidence_Appendix_${LANG}.pdf" ]]; then
     cp -f "$DELIVERABLES_SRC/Evidence_Appendix_${LANG}.pdf" "$EFFECTIVE_RUN_DIR/deliverables/"
   fi
 fi
@@ -98,13 +123,7 @@ if [[ ! -f "$EFFECTIVE_RUN_DIR/deliverables/verdict.json" ]]; then
   fi
 fi
 
-# Generate audit/report.pdf from verdict.json if missing
-if [[ ! -f "$EFFECTIVE_RUN_DIR/audit/report.pdf" ]]; then
-  echo "Generating audit/report.pdf from verdict.json..."
-  "$ASTRA_PY" "$REPO_ROOT/scripts/generate_report_from_verdict.py" "$EFFECTIVE_RUN_DIR" --lang "$LANG" || {
-    echo "WARN: Could not generate audit/report.pdf"
-  }
-fi
+# audit/report.pdf is required; generation handled above
 
 # Validate required inputs (fail-closed)
 missing_required=()

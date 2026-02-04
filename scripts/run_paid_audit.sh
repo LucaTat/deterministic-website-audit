@@ -67,20 +67,43 @@ mkdir -p "$RUN_DIR/deliverables"
 
 BRIEF_A="$RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf"
 BRIEF_B="$RUN_DIR/astra/deliverables/Decision_Brief_${LANG}.pdf"
+BRIEF_C="$RUN_DIR/astra/audit/Decision_Brief_${LANG}.pdf"
+BRIEF_D="$RUN_DIR/astra/audit/report.pdf"
+BRIEF_E="$RUN_DIR/audit/Decision_Brief_${LANG}.pdf"
+BRIEF_F="$RUN_DIR/audit/report.pdf"
 EVID_A="$RUN_DIR/deliverables/Evidence_Appendix_${LANG}.pdf"
 EVID_B="$RUN_DIR/astra/deliverables/Evidence_Appendix_${LANG}.pdf"
+EVID_C="$RUN_DIR/astra/audit/Evidence_Appendix_${LANG}.pdf"
+EVID_D="$RUN_DIR/audit/Evidence_Appendix_${LANG}.pdf"
 VERDICT_A="$RUN_DIR/deliverables/verdict.json"
 VERDICT_B="$RUN_DIR/astra/deliverables/verdict.json"
+VERDICT_C="$RUN_DIR/astra/audit/verdict.json"
+VERDICT_D="$RUN_DIR/audit/verdict.json"
 FINAL_DECISION="$RUN_DIR/final_decision/ASTRA_Traffic_Readiness_Decision_${LANG}.pdf"
 
-if [[ ! -f "$BRIEF_A" && -f "$BRIEF_B" ]]; then
-  cp -f "$BRIEF_B" "$BRIEF_A"
+if [[ ! -f "$BRIEF_A" ]]; then
+  for candidate in "$BRIEF_B" "$BRIEF_C" "$BRIEF_D" "$BRIEF_E" "$BRIEF_F"; do
+    if [[ -f "$candidate" ]]; then
+      cp -f "$candidate" "$BRIEF_A"
+      break
+    fi
+  done
 fi
-if [[ ! -f "$EVID_A" && -f "$EVID_B" ]]; then
-  cp -f "$EVID_B" "$EVID_A"
+if [[ ! -f "$EVID_A" ]]; then
+  for candidate in "$EVID_B" "$EVID_C" "$EVID_D"; do
+    if [[ -f "$candidate" ]]; then
+      cp -f "$candidate" "$EVID_A"
+      break
+    fi
+  done
 fi
-if [[ ! -f "$VERDICT_A" && -f "$VERDICT_B" ]]; then
-  cp -f "$VERDICT_B" "$VERDICT_A"
+if [[ ! -f "$VERDICT_A" ]]; then
+  for candidate in "$VERDICT_B" "$VERDICT_C" "$VERDICT_D"; do
+    if [[ -f "$candidate" ]]; then
+      cp -f "$candidate" "$VERDICT_A"
+      break
+    fi
+  done
 fi
 
 if [[ ! -f "$BRIEF_A" ]]; then
