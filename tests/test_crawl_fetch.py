@@ -38,7 +38,7 @@ def test_fetch_calls_validate_url(monkeypatch):
 
     monkeypatch.setattr(crawl_v1, "validate_url", _validate)
     session = _Session([_Resp(200, "https://example.com", {}, b"ok")])
-    monkeypatch.setattr(crawl_v1.requests, "Session", lambda: session)
+    monkeypatch.setattr(crawl_v1, "safe_session", lambda: session)
 
     status, body, final_url, headers, error = crawl_v1._fetch("https://example.com")
     assert status == 200
@@ -53,7 +53,7 @@ def test_fetch_invalid_url_rejected(monkeypatch):
 
     monkeypatch.setattr(crawl_v1, "validate_url", _validate)
     session = _Session([_Resp(200, "http://127.0.0.1", {}, b"no")])
-    monkeypatch.setattr(crawl_v1.requests, "Session", lambda: session)
+    monkeypatch.setattr(crawl_v1, "safe_session", lambda: session)
 
     status, body, final_url, headers, error = crawl_v1._fetch("http://127.0.0.1")
     assert status is None
@@ -66,7 +66,7 @@ def test_fetch_redirect_limit(monkeypatch):
     for i in range(MAX_REDIRECTS + 1):
         responses.append(_Resp(302, f"https://example.com/r{i}", {"Location": f"/r{i+1}"}))
     session = _Session(responses)
-    monkeypatch.setattr(crawl_v1.requests, "Session", lambda: session)
+    monkeypatch.setattr(crawl_v1, "safe_session", lambda: session)
 
     status, body, final_url, headers, error = crawl_v1._fetch("https://example.com/r0")
     assert status is None
