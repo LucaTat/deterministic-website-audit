@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from audit import save_html_evidence
 from batch import _build_evidence_pack, _capture_visual_evidence, audit_one, get_tool_version, save_json
 from net_guardrails import DEFAULT_HEADERS, DEFAULT_TIMEOUT, MAX_HTML_BYTES, MAX_REDIRECTS, read_limited_text
-from pdf_export import export_audit_pdf
+from pdf_export import export_audit_pdf, export_audit_stub_pdf
 from safe_fetch import safe_session
 
 
@@ -205,7 +205,16 @@ def main(argv: list[str] | None = None) -> int:
     report_pdf = audit_dir / "report.pdf"
 
     save_json(result, str(report_json))
-    export_audit_pdf(result, str(report_pdf), tool_version=result["tool_version"])
+
+    pdf_failed = False
+    try:
+        export_audit_pdf(result, str(report_pdf), tool_version=result["tool_version"])
+    except Exception:
+        pdf_failed = True
+        meta = result.get("meta", {}) or {}
+        timestamp = meta.get("timestamp_utc") or meta.get("timestamp")
+        export_audit_stub_pdf(str(report_pdf), final_host or requested_host, timestamp)
+        print("TOOL1_PDF_RENDER_FAILED")
 
     evidence_pack = _build_evidence_pack(result.get("crawl_v1") or {}, result.get("evidence_pack"))
     crawl_pages = evidence_pack.get("crawl_pages")
@@ -214,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     evidence_pack_path = scope_dir / "evidence_pack.json"
     evidence_pack_path.write_text(json.dumps(evidence_pack, indent=2) + "\n", encoding="utf-8")
 
-    return 0
+    return 26 if pdf_failed else 0
 
 
 if __name__ == "__main__":

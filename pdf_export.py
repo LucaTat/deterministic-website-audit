@@ -8,6 +8,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.utils import simpleSplit
 from reportlab.platypus import (
     SimpleDocTemplate,
     Paragraph,
@@ -1382,4 +1383,48 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
         doc.build(story, onFirstPage=draw_header_footer, onLaterPages=draw_header_footer)
         return alt_path
 
+    return out_path
+
+
+def export_audit_stub_pdf(out_path: str, domain: str, timestamp_utc: str | None = None) -> str:
+    body_font, _ = _register_fonts()
+
+    if not out_path.lower().endswith(".pdf"):
+        out_path += ".pdf"
+
+    from reportlab.pdfgen import canvas as pdf_canvas
+
+    canvas = pdf_canvas.Canvas(out_path, pagesize=A4)
+    width, height = A4
+    left = 18 * mm
+    top = height - (24 * mm)
+
+    title = "Audit Report (Render Failed)"
+    ts_value = (timestamp_utc or "").strip() or "N/A"
+    domain_value = (domain or "").strip() or "(unknown)"
+
+    canvas.setFillColor(colors.HexColor("#111827"))
+    canvas.setFont(body_font, 18)
+    canvas.drawString(left, top, title)
+
+    canvas.setFont(body_font, 10)
+    canvas.setFillColor(colors.HexColor("#374151"))
+    canvas.drawString(left, top - (10 * mm), f"Domain: {domain_value}")
+    canvas.drawString(left, top - (16 * mm), f"Timestamp (UTC): {ts_value}")
+
+    body = (
+        "The audit captured evidence, but PDF rendering failed due to a visualization edge case. "
+        "Evidence JSON/HTML is present in this run directory."
+    )
+    canvas.setFont(body_font, 11)
+    canvas.setFillColor(colors.HexColor("#111827"))
+    text_width = width - (2 * left)
+    lines = simpleSplit(body, body_font, 11, text_width)
+    y = top - (30 * mm)
+    for line in lines:
+        canvas.drawString(left, y, line)
+        y -= 6 * mm
+
+    canvas.showPage()
+    canvas.save()
     return out_path

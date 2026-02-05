@@ -3,6 +3,8 @@ widgets.py - Custom visual elements for reports.
 """
 
 from reportlab.platypus import Flowable, Table, TableStyle
+import math
+
 from reportlab.lib import colors
 from reportlab.graphics.shapes import Drawing, Circle, String, Wedge
 from reportlab.lib.units import mm
@@ -21,10 +23,24 @@ class ScoreGauge(Flowable):
         self.height = size * 2
 
     def draw(self):
+        score_value = 0.0
+        try:
+            score_value = float(self.score)
+        except (TypeError, ValueError):
+            score_value = 0.0
+
+        if not math.isfinite(score_value):
+            score_value = 0.0
+
+        score_value = max(0.0, min(100.0, score_value))
+        display_score = int(round(score_value))
+
         # Determine Color
         c = Theme.ERROR
-        if self.score > 50: c = Theme.WARNING
-        if self.score > 80: c = Theme.SUCCESS
+        if score_value > 50:
+            c = Theme.WARNING
+        if score_value > 80:
+            c = Theme.SUCCESS
         
         cx, cy = self.size, self.size
         r_outer = self.size
@@ -39,18 +55,20 @@ class ScoreGauge(Flowable):
         # Segment (Arc)
         # 360 degrees. Start at 90 (top).
         # ReportLab Wedge: (cx, cy, radius, startAng, extent)
-        angle = 3.6 * self.score
+        angle = 3.6 * score_value
+        draw_arc = angle > 0.001
         
         # We want to emulate a stroke, so we draw a wedge then a white circle inside
-        self.canv.setFillColor(c)
-        self.canv.saveState()
-        p = self.canv.beginPath()
-        p.moveTo(cx, cy)
-        p.arc(cx-r_outer, cy-r_outer, cx+r_outer, cy+r_outer, 90, -angle) # Negative creates clockwise
-        p.lineTo(cx, cy)
-        p.close()
-        self.canv.drawPath(p, fill=1, stroke=0)
-        self.canv.restoreState()
+        if draw_arc:
+            self.canv.setFillColor(c)
+            self.canv.saveState()
+            p = self.canv.beginPath()
+            p.moveTo(cx, cy)
+            p.arc(cx-r_outer, cy-r_outer, cx+r_outer, cy+r_outer, 90, -angle) # Negative creates clockwise
+            p.lineTo(cx, cy)
+            p.close()
+            self.canv.drawPath(p, fill=1, stroke=0)
+            self.canv.restoreState()
         
         # Inner White Circle (Donut)
         self.canv.setFillColor(colors.white)
@@ -59,7 +77,7 @@ class ScoreGauge(Flowable):
         # Text
         self.canv.setFillColor(Theme.PRIMARY)
         self.canv.setFont("DejaVuSans-Bold", self.size * 0.5)
-        self.canv.drawCentredString(cx, cy - (self.size*0.1), str(self.score))
+        self.canv.drawCentredString(cx, cy - (self.size*0.1), str(display_score))
         
         self.canv.setFillColor(Theme.TEXT_LIGHT)
         self.canv.setFont("DejaVuSans", self.size * 0.2)
