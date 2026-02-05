@@ -3098,6 +3098,8 @@ struct ContentView: View {
             environment["ASTRA_LANG"] = (spec.lang == "en" ? "EN" : "RO")
             environment["SCOPE_USE_AI"] = useAI ? "1" : "0"
             environment["SCOPE_ANALYSIS_MODE"] = analysisMode
+            environment["SCOPE_DISABLE_VISUAL"] = "1"
+            environment["SCOPE_SKIP_SITEMAP"] = "1"
             task.environment = environment
             let runEnv = environment
 
