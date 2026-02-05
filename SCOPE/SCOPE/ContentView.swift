@@ -1524,6 +1524,7 @@ struct ContentView: View {
                 switch status {
                 case "SUCCESS": return ("Ready to send", .green)
                 case "WARNING": return ("Ready to send (warnings)", .orange)
+                case "NOT AUDITABLE": return ("Not auditable", .orange)
                 case "FAILED": return ("Run failed", .red)
                 case "Canceled": return ("Canceled", .secondary)
                 default: return ("Run finished", .secondary)
@@ -4050,6 +4051,8 @@ struct ContentView: View {
             return "Success: audit completed."
         case "WARNING":
             return "Completed with warnings."
+        case "NOT AUDITABLE":
+            return "Not auditable: deliverable is a No package."
         case "FAILED":
             return "Failed: audit did not complete."
         case "Canceled":
@@ -4740,6 +4743,9 @@ struct ContentView: View {
         if status == "WARNING" {
             return "Warnings found. Send the ZIP files after reviewing. Start with Open Export/Delivery Root."
         }
+        if status == "NOT AUDITABLE" {
+            return "NOT AUDITABLE deliverable: no audit checks were performed."
+        }
         if status == "FAILED" {
             return "Run failed. Check Advanced logs."
         }
@@ -4750,6 +4756,7 @@ struct ContentView: View {
         switch status {
         case "SUCCESS": return "Last run OK"
         case "WARNING": return "Last run: warnings"
+        case "NOT AUDITABLE": return "Last run: not auditable"
         case "FAILED": return "Last run failed"
         case "Canceled": return "Last run canceled"
         case "OK": return "Last run OK"
