@@ -126,6 +126,15 @@ def _section_heading(title: str, styles: dict) -> list[Flowable]:
 
 def _build_skills_section(signals: dict, lang: str) -> list[Flowable]:
     styles = Theme.get_stylesheet()
+    # Defensive: ensure BodyText exists even if Theme strips sample styles.
+    try:
+        if "BodyText" not in getattr(styles, "byName", {}):
+            parent = styles.byName.get("Body") if getattr(styles, "byName", None) else None
+            if not parent:
+                parent = getSampleStyleSheet()["Normal"]
+            styles.add(ParagraphStyle(name="BodyText", parent=parent))
+    except Exception:
+        pass
     story = []
     
     # helper for localized headers
