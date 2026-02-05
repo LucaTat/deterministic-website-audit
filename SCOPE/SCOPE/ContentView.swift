@@ -3167,7 +3167,8 @@ struct ContentView: View {
 
                         var masterFinalExit: Int32 = 1
                         var masterFinalOutput = ""
-                        if !wasCanceled, !wasTimedOut, code == 0 {
+                        let shouldRunAstra = code == 0 || code == 22 || code == 23 || code == 24
+                        if !wasCanceled, !wasTimedOut, shouldRunAstra {
                             let header = "\n== ASTRA pipeline • \(spec.lang.uppercased()) • \(spec.url) ==\n"
                             DispatchQueue.main.async {
                                 self.logOutput += header
@@ -3190,7 +3191,7 @@ struct ContentView: View {
                         }
 
                         var masterFinalError: String? = nil
-                        if !wasCanceled, !wasTimedOut, code == 0, masterFinalExit != 0 {
+                        if !wasCanceled, !wasTimedOut, shouldRunAstra, masterFinalExit != 0 {
                             let snippet = self.tailLines(masterFinalOutput, count: 6)
                             let sanitized = self.sanitizeError(snippet, runDir: runDirURL, repoRoot: repoRoot, astraRoot: normalizedAstraRoot)
                             masterFinalError = sanitized.isEmpty ? "Master final failed." : sanitized
@@ -3227,6 +3228,8 @@ struct ContentView: View {
                     let scopeLogExists = FileManager.default.fileExists(atPath: scopeLogPath)
 
                     let finalOk = self.finalArtifactsExist(runDir: runDir)
+                    let verdictValue = self.readVerdictValue(runDir: runDir)
+                    let isNotAuditable = verdictValue?.uppercased() == "NOT_AUDITABLE"
                     var status: String
                     if wasCanceled {
                         status = "Canceled"
@@ -3239,7 +3242,9 @@ struct ContentView: View {
                     } else {
                         status = "FAILED"
                     }
-                    if finalOk { status = "SUCCESS" }
+                    if finalOk {
+                        status = isNotAuditable ? "NOT AUDITABLE" : "SUCCESS"
+                    }
 
                     let deliverablesDir = delivery.runFolderPath ?? delivery.deliveredDir ?? ""
                     let astraRunDir = deliverablesDir.isEmpty
@@ -3361,7 +3366,11 @@ struct ContentView: View {
                         self.campaignsPanel = campaignsSnapshot
 
                         self.lastRunLang = spec.lang
-                        self.lastRunStatus = finalOk ? "SUCCESS" : status
+                        if finalOk, isNotAuditable {
+                            self.lastRunStatus = "NOT AUDITABLE"
+                        } else {
+                            self.lastRunStatus = finalOk ? "SUCCESS" : status
+                        }
                         if let auditCopyError {
                             self.lastRunStatus = "FAILED"
                             self.runState = .error
@@ -3627,6 +3636,23 @@ struct ContentView: View {
         return requiredFinalArtifacts().allSatisfy { rel in
             fm.fileExists(atPath: (runDir as NSString).appendingPathComponent(rel))
         }
+    }
+
+    private func readVerdictValue(runDir: String) -> String? {
+        let fm = FileManager.default
+        let candidates = [
+            (runDir as NSString).appendingPathComponent("deliverables/verdict.json"),
+            (runDir as NSString).appendingPathComponent("audit/verdict.json"),
+            (runDir as NSString).appendingPathComponent("verdict.json"),
+        ]
+        for path in candidates where fm.fileExists(atPath: path) {
+            if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let verdict = json["verdict"] as? String {
+                return verdict
+            }
+        }
+        return nil
     }
 
     private func ensureFinalArtifacts(runDir: URL, lang: String, repoRoot: String, env: [String: String]) -> (Bool, String?) {
