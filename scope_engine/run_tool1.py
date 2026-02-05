@@ -42,6 +42,13 @@ def _fetch_home(url: str) -> tuple[str, str, int]:
     return text or "", final_url, status
 
 
+def _write_gate_info(run_dir: Path, payload: dict) -> None:
+    scope_dir = run_dir / "scope" / "evidence"
+    scope_dir.mkdir(parents=True, exist_ok=True)
+    gate_path = scope_dir / "gate.json"
+    gate_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run SCOPE tool1 into a canonical run dir.")
     parser.add_argument("--url", required=True)
@@ -75,17 +82,92 @@ def main(argv: list[str] | None = None) -> int:
     requested_host = _host_from_url(url)
     final_host = _host_from_url(final_url)
     if not requested_host or not final_host:
+        _write_gate_info(
+            run_dir,
+            {
+                "exit_code": 22,
+                "reason_code": "FETCH_IDENTITY_MISMATCH",
+                "message": "redirect mismatch",
+                "requested_url": url,
+                "final_url": final_url,
+                "requested_host": requested_host,
+                "final_host": final_host,
+                "status_code": status_code,
+                "html_bytes": len(html),
+                "timestamp_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+        )
         return _fail(22, "FATAL: redirect mismatch")
     if _normalize_host(requested_host) != _normalize_host(final_host):
+        _write_gate_info(
+            run_dir,
+            {
+                "exit_code": 22,
+                "reason_code": "FETCH_IDENTITY_MISMATCH",
+                "message": "redirect mismatch",
+                "requested_url": url,
+                "final_url": final_url,
+                "requested_host": requested_host,
+                "final_host": final_host,
+                "status_code": status_code,
+                "html_bytes": len(html),
+                "timestamp_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+        )
         return _fail(22, "FATAL: redirect mismatch")
 
     lowered_url = url.lower()
     if "example.invalid" in lowered_url:
+        _write_gate_info(
+            run_dir,
+            {
+                "exit_code": 23,
+                "reason_code": "PLACEHOLDER_EVIDENCE",
+                "message": "example domain detected",
+                "requested_url": url,
+                "final_url": final_url,
+                "requested_host": requested_host,
+                "final_host": final_host,
+                "status_code": status_code,
+                "html_bytes": len(html),
+                "timestamp_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+        )
         return _fail(23, "FATAL: example domain detected")
     if "example domain" in html.lower():
+        _write_gate_info(
+            run_dir,
+            {
+                "exit_code": 23,
+                "reason_code": "PLACEHOLDER_EVIDENCE",
+                "message": "example domain detected",
+                "requested_url": url,
+                "final_url": final_url,
+                "requested_host": requested_host,
+                "final_host": final_host,
+                "status_code": status_code,
+                "html_bytes": len(html),
+                "timestamp_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+        )
         return _fail(23, "FATAL: example domain detected")
 
     if len(html) < 5000:
+        _write_gate_info(
+            run_dir,
+            {
+                "exit_code": 24,
+                "reason_code": "EVIDENCE_TOO_SMALL",
+                "message": "evidence too small",
+                "requested_url": url,
+                "final_url": final_url,
+                "requested_host": requested_host,
+                "final_host": final_host,
+                "status_code": status_code,
+                "html_bytes": len(html),
+                "timestamp_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+        )
         return _fail(24, "FATAL: evidence too small")
 
     # Evidence folder
