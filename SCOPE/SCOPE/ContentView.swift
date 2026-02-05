@@ -3090,8 +3090,9 @@ struct ContentView: View {
             let venvPython = URL(fileURLWithPath: normalizedAstraRoot)
                 .appendingPathComponent(".venv/bin/python").path
             let pythonPath = fm.isExecutableFile(atPath: venvPython) ? venvPython : "/usr/bin/python3"
-            task.executableURL = URL(fileURLWithPath: pythonPath)
-            task.arguments = ["-m", "astra", "run", spec.url, "--lang", spec.lang, "--run-dir", pinnedRunDir]
+            let scopeScript = (engineRoot as NSString).appendingPathComponent("scripts/scope_engine_run.sh")
+            task.executableURL = URL(fileURLWithPath: "/bin/bash")
+            task.arguments = [scopeScript, "--url", spec.url, "--run-dir", pinnedRunDir, "--lang", spec.lang, "--max-pages", "15"]
             task.currentDirectoryURL = URL(fileURLWithPath: normalizedAstraRoot)
             var environment = task.environment ?? ProcessInfo.processInfo.environment
             environment["SCOPE_REPO"] = engineRoot
@@ -3167,14 +3168,14 @@ struct ContentView: View {
                         var masterFinalExit: Int32 = 1
                         var masterFinalOutput = ""
                         if !wasCanceled, !wasTimedOut, code == 0 {
-                            let header = "\n== ASTRA master_final • \(spec.lang.uppercased()) • \(spec.url) ==\n"
+                            let header = "\n== ASTRA pipeline • \(spec.lang.uppercased()) • \(spec.url) ==\n"
                             DispatchQueue.main.async {
                                 self.logOutput += header
                             }
                             appendToRunLog(header)
                             let masterResult = self.runToolProcess(
                                 executable: pythonPath,
-                                arguments: ["-m", "astra.master_final.run", "--run-dir", runDir],
+                                arguments: ["-m", "astra.run_full_pipeline", "--det-run-dir", runDir, "--lang", spec.lang.uppercased()],
                                 cwd: normalizedAstraRoot,
                                 env: runEnv
                             )
