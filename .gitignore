@@ -42,3 +42,11 @@ build/
 golden_samples/
 golden_samples/
 runs/
+
+# IDE / user state
+**/xcuserdata/
+**/*.xcuserdatad/
+
+# Python cache
+__pycache__/
+*.pyc
