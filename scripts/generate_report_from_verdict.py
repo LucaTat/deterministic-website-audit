@@ -2,7 +2,7 @@
 """Generate Decision Brief and Evidence Appendix from verdict.json.
 
 Usage:
-    python generate_report_from_verdict.py <RUN_DIR> [--lang RO|EN]
+    python3 generate_report_from_verdict.py <RUN_DIR> [--lang RO|EN]
 """
 from __future__ import annotations
 

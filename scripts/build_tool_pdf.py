@@ -2,7 +2,7 @@
 """Build deterministic Tool PDFs (tool2/tool3/tool4) from verdict.json.
 
 Usage:
-  python build_tool_pdf.py --run-dir <RUN_DIR> --tool tool2|tool3|tool4 [--lang RO|EN]
+  python3 build_tool_pdf.py --run-dir <RUN_DIR> --tool tool2|tool3|tool4 [--lang RO|EN]
 """
 from __future__ import annotations
 

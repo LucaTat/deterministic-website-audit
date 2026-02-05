@@ -16,6 +16,13 @@ echo "Repo: $ROOT"
 echo "Python: $PY"
 echo
 
+# Ensure test dependencies are installed for deterministic runs.
+if [[ -f "$ROOT/requirements-dev.txt" ]]; then
+  "$PY" -m pip install -r "$ROOT/requirements.txt" -r "$ROOT/requirements-dev.txt"
+else
+  "$PY" -m pip install -r "$ROOT/requirements.txt"
+fi
+
 # Tests
 "$PY" -m pytest -q
 
