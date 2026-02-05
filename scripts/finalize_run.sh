@@ -23,27 +23,29 @@ fi
 
 RUN_DIR="$(cd "$RUN_DIR" && pwd)"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SKIP_BUILD="${SCOPE_FINALIZE_SKIP_BUILD:-0}"
 
-# Detect effective run dir and verdict.json location
+# Detect source run dir and verdict.json location
 # Support multiple folder structures:
 # 1. RUN_DIR/astra/verdict.json (campaign folder with astra/ subfolder)
 # 2. RUN_DIR/astra/audit/verdict.json (alternative location)
 # 3. RUN_DIR/audit/verdict.json (direct Astra run)
 # 4. RUN_DIR/verdict.json (legacy/simple format)
+SOURCE_RUN_DIR=""
 if [[ -f "$RUN_DIR/astra/verdict.json" ]]; then
-  EFFECTIVE_RUN_DIR="$RUN_DIR/astra"
+  SOURCE_RUN_DIR="$RUN_DIR/astra"
   VERDICT_PATH="$RUN_DIR/astra/verdict.json"
   echo "Detected campaign folder structure (astra/verdict.json)"
 elif [[ -f "$RUN_DIR/astra/audit/verdict.json" ]]; then
-  EFFECTIVE_RUN_DIR="$RUN_DIR/astra"
+  SOURCE_RUN_DIR="$RUN_DIR/astra"
   VERDICT_PATH="$RUN_DIR/astra/audit/verdict.json"
   echo "Detected campaign folder structure (astra/audit/verdict.json)"
 elif [[ -f "$RUN_DIR/audit/verdict.json" ]]; then
-  EFFECTIVE_RUN_DIR="$RUN_DIR"
+  SOURCE_RUN_DIR="$RUN_DIR"
   VERDICT_PATH="$RUN_DIR/audit/verdict.json"
   echo "Detected direct run folder structure"
 elif [[ -f "$RUN_DIR/verdict.json" ]]; then
-  EFFECTIVE_RUN_DIR="$RUN_DIR"
+  SOURCE_RUN_DIR="$RUN_DIR"
   VERDICT_PATH="$RUN_DIR/verdict.json"
   echo "Detected legacy folder structure"
 else
@@ -51,66 +53,55 @@ else
   exit 2
 fi
 
+mkdir -p "$RUN_DIR/audit" "$RUN_DIR/deliverables" "$RUN_DIR/final"
+
+sync_dir() {
+  local src="$1"
+  local dest="$2"
+  if [[ -d "$src" ]]; then
+    mkdir -p "$dest"
+    cp -a "$src/." "$dest/" 2>/dev/null || true
+  fi
+}
+
+if [[ "$SOURCE_RUN_DIR" != "$RUN_DIR" ]]; then
+  sync_dir "$SOURCE_RUN_DIR/audit" "$RUN_DIR/audit"
+  sync_dir "$SOURCE_RUN_DIR/action_scope" "$RUN_DIR/action_scope"
+  sync_dir "$SOURCE_RUN_DIR/proof_pack" "$RUN_DIR/proof_pack"
+  sync_dir "$SOURCE_RUN_DIR/regression" "$RUN_DIR/regression"
+  sync_dir "$SOURCE_RUN_DIR/deliverables" "$RUN_DIR/deliverables"
+fi
+
 # Ensure audit folder has verdict.json for Astra tools
-if [[ ! -f "$EFFECTIVE_RUN_DIR/audit/verdict.json" ]]; then
-  mkdir -p "$EFFECTIVE_RUN_DIR/audit"
-  cp "$VERDICT_PATH" "$EFFECTIVE_RUN_DIR/audit/verdict.json"
+if [[ ! -f "$RUN_DIR/audit/verdict.json" ]]; then
+  cp "$VERDICT_PATH" "$RUN_DIR/audit/verdict.json"
   echo "Copied verdict.json to audit/"
 fi
 
-ASTRA_PY="$HOME/Desktop/astra/.venv/bin/python3"
-
-if [[ ! -x "$ASTRA_PY" ]]; then
-  echo "WARN: ASTRA venv python missing - using fallback" >&2
-  ASTRA_PY="$REPO_ROOT/.venv/bin/python3"
-fi
-
-mkdir -p "$EFFECTIVE_RUN_DIR/deliverables" "$EFFECTIVE_RUN_DIR/final"
-
-# Sync deliverables from astra subdirectory if needed
-DELIVERABLES_SRC=""
-if [[ -d "$EFFECTIVE_RUN_DIR/deliverables" ]]; then
-  DELIVERABLES_SRC="$EFFECTIVE_RUN_DIR/deliverables"
-elif [[ -d "$EFFECTIVE_RUN_DIR/final_decision" ]]; then
-  DELIVERABLES_SRC="$EFFECTIVE_RUN_DIR/final_decision"
-fi
-
-# Copy Decision Brief if missing
-if [[ ! -f "$EFFECTIVE_RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf" ]]; then
-  if [[ -n "$DELIVERABLES_SRC" && -f "$DELIVERABLES_SRC/Decision_Brief_${LANG}.pdf" ]]; then
-    cp -f "$DELIVERABLES_SRC/Decision_Brief_${LANG}.pdf" "$EFFECTIVE_RUN_DIR/deliverables/"
-  elif [[ -f "$EFFECTIVE_RUN_DIR/final_decision/ASTRA_Traffic_Readiness_Decision_${LANG}.pdf" ]]; then
-    cp -f "$EFFECTIVE_RUN_DIR/final_decision/ASTRA_Traffic_Readiness_Decision_${LANG}.pdf" "$EFFECTIVE_RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf"
+VENV_PATH="$REPO_ROOT/.venv"
+if [[ "$SKIP_BUILD" != "1" && ! -x "$VENV_PATH/bin/python3" ]]; then
+  if [[ -x "$REPO_ROOT/scripts/bootstrap_venv.sh" ]]; then
+    echo "Bootstrapping .venv..."
+    bash "$REPO_ROOT/scripts/bootstrap_venv.sh" || {
+      echo "ERROR: bootstrap_venv failed" >&2
+      exit 2
+    }
   fi
 fi
 
-# Copy Evidence Appendix if missing
-if [[ ! -f "$EFFECTIVE_RUN_DIR/deliverables/Evidence_Appendix_${LANG}.pdf" ]]; then
-  if [[ -n "$DELIVERABLES_SRC" && -f "$DELIVERABLES_SRC/Evidence_Appendix_${LANG}.pdf" ]]; then
-    cp -f "$DELIVERABLES_SRC/Evidence_Appendix_${LANG}.pdf" "$EFFECTIVE_RUN_DIR/deliverables/"
-  fi
+PYTHON_BIN="$VENV_PATH/bin/python3"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  PYTHON_BIN="python3"
 fi
 
-# Copy verdict.json if missing
-if [[ ! -f "$EFFECTIVE_RUN_DIR/deliverables/verdict.json" ]]; then
-  if [[ -f "$EFFECTIVE_RUN_DIR/audit/verdict.json" ]]; then
-    cp -f "$EFFECTIVE_RUN_DIR/audit/verdict.json" "$EFFECTIVE_RUN_DIR/deliverables/verdict.json"
-  fi
-fi
-
-# Generate audit/report.pdf from verdict.json if missing
-if [[ ! -f "$EFFECTIVE_RUN_DIR/audit/report.pdf" ]]; then
-  echo "Generating audit/report.pdf from verdict.json..."
-  "$ASTRA_PY" "$REPO_ROOT/scripts/generate_report_from_verdict.py" "$EFFECTIVE_RUN_DIR" --lang "$LANG" || {
-    echo "WARN: Could not generate audit/report.pdf"
-  }
-fi
+# Sync deliverables from source if needed
+# No auto-generation or placeholder creation here. All required inputs must already exist.
 
 # Validate required inputs (fail-closed)
 missing_required=()
 require_file() {
   local rel="$1"
-  if [[ ! -f "$EFFECTIVE_RUN_DIR/$rel" ]]; then
+  if [[ ! -f "$RUN_DIR/$rel" ]]; then
     missing_required+=("$rel")
   fi
 }
@@ -128,24 +119,22 @@ if [[ ${#missing_required[@]} -gt 0 ]]; then
   exit 2
 fi
 
-# Run ASTRA master_final (required)
-echo "Running master_final..."
-if ! "$ASTRA_PY" -m astra.master_final.run --run-dir "$EFFECTIVE_RUN_DIR" 2>&1; then
-  echo "ERROR: master_final failed" >&2
-  exit 2
+if [[ "$SKIP_BUILD" != "1" ]]; then
+  # Build master.pdf, MASTER_BUNDLE.pdf, client_safe_bundle.zip
+  echo "Building master.pdf..."
+  bash "$REPO_ROOT/scripts/build_master_pdf.sh" "$RUN_DIR" "$LANG"
+  echo "Building MASTER_BUNDLE.pdf..."
+  "$PYTHON_BIN" "$REPO_ROOT/scripts/build_master_bundle.py" --run-dir "$RUN_DIR"
+  echo "Packaging client_safe_bundle.zip..."
+  bash "$REPO_ROOT/scripts/package_run_client_safe_zip.sh" "$RUN_DIR"
+else
+  echo "WARN: skipping build steps (SCOPE_FINALIZE_SKIP_BUILD=1)" >&2
 fi
-
-# Build master bundle and client-safe zip
-echo "Building master bundle..."
-bash "$REPO_ROOT/scripts/build_master_pdf.sh" "$EFFECTIVE_RUN_DIR"
-"$REPO_ROOT/.venv/bin/python3" "$REPO_ROOT/scripts/build_master_bundle.py" --run-dir "$EFFECTIVE_RUN_DIR"
-bash "$REPO_ROOT/scripts/package_run_client_safe_zip.sh" "$EFFECTIVE_RUN_DIR"
-"$REPO_ROOT/.venv/bin/python3" "$REPO_ROOT/scripts/verify_client_safe_zip.py" "$EFFECTIVE_RUN_DIR/final/client_safe_bundle.zip"
 
 missing_outputs=()
 require_output() {
   local rel="$1"
-  if [[ ! -f "$EFFECTIVE_RUN_DIR/$rel" ]]; then
+  if [[ ! -f "$RUN_DIR/$rel" ]]; then
     missing_outputs+=("$rel")
   fi
 }
@@ -157,21 +146,45 @@ if [[ ${#missing_outputs[@]} -gt 0 ]]; then
   exit 2
 fi
 
-# Generate checksums
-if command -v shasum >/dev/null 2>&1; then
-  CHECKSUM_FILES=()
-  for f in "final/master.pdf" "final/MASTER_BUNDLE.pdf" "final/client_safe_bundle.zip" \
-           "deliverables/Decision_Brief_${LANG}.pdf" "deliverables/Evidence_Appendix_${LANG}.pdf" \
-           "audit/report.pdf" "action_scope/action_scope.pdf" "proof_pack/proof_pack.pdf" "regression/regression.pdf"; do
-    if [[ -f "$EFFECTIVE_RUN_DIR/$f" ]]; then
-      CHECKSUM_FILES+=("$f")
-    fi
-  done
-  
-  if [[ ${#CHECKSUM_FILES[@]} -gt 0 ]]; then
-    ( cd "$EFFECTIVE_RUN_DIR" && shasum -a 256 "${CHECKSUM_FILES[@]}" > "$EFFECTIVE_RUN_DIR/final/checksums.sha256" )
-    echo "Checksums written to final/checksums.sha256"
-  fi
+# Verify client-safe bundle contents
+"$PYTHON_BIN" "$REPO_ROOT/scripts/verify_client_safe_zip.py" "$RUN_DIR/final/client_safe_bundle.zip" >/dev/null || {
+  echo "ERROR: bundle verify failed" >&2
+  exit 2
+}
+
+# Generate checksums for every file included in the client-safe bundle
+if [[ ! -f "$RUN_DIR/final/client_safe_bundle.zip" ]]; then
+  echo "ERROR: client_safe_bundle.zip missing" >&2
+  exit 2
 fi
 
-echo "OK FINALIZED $EFFECTIVE_RUN_DIR"
+"$PYTHON_BIN" - <<'PY' "$RUN_DIR/final/client_safe_bundle.zip" "$RUN_DIR/final/checksums.sha256"
+import hashlib
+import sys
+import zipfile
+
+zip_path = sys.argv[1]
+out_path = sys.argv[2]
+
+with zipfile.ZipFile(zip_path, "r") as zf:
+    names = [name for name in zf.namelist() if not name.endswith("/")]
+    names.sort()
+    lines = []
+    for name in names:
+        data = zf.read(name)
+        digest = hashlib.sha256(data).hexdigest()
+        lines.append(f"{digest}  {name}")
+
+with open(out_path, "w", encoding="utf-8") as f:
+    if lines:
+        f.write("\n".join(lines))
+        f.write("\n")
+PY
+
+if [[ ! -f "$RUN_DIR/final/checksums.sha256" ]]; then
+  echo "ERROR: checksums.sha256 missing" >&2
+  exit 2
+fi
+echo "Checksums written to final/checksums.sha256"
+
+echo "OK FINALIZED $RUN_DIR"

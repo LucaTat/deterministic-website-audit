@@ -58,23 +58,15 @@ fi
 
 REQ_FILES=(
   "audit/report.pdf"
+  "action_scope/action_scope.pdf"
+  "proof_pack/proof_pack.pdf"
+  "regression/regression.pdf"
   "deliverables/Decision_Brief_${LANG}.pdf"
   "deliverables/Evidence_Appendix_${LANG}.pdf"
   "deliverables/verdict.json"
   "final/master.pdf"
   "final/MASTER_BUNDLE.pdf"
 )
-
-OPT_FILES=()
-if [[ -f "$RUN_DIR/action_scope/action_scope.pdf" ]]; then
-  OPT_FILES+=("action_scope/action_scope.pdf")
-fi
-if [[ -f "$RUN_DIR/proof_pack/proof_pack.pdf" ]]; then
-  OPT_FILES+=("proof_pack/proof_pack.pdf")
-fi
-if [[ -f "$RUN_DIR/regression/regression.pdf" ]]; then
-  OPT_FILES+=("regression/regression.pdf")
-fi
 
 for rel in "${REQ_FILES[@]}"; do
   if [[ ! -f "$RUN_DIR/$rel" ]]; then
@@ -84,7 +76,7 @@ for rel in "${REQ_FILES[@]}"; do
 done
 
 ZIP_LIST="$(mktemp "$RUN_DIR/zip_list.XXXXXX")"
-printf "%s\n" "${REQ_FILES[@]}" "${OPT_FILES[@]}" | LC_ALL=C sort -u > "$ZIP_LIST"
+printf "%s\n" "${REQ_FILES[@]}" | LC_ALL=C sort -u > "$ZIP_LIST"
 
 if [[ ! -s "$ZIP_LIST" ]]; then
   echo "ERROR empty zip list"

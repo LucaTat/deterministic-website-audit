@@ -26,6 +26,11 @@ except ImportError:
 
 logger = logging.getLogger("visual_engine")
 
+try:
+    from web_vitals import measure_vitals
+except Exception:
+    measure_vitals = None
+
 class VisualVerifier:
     def __init__(self, headless: bool = True):
         self._playwright: Optional[Playwright] = None
@@ -128,6 +133,16 @@ class VisualVerifier:
                              break
             except Exception:
                 pass
+
+            # Web vitals (LCP / CLS) if available
+            if measure_vitals:
+                try:
+                    vitals = measure_vitals(page)
+                    if isinstance(vitals, dict):
+                        metrics["lcp"] = vitals.get("lcp")
+                        metrics["cls"] = vitals.get("cls")
+                except Exception:
+                    pass
 
             # Standardize rendering before snap
             page.emulate_media(color_scheme="light")

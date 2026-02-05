@@ -39,6 +39,7 @@ from proof_completeness_shadow import write_proof_completeness_shadow
 
 import logging
 import config
+from pathlib import Path
 
 # Setup logging
 logging.basicConfig(
@@ -55,6 +56,38 @@ CRITICAL_FINDING_IDS = {
     "CONVLOSS_SITE_UNREACHABLE",
 }
 CRITICAL_SEVERITIES = {"critical", "warning"}
+
+
+def _capture_visual_evidence(url: str, evidence_dir: str) -> None:
+    if os.environ.get("SCOPE_DISABLE_VISUAL") == "1":
+        return
+    try:
+        from visual_engine import VisualVerifier, PLAYWRIGHT_AVAILABLE
+    except Exception:
+        return
+
+    if not PLAYWRIGHT_AVAILABLE:
+        return
+
+    try:
+        os.makedirs(evidence_dir, exist_ok=True)
+        perf = {}
+        with VisualVerifier(headless=True) as vv:
+            desktop = vv.capture(url, Path(evidence_dir) / "home.png", device_type="desktop")
+            mobile = vv.capture(url, Path(evidence_dir) / "home_mobile.png", device_type="mobile")
+            if isinstance(desktop, dict):
+                perf["desktop"] = desktop.get("metrics", {}) or {}
+            if isinstance(mobile, dict):
+                perf["mobile"] = mobile.get("metrics", {}) or {}
+
+        if perf:
+            perf_path = os.path.join(evidence_dir, "performance.json")
+            with open(perf_path, "w", encoding="utf-8") as f:
+                json.dump(perf, f, ensure_ascii=False, indent=2)
+                f.write("\n")
+    except Exception:
+        # Visual capture is best-effort; never fail the audit for it.
+        return
 
 def classify_audit(mode: str, findings: list[dict]) -> tuple[str, str]:
     """
@@ -481,7 +514,7 @@ def get_tool_version() -> str:
     except Exception:
         return "unknown"
 
-def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
+def audit_one(url: str, lang: str, business_inputs: dict | None = None, max_pages: int | None = None) -> dict:
     lang = (lang or "en").lower().strip()
     if lang not in ("en", "ro"):
         lang = "en"
@@ -575,7 +608,7 @@ def audit_one(url: str, lang: str, business_inputs: dict | None = None) -> dict:
     try:
         html, headers = fetch_html(u)
         try:
-            crawl_payload = crawl_site(u, analysis_mode=analysis_mode)
+            crawl_payload = crawl_site(u, analysis_mode=analysis_mode, max_pages=max_pages)
         except Exception as crawl_exc:
             crawl_payload = {
                 "analysis_mode": analysis_mode,
@@ -875,6 +908,7 @@ def main():
         if result.get("mode") == "ok":
             evidence_dir = os.path.join(out_folder, "evidence")
             save_html_evidence(result.get("html", ""), evidence_dir, "home.html")
+            _capture_visual_evidence(url, evidence_dir)
 
         pdf_path = os.path.join(out_folder, f"audit_{lang}.pdf")
         json_path = os.path.join(out_folder, f"audit_{lang}.json")

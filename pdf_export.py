@@ -166,6 +166,7 @@ def _build_skills_section(signals: dict, lang: str) -> list[Flowable]:
     h_tech = "Technology Stack Detected" if lang == "en" else "Tehnologii Detectate"
     h_a11y = "Accessibility Audit" if lang == "en" else "Audit Accesibilitate"
     h_content = "Content Quality Analysis" if lang == "en" else "Analiza Calității Conținutului"
+    h_security = "Security & Trust Signals" if lang == "en" else "Semnale de securitate și încredere"
 
     # 1. Tech Stack
     tech = signals.get("tech_stack", {})
@@ -219,6 +220,14 @@ def _build_skills_section(signals: dict, lang: str) -> list[Flowable]:
         
         ratio = quality.get("you_we_ratio", "N/A")
         story.append(Paragraph(f"Client-Focus Ratio (You:We): {ratio}", styles["BodyText"]))
+        story.append(Spacer(1, 6))
+
+    # 4. Security & Trust
+    security_issues = signals.get("security_issues", []) or []
+    if security_issues:
+        story.extend(_section_heading(h_security, styles))
+        for issue in security_issues[:6]:
+            story.append(Paragraph(f"• {issue}", styles["BodyText"]))
         story.append(Spacer(1, 6))
 
     return story
@@ -1270,14 +1279,32 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     # Desktop Data
     d_metrics = metrics.get("desktop", {})
     d_load = d_metrics.get("load_time_ms")
-    d_load_txt = f"{d_load/1000:.1f}s Load" if d_load else "N/A"
+    d_lcp = d_metrics.get("lcp")
+    d_cls = d_metrics.get("cls")
+    d_load_txt = f"{d_load/1000:.1f}s Load" if d_load else "Load N/A"
     d_color = "#16a34a" if d_load and d_load < 2500 else ("#dc2626" if d_load and d_load > 4000 else "#ca8a04")
     
     # Mobile Data
     m_metrics = metrics.get("mobile", {})
     m_load = m_metrics.get("load_time_ms")
-    m_load_txt = f"{m_load/1000:.1f}s Load" if m_load else "N/A"
+    m_lcp = m_metrics.get("lcp")
+    m_cls = m_metrics.get("cls")
+    m_load_txt = f"{m_load/1000:.1f}s Load" if m_load else "Load N/A"
     m_color = "#16a34a" if m_load and m_load < 2500 else ("#dc2626" if m_load and m_load > 4000 else "#ca8a04")
+
+    def _perf_detail(load_txt: str, lcp, cls) -> str:
+        lines = [load_txt]
+        if lcp is not None:
+            try:
+                lines.append(f"LCP {float(lcp)/1000:.1f}s")
+            except Exception:
+                pass
+        if cls is not None:
+            try:
+                lines.append(f"CLS {float(cls):.2f}")
+            except Exception:
+                pass
+        return "<br/>".join(lines)
 
     # Cells
     cell_d_img = _make_img(desktop_img_path, 80*mm) if desktop_img_path else Paragraph("No Desktop Image", styles["Small"])
@@ -1311,8 +1338,8 @@ def export_audit_pdf(audit_result: dict, out_path: str, tool_version: str = "unk
     data = [
         [Paragraph("Desktop View (1280px)", styles["Small"]), Paragraph("Mobile View (iPhone)", styles["Small"])],
         [cell_d_img, cell_m_img],
-        [Paragraph(f'<font color="{d_color}"><b>{d_load_txt}</b></font>', styles["Body"]), 
-         Paragraph(f'<font color="{m_color}"><b>{m_load_txt}</b></font>', styles["Body"])]
+        [Paragraph(f'<font color="{d_color}"><b>{_perf_detail(d_load_txt, d_lcp, d_cls)}</b></font>', styles["Body"]), 
+         Paragraph(f'<font color="{m_color}"><b>{_perf_detail(m_load_txt, m_lcp, m_cls)}</b></font>', styles["Body"])]
     ]
     
     t = Table(data, colWidths=[85*mm, 85*mm])

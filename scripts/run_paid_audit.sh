@@ -65,34 +65,8 @@ fi
 
 mkdir -p "$RUN_DIR/deliverables"
 
-BRIEF_A="$RUN_DIR/deliverables/Decision_Brief_${LANG}.pdf"
-BRIEF_B="$RUN_DIR/astra/deliverables/Decision_Brief_${LANG}.pdf"
-EVID_A="$RUN_DIR/deliverables/Evidence_Appendix_${LANG}.pdf"
-EVID_B="$RUN_DIR/astra/deliverables/Evidence_Appendix_${LANG}.pdf"
-VERDICT_A="$RUN_DIR/deliverables/verdict.json"
-VERDICT_B="$RUN_DIR/astra/deliverables/verdict.json"
-FINAL_DECISION="$RUN_DIR/final_decision/ASTRA_Traffic_Readiness_Decision_${LANG}.pdf"
-
-if [[ ! -f "$BRIEF_A" && -f "$BRIEF_B" ]]; then
-  cp -f "$BRIEF_B" "$BRIEF_A"
-fi
-if [[ ! -f "$EVID_A" && -f "$EVID_B" ]]; then
-  cp -f "$EVID_B" "$EVID_A"
-fi
-if [[ ! -f "$VERDICT_A" && -f "$VERDICT_B" ]]; then
-  cp -f "$VERDICT_B" "$VERDICT_A"
-fi
-
-if [[ ! -f "$BRIEF_A" ]]; then
-  echo "FATAL: missing Decision Brief" >&2
-  exit 1
-fi
-if [[ ! -f "$EVID_A" ]]; then
-  echo "FATAL: missing Evidence Appendix" >&2
-  exit 1
-fi
-if [[ ! -f "$VERDICT_A" ]]; then
-  echo "FATAL: missing verdict.json" >&2
+if ! .venv/bin/python3 scripts/generate_report_from_verdict.py "$RUN_DIR" --lang "$LANG" >/dev/null; then
+  echo "FATAL: deliverables generation failed" >&2
   exit 1
 fi
 
