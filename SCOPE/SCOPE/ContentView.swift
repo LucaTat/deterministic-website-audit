@@ -3936,7 +3936,7 @@ struct ContentView: View {
             return nil
         }
         let runId = json["baseline_run_id"] as? String
-        let runHash = json["baseline_run_hash"] as? String
+        let runHash = (json["baseline_run_ref"] as? String) ?? (json["baseline_run_hash"] as? String)
         let label = json["baseline_label"] as? String
         if (runId ?? "").isEmpty && (runHash ?? "").isEmpty {
             return nil
@@ -3958,9 +3958,10 @@ struct ContentView: View {
             guard entry.lang.lowercased() == targetLang else { return false }
             guard targetDomain != nil, domainFromURLString(entry.url) == targetDomain else { return false }
             guard let runDir = runRootPath(for: entry) else { return false }
+            guard isSuccessStatus(entry.status) else { return false }
             if isNotAuditable(runDir: runDir) { return false }
             let lifecycle = lifecycleStatus(runDir: runDir, lang: entry.lang)
-            return lifecycle.audit && lifecycle.plan
+            return lifecycle.audit
         }.sorted { $0.timestamp > $1.timestamp }
     }
 
@@ -3980,10 +3981,11 @@ struct ContentView: View {
             return "Run directory missing."
         }
         let baselineRunDir = runRootPath(for: baseline)
-        let baselineHash = baselineRunDir.map { URL(fileURLWithPath: $0).lastPathComponent } ?? baseline.id
+        let baselineRef = baselineRunDir.map { URL(fileURLWithPath: $0).lastPathComponent } ?? baseline.id
         let payload: [String: Any] = [
             "baseline_run_id": baseline.id,
-            "baseline_run_hash": baselineHash,
+            "baseline_run_ref": baselineRef,
+            "baseline_run_hash": baselineRef,
             "baseline_label": baselineLabel(for: baseline),
             "baseline_url": baseline.url,
             "baseline_lang": baseline.lang.uppercased(),
