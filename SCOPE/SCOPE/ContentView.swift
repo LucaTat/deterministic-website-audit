@@ -3953,16 +3953,21 @@ struct ContentView: View {
         let targetDomain = domainFromURLString(target.url)
         let targetLang = target.lang.lowercased()
         let runs = campaignScopedRunHistory()
-        return runs.filter { entry in
-            guard entry.id != target.id else { return false }
-            guard entry.lang.lowercased() == targetLang else { return false }
-            guard targetDomain != nil, domainFromURLString(entry.url) == targetDomain else { return false }
-            guard let runDir = runRootPath(for: entry) else { return false }
-            guard isSuccessStatus(entry.status) else { return false }
-            if isNotAuditable(runDir: runDir) { return false }
+        let candidates: [(entry: RunEntry, finalOk: Bool)] = runs.compactMap { entry in
+            guard entry.id != target.id else { return nil }
+            guard entry.lang.lowercased() == targetLang else { return nil }
+            guard targetDomain != nil, domainFromURLString(entry.url) == targetDomain else { return nil }
+            guard let runDir = runRootPath(for: entry) else { return nil }
+            guard isSuccessStatus(entry.status) else { return nil }
+            if isNotAuditable(runDir: runDir) { return nil }
             let lifecycle = lifecycleStatus(runDir: runDir, lang: entry.lang)
-            return lifecycle.audit
-        }.sorted { $0.timestamp > $1.timestamp }
+            guard lifecycle.audit else { return nil }
+            return (entry: entry, finalOk: finalArtifactsExist(runDir: runDir))
+        }
+        return candidates.sorted {
+            if $0.finalOk != $1.finalOk { return $0.finalOk && !$1.finalOk }
+            return $0.entry.timestamp > $1.entry.timestamp
+        }.map { $0.entry }
     }
 
     private func openBaselinePicker(for entry: RunEntry) {
