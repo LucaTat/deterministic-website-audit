@@ -3370,28 +3370,27 @@ struct ContentView: View {
 
                     let artifacts = self.resolveRunArtifacts(runDir: runDir, lang: spec.lang)
                     let verdictPath = artifacts.verdictPath ?? ""
-                    let verdictExists = !verdictPath.isEmpty
                     let decisionBriefPath = artifacts.decisionBriefPath
                     let scopeLogPath = (runDir as NSString).appendingPathComponent("scope_run.log")
                     let scopeLogExists = FileManager.default.fileExists(atPath: scopeLogPath)
 
-                    let finalOk = self.finalArtifactsExist(runDir: runDir)
+                    let bundleOk = self.finalArtifactsExist(runDir: runDir)
                     let verdictValue = self.readVerdictValue(runDir: runDir)
+                    let verdictExists = verdictValue != nil
                     let isNotAuditable = verdictValue?.uppercased() == "NOT_AUDITABLE"
                     var status: String
                     if wasCanceled {
                         status = "Canceled"
                     } else if wasTimedOut {
                         status = "FAILED"
-                    } else if code == 0 {
-                        status = masterFinalExit == 0 && verdictExists ? "SUCCESS" : "FAILED"
                     } else if verdictExists {
-                        status = "WARNING"
+                        if bundleOk {
+                            status = isNotAuditable ? "NOT AUDITABLE" : "SUCCESS"
+                        } else {
+                            status = "FAILED"
+                        }
                     } else {
                         status = "FAILED"
-                    }
-                    if finalOk {
-                        status = isNotAuditable ? "NOT AUDITABLE" : "SUCCESS"
                     }
 
                     let deliverablesDir = delivery.runFolderPath ?? delivery.deliveredDir ?? ""
