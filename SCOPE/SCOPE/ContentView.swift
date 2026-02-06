@@ -1029,6 +1029,18 @@ struct ContentView: View {
                                     }
                                     if metricsExpanded.contains(entry.id), let metrics = runMetrics(for: entry) {
                                         VStack(alignment: .leading, spacing: 2) {
+                                            if let runDirPath = runRootPath(for: entry) {
+                                                let lifecycle = lifecycleStatus(runDir: runDirPath, lang: entry.lang)
+                                                Text("Lifecycle")
+                                                    .font(.system(.caption, design: .monospaced))
+                                                    .foregroundStyle(.primary)
+                                                Text("Audit \(lifecycle.audit ? "✅" : "❌") · Plan \(lifecycle.plan ? "✅" : "❌") · Verify \(lifecycle.verify ? "✅" : "❌") · Guard \(lifecycle.guardrail ? "✅" : "❌")")
+                                                    .font(.system(.caption, design: .monospaced))
+                                                    .foregroundStyle(.primary)
+                                                Text("Bundle \(lifecycle.bundle ? "✅" : "❌") · Baseline \(lifecycle.baselineLinked ? "linked" : "missing")")
+                                                    .font(.system(.caption, design: .monospaced))
+                                                    .foregroundStyle(.secondary)
+                                            }
                                             Text("Metrics")
                                                 .font(.system(.caption, design: .monospaced))
                                                 .foregroundStyle(.primary)
@@ -3218,13 +3230,10 @@ struct ContentView: View {
                         )
                     }
 
-                    let deliverablesPath = (runDir as NSString).appendingPathComponent("deliverables")
-                    let verdictPath = deliverablesPath.isEmpty ? "" : (deliverablesPath as NSString).appendingPathComponent("verdict.json")
-                    let verdictExists = !verdictPath.isEmpty && FileManager.default.fileExists(atPath: verdictPath)
-                    let briefName = (spec.lang.lowercased() == "en") ? "Decision_Brief_EN.pdf" : "Decision_Brief_RO.pdf"
-                    let appendixName = (spec.lang.lowercased() == "en") ? "Evidence_Appendix_EN.pdf" : "Evidence_Appendix_RO.pdf"
-                    let decisionBriefPath = deliverablesPath.isEmpty ? nil : (deliverablesPath as NSString).appendingPathComponent(briefName)
-                        _ = deliverablesPath.isEmpty ? nil : (deliverablesPath as NSString).appendingPathComponent(appendixName)
+                    let artifacts = self.resolveRunArtifacts(runDir: runDir, lang: spec.lang)
+                    let verdictPath = artifacts.verdictPath ?? ""
+                    let verdictExists = !verdictPath.isEmpty
+                    let decisionBriefPath = artifacts.decisionBriefPath
                     let scopeLogPath = (runDir as NSString).appendingPathComponent("scope_run.log")
                     let scopeLogExists = FileManager.default.fileExists(atPath: scopeLogPath)
 
@@ -3623,6 +3632,198 @@ struct ContentView: View {
         return out
     }
 
+    private struct RunArtifacts {
+        let runDir: String
+        let deliverablesDir: String?
+        let verdictPath: String?
+        let auditReportPath: String?
+        let decisionBriefPath: String?
+        let evidenceAppendixPath: String?
+        let finalRoot: String?
+    }
+
+    private struct BaselineLink {
+        let runId: String?
+        let runHash: String?
+        let label: String?
+    }
+
+    private struct LifecycleStatus {
+        let audit: Bool
+        let plan: Bool
+        let verify: Bool
+        let guardrail: Bool
+        let bundle: Bool
+        let baselineLinked: Bool
+    }
+
+    private func runRootCandidates(_ runDir: String) -> [String] {
+        let base = runDir
+        let astraSubdir = (runDir as NSString).appendingPathComponent("astra")
+        if base == astraSubdir {
+            return [base]
+        }
+        return [base, astraSubdir]
+    }
+
+    private func firstExistingPath(_ candidates: [String]) -> String? {
+        let fm = FileManager.default
+        for path in candidates where fm.fileExists(atPath: path) {
+            return path
+        }
+        return nil
+    }
+
+    private func artifactExists(runDir: String, rel: String) -> Bool {
+        let fm = FileManager.default
+        for root in runRootCandidates(runDir) {
+            let candidate = (root as NSString).appendingPathComponent(rel)
+            if fm.fileExists(atPath: candidate) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func resolveDeliverablesDir(runDir: String) -> String? {
+        let fm = FileManager.default
+        for root in runRootCandidates(runDir) {
+            let candidate = (root as NSString).appendingPathComponent("deliverables")
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: candidate, isDirectory: &isDir), isDir.boolValue {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private func resolveVerdictPath(runDir: String) -> String? {
+        let roots = runRootCandidates(runDir)
+        for root in roots {
+            let candidates = [
+                (root as NSString).appendingPathComponent("deliverables/verdict.json"),
+                (root as NSString).appendingPathComponent("audit/verdict.json"),
+                (root as NSString).appendingPathComponent("verdict.json"),
+            ]
+            if let found = firstExistingPath(candidates) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    private func resolveAuditReportPath(runDir: String) -> String? {
+        let roots = runRootCandidates(runDir)
+        for root in roots {
+            let candidates = [
+                (root as NSString).appendingPathComponent("audit/report.pdf"),
+                (root as NSString).appendingPathComponent("deliverables/report.pdf"),
+            ]
+            if let found = firstExistingPath(candidates) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    private func resolveDecisionBriefPath(runDir: String, lang: String) -> String? {
+        let fm = FileManager.default
+        let langUpper = lang.uppercased() == "EN" ? "EN" : "RO"
+        guard let deliverablesDir = resolveDeliverablesDir(runDir: runDir) else { return nil }
+        let canonical = (deliverablesDir as NSString).appendingPathComponent("Decision_Brief_\(langUpper).pdf")
+        if fm.fileExists(atPath: canonical) { return canonical }
+        let prefix = "Decision Brief - "
+        let suffix = " - \(langUpper).pdf"
+        if let entries = try? fm.contentsOfDirectory(atPath: deliverablesDir) {
+            let matches = entries.filter { $0.hasPrefix(prefix) && $0.hasSuffix(suffix) }.sorted()
+            if let first = matches.first {
+                return (deliverablesDir as NSString).appendingPathComponent(first)
+            }
+        }
+        return nil
+    }
+
+    private func resolveEvidenceAppendixPath(runDir: String, lang: String) -> String? {
+        let fm = FileManager.default
+        let langUpper = lang.uppercased() == "EN" ? "EN" : "RO"
+        guard let deliverablesDir = resolveDeliverablesDir(runDir: runDir) else { return nil }
+        let canonical = (deliverablesDir as NSString).appendingPathComponent("Evidence_Appendix_\(langUpper).pdf")
+        if fm.fileExists(atPath: canonical) { return canonical }
+        let prefix = "Evidence Appendix - "
+        let suffix = " - \(langUpper).pdf"
+        if let entries = try? fm.contentsOfDirectory(atPath: deliverablesDir) {
+            let matches = entries.filter { $0.hasPrefix(prefix) && $0.hasSuffix(suffix) }.sorted()
+            if let first = matches.first {
+                return (deliverablesDir as NSString).appendingPathComponent(first)
+            }
+        }
+        return nil
+    }
+
+    private func resolveFinalRoot(runDir: String) -> String? {
+        let fm = FileManager.default
+        for root in runRootCandidates(runDir) {
+            let allExist = requiredFinalArtifacts().allSatisfy { rel in
+                fm.fileExists(atPath: (root as NSString).appendingPathComponent(rel))
+            }
+            if allExist {
+                return root
+            }
+        }
+        return nil
+    }
+
+    private func resolveRunArtifacts(runDir: String, lang: String) -> RunArtifacts {
+        return RunArtifacts(
+            runDir: runDir,
+            deliverablesDir: resolveDeliverablesDir(runDir: runDir),
+            verdictPath: resolveVerdictPath(runDir: runDir),
+            auditReportPath: resolveAuditReportPath(runDir: runDir),
+            decisionBriefPath: resolveDecisionBriefPath(runDir: runDir, lang: lang),
+            evidenceAppendixPath: resolveEvidenceAppendixPath(runDir: runDir, lang: lang),
+            finalRoot: resolveFinalRoot(runDir: runDir)
+        )
+    }
+
+    private func readBaselineLink(runDir: String) -> BaselineLink? {
+        let candidates = runRootCandidates(runDir).flatMap { root in
+            [
+                (root as NSString).appendingPathComponent("baseline.json"),
+                (root as NSString).appendingPathComponent("final/baseline.json"),
+            ]
+        }
+        guard let path = firstExistingPath(candidates) else { return nil }
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        let runId = json["baseline_run_id"] as? String
+        let runHash = json["baseline_run_hash"] as? String
+        let label = json["baseline_label"] as? String
+        if (runId ?? "").isEmpty && (runHash ?? "").isEmpty {
+            return nil
+        }
+        return BaselineLink(runId: runId, runHash: runHash, label: label)
+    }
+
+    private func lifecycleStatus(runDir: String, lang: String) -> LifecycleStatus {
+        let artifacts = resolveRunArtifacts(runDir: runDir, lang: lang)
+        let auditOk = artifacts.auditReportPath != nil && artifacts.verdictPath != nil
+        let planOk = artifactExists(runDir: runDir, rel: "action_scope/action_scope.pdf")
+        let verifyOk = artifactExists(runDir: runDir, rel: "proof_pack/proof_pack.pdf")
+        let guardOk = artifactExists(runDir: runDir, rel: "regression/regression.pdf")
+        let bundleOk = artifacts.finalRoot != nil
+        let baselineLinked = readBaselineLink(runDir: runDir) != nil
+        return LifecycleStatus(
+            audit: auditOk,
+            plan: planOk,
+            verify: verifyOk,
+            guardrail: guardOk,
+            bundle: bundleOk,
+            baselineLinked: baselineLinked
+        )
+    }
+
     private func requiredFinalArtifacts() -> [String] {
         return [
             "final/master.pdf",
@@ -3633,56 +3834,38 @@ struct ContentView: View {
     }
 
     private func finalArtifactsExist(runDir: String) -> Bool {
-        let fm = FileManager.default
-        return requiredFinalArtifacts().allSatisfy { rel in
-            fm.fileExists(atPath: (runDir as NSString).appendingPathComponent(rel))
-        }
+        return resolveFinalRoot(runDir: runDir) != nil
     }
 
     private func readVerdictValue(runDir: String) -> String? {
-        let fm = FileManager.default
-        let candidates = [
-            (runDir as NSString).appendingPathComponent("deliverables/verdict.json"),
-            (runDir as NSString).appendingPathComponent("audit/verdict.json"),
-            (runDir as NSString).appendingPathComponent("verdict.json"),
-        ]
-        for path in candidates where fm.fileExists(atPath: path) {
-            if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let verdict = json["verdict"] as? String {
-                return verdict
-            }
+        guard let verdictPath = resolveVerdictPath(runDir: runDir) else { return nil }
+        if let data = try? Data(contentsOf: URL(fileURLWithPath: verdictPath)),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let verdict = json["verdict"] as? String {
+            return verdict
         }
         return nil
     }
 
     private func ensureFinalArtifacts(runDir: URL, lang: String, repoRoot: String, env: [String: String]) -> (Bool, String?) {
-        let fm = FileManager.default
-        
         // Support multiple folder structures (matching shell script detection):
         // 1. runDir/astra/verdict.json (campaign folder with astra/ subfolder)
         // 2. runDir/astra/audit/verdict.json (alternative location)
         // 3. runDir/audit/verdict.json (direct Astra run)
         // 4. runDir/verdict.json (legacy/simple format)
-        let astraSubdir = runDir.appendingPathComponent("astra")
-        let hasVerdict =
-              fm.fileExists(atPath: astraSubdir.appendingPathComponent("verdict.json").path) ||
-              fm.fileExists(atPath: astraSubdir.appendingPathComponent("audit/verdict.json").path) ||
-              fm.fileExists(atPath: runDir.appendingPathComponent("audit/verdict.json").path) ||
-              fm.fileExists(atPath: runDir.appendingPathComponent("verdict.json").path) ||
-              fm.fileExists(atPath: runDir.appendingPathComponent("deliverables/verdict.json").path)
-          guard hasVerdict else {
-              return (false, "No verdict.json found")
-          }
+        let hasVerdict = resolveVerdictPath(runDir: runDir.path) != nil
+        guard hasVerdict else {
+            return (false, "No verdict.json found")
+        }
         let astraRoot = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Desktop")
             .appendingPathComponent("astra")
             .path
         let decisionBriefRel = "deliverables/Decision_Brief_\(lang.uppercased() == "EN" ? "EN" : "RO").pdf"
         let appendixRel = "deliverables/Evidence_Appendix_\(lang.uppercased() == "EN" ? "EN" : "RO").pdf"
-        let briefPath = runDir.appendingPathComponent(decisionBriefRel).path
-        let appendixPath = runDir.appendingPathComponent(appendixRel).path
-        if !fm.fileExists(atPath: briefPath) || !fm.fileExists(atPath: appendixPath) {
+        let resolvedBrief = resolveDecisionBriefPath(runDir: runDir.path, lang: lang)
+        let resolvedAppendix = resolveEvidenceAppendixPath(runDir: runDir.path, lang: lang)
+        if resolvedBrief == nil || resolvedAppendix == nil {
             let genScript = (repoRoot as NSString).appendingPathComponent("scripts/generate_report_from_verdict.py")
             let genResult = runToolProcess(
                 executable: "/usr/bin/env",
@@ -3710,11 +3893,8 @@ struct ContentView: View {
             return (false, msg)
         }
 
-        for rel in requiredFinalArtifacts() {
-            let p = runDir.appendingPathComponent(rel).path
-            if !fm.fileExists(atPath: p) {
-                return (false, "missing required: \(rel)")
-            }
+        guard resolveFinalRoot(runDir: runDir.path) != nil else {
+            return (false, "missing required: final artifacts")
         }
 
         return (true, nil)
