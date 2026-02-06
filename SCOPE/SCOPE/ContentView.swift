@@ -926,41 +926,45 @@ struct ContentView: View {
                                                 }
                                             }
 
-                                            let toolDisabled = isRunning || exportIsRunning || toolRunning
-                                            let tool2OutputPath = toolPDFPath(for: entry, tool: "tool2") ?? ""
-                                            let tool2Exists = !tool2OutputPath.isEmpty && FileManager.default.fileExists(atPath: tool2OutputPath)
-                                            let tool3OutputPath = toolPDFPath(for: entry, tool: "tool3") ?? ""
-                                            let tool3Exists = !tool3OutputPath.isEmpty && FileManager.default.fileExists(atPath: tool3OutputPath)
+                                        let toolDisabled = isRunning || exportIsRunning || toolRunning
+                                        let lifecycle = runDirForExport.isEmpty ? nil : lifecycleStatus(runDir: runDirForExport, lang: entry.lang)
+                                        let notAuditable = runDirForExport.isEmpty ? false : isNotAuditable(runDir: runDirForExport)
+                                        let tool2Allowed = (lifecycle?.audit ?? false) && !notAuditable
+                                        let tool3Allowed = (lifecycle?.plan ?? false) && (lifecycle?.baselineLinked ?? false) && !notAuditable
+                                        let tool4Allowed = (lifecycle?.verify ?? false) && (lifecycle?.baselineLinked ?? false) && !notAuditable
 
-                                            Button("Run Tool 2 — Action Scope") {
-                                                guard let repoRoot = resolvedRepoRoot() else {
-                                                    toolStatus = "Export failed: Tool 2"
-                                                    return
+                                        Button("Run Tool 2 — Action Scope") {
+                                            guard let repoRoot = resolvedRepoRoot() else {
+                                                toolStatus = "Export failed: Tool 2"
+                                                return
                                                 }
                                                 let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool2_action_scope.sh")
-                                                runTool(stepName: "Tool 2", scriptPath: scriptPath, entry: entry, expectedFolder: "action_scope")
-                                            }
-                                            .disabled(toolDisabled)
+                                            runTool(stepName: "Tool 2", scriptPath: scriptPath, entry: entry, expectedFolder: "action_scope")
+                                        }
+                                        .disabled(toolDisabled || !tool2Allowed)
+                                        .help(tool2Allowed ? "Run Tool 2 — Action Scope" : (notAuditable ? "Tool 2 disabled for NOT AUDITABLE runs." : "Requires audit output (Tool 1)."))
 
-                                            Button("Run Tool 3 — Implementation Proof") {
-                                                guard let repoRoot = resolvedRepoRoot() else {
-                                                    toolStatus = "Export failed: Tool 3"
-                                                    return
+                                        Button("Run Tool 3 — Implementation Proof") {
+                                            guard let repoRoot = resolvedRepoRoot() else {
+                                                toolStatus = "Export failed: Tool 3"
+                                                return
                                                 }
                                                 let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool3_proof_pack.sh")
-                                                runTool(stepName: "Tool 3", scriptPath: scriptPath, entry: entry, expectedFolder: "proof_pack")
-                                            }
-                                            .disabled(toolDisabled || !tool2Exists)
+                                            runTool(stepName: "Tool 3", scriptPath: scriptPath, entry: entry, expectedFolder: "proof_pack")
+                                        }
+                                        .disabled(toolDisabled || !tool3Allowed)
+                                        .help(tool3Allowed ? "Run Tool 3 — Implementation Proof" : (notAuditable ? "Tool 3 disabled for NOT AUDITABLE runs." : ((lifecycle?.plan ?? false) ? "Select baseline to run Tool 3." : "Run Tool 2 first.")))
 
-                                            Button("Run Tool 4 — Regression Guard") {
-                                                guard let repoRoot = resolvedRepoRoot() else {
-                                                    toolStatus = "Export failed: Tool 4"
-                                                    return
+                                        Button("Run Tool 4 — Regression Guard") {
+                                            guard let repoRoot = resolvedRepoRoot() else {
+                                                toolStatus = "Export failed: Tool 4"
+                                                return
                                                 }
                                                 let scriptPath = (repoRoot as NSString).appendingPathComponent("scripts/run_tool4_regression.sh")
-                                                runTool(stepName: "Tool 4", scriptPath: scriptPath, entry: entry, expectedFolder: "regression")
-                                            }
-                                            .disabled(toolDisabled || !tool3Exists)
+                                            runTool(stepName: "Tool 4", scriptPath: scriptPath, entry: entry, expectedFolder: "regression")
+                                        }
+                                        .disabled(toolDisabled || !tool4Allowed)
+                                        .help(tool4Allowed ? "Run Tool 4 — Regression Guard" : (notAuditable ? "Tool 4 disabled for NOT AUDITABLE runs." : ((lifecycle?.verify ?? false) ? "Select baseline to run Tool 4." : "Run Tool 3 first.")))
 
                                             let tool2Path = toolPDFPath(for: entry, tool: "tool2") ?? ""
                                             let tool2Disabled = toolDisabled || tool2Path.isEmpty || !FileManager.default.fileExists(atPath: tool2Path)
@@ -1000,6 +1004,12 @@ struct ContentView: View {
                                         Text(exportStatusLabel(for: entry))
                                             .font(.footnote)
                                             .foregroundColor(.secondary)
+                                        if let runDirPath = runRootPath(for: entry),
+                                           let suggestion = nextActionSuggestion(runDir: runDirPath, lang: entry.lang) {
+                                            Text(suggestion)
+                                                .font(.footnote)
+                                                .foregroundColor(.secondary)
+                                        }
                                         let key = entry.id
                                         Button(metricsExpanded.contains(key) ? "Metrics ▾" : "Metrics ▸") {
                                             if metricsExpanded.contains(key) {
@@ -2206,10 +2216,11 @@ struct ContentView: View {
                                     }
 
                                     let toolDisabled = isRunning || exportIsRunning || toolRunning
-                                    let tool2OutputPath = toolPDFPath(for: entry, tool: "tool2") ?? ""
-                                    let tool2Exists = !tool2OutputPath.isEmpty && FileManager.default.fileExists(atPath: tool2OutputPath)
-                                    let tool3OutputPath = toolPDFPath(for: entry, tool: "tool3") ?? ""
-                                    let tool3Exists = !tool3OutputPath.isEmpty && FileManager.default.fileExists(atPath: tool3OutputPath)
+                                    let lifecycle = runDirForExport.isEmpty ? nil : lifecycleStatus(runDir: runDirForExport, lang: entry.lang)
+                                    let notAuditable = runDirForExport.isEmpty ? false : isNotAuditable(runDir: runDirForExport)
+                                    let tool2Allowed = (lifecycle?.audit ?? false) && !notAuditable
+                                    let tool3Allowed = (lifecycle?.plan ?? false) && (lifecycle?.baselineLinked ?? false) && !notAuditable
+                                    let tool4Allowed = (lifecycle?.verify ?? false) && (lifecycle?.baselineLinked ?? false) && !notAuditable
                                     Button("Run Tool 2 — Action Scope") {
                                         guard let repoRoot = resolvedRepoRoot() else {
                                             toolStatus = "Export failed: Tool 2"
@@ -2219,8 +2230,9 @@ struct ContentView: View {
                                         runTool(stepName: "Tool 2", scriptPath: scriptPath, entry: entry, expectedFolder: "action_scope")
                                     }
                                     .buttonStyle(.bordered)
-                                    .disabled(toolDisabled)
-                                    .opacity(buttonOpacity(disabled: toolDisabled))
+                                    .disabled(toolDisabled || !tool2Allowed)
+                                    .opacity(buttonOpacity(disabled: toolDisabled || !tool2Allowed))
+                                    .help(tool2Allowed ? "Run Tool 2 — Action Scope" : (notAuditable ? "Tool 2 disabled for NOT AUDITABLE runs." : "Requires audit output (Tool 1)."))
 
                                     Button("Run Tool 3 — Implementation Proof") {
                                         guard let repoRoot = resolvedRepoRoot() else {
@@ -2231,8 +2243,9 @@ struct ContentView: View {
                                         runTool(stepName: "Tool 3", scriptPath: scriptPath, entry: entry, expectedFolder: "proof_pack")
                                     }
                                     .buttonStyle(.bordered)
-                                    .disabled(toolDisabled || !tool2Exists)
-                                    .opacity(buttonOpacity(disabled: toolDisabled || !tool2Exists))
+                                    .disabled(toolDisabled || !tool3Allowed)
+                                    .opacity(buttonOpacity(disabled: toolDisabled || !tool3Allowed))
+                                    .help(tool3Allowed ? "Run Tool 3 — Implementation Proof" : (notAuditable ? "Tool 3 disabled for NOT AUDITABLE runs." : ((lifecycle?.plan ?? false) ? "Select baseline to run Tool 3." : "Run Tool 2 first.")))
 
                                     Button("Run Tool 4 — Regression Guard") {
                                         guard let repoRoot = resolvedRepoRoot() else {
@@ -2243,8 +2256,9 @@ struct ContentView: View {
                                         runTool(stepName: "Tool 4", scriptPath: scriptPath, entry: entry, expectedFolder: "regression")
                                     }
                                     .buttonStyle(.bordered)
-                                    .disabled(toolDisabled || !tool3Exists)
-                                    .opacity(buttonOpacity(disabled: toolDisabled || !tool3Exists))
+                                    .disabled(toolDisabled || !tool4Allowed)
+                                    .opacity(buttonOpacity(disabled: toolDisabled || !tool4Allowed))
+                                    .help(tool4Allowed ? "Run Tool 4 — Regression Guard" : (notAuditable ? "Tool 4 disabled for NOT AUDITABLE runs." : ((lifecycle?.verify ?? false) ? "Select baseline to run Tool 4." : "Run Tool 3 first.")))
 
                                     let tool2Path = toolPDFPath(for: entry, tool: "tool2") ?? ""
                                     let tool2Disabled = toolDisabled || tool2Path.isEmpty || !FileManager.default.fileExists(atPath: tool2Path)
@@ -2283,6 +2297,12 @@ struct ContentView: View {
                                 Text(exportStatusLabel(for: entry))
                                     .font(.footnote)
                                     .foregroundColor(.secondary)
+                                if let runDirPath = runRootPath(for: entry),
+                                   let suggestion = nextActionSuggestion(runDir: runDirPath, lang: entry.lang) {
+                                    Text(suggestion)
+                                        .font(.footnote)
+                                        .foregroundColor(.secondary)
+                                }
                                 if toolRunID == entry.id, let status = toolStatus {
                                     Text(status)
                                         .font(.footnote)
@@ -3822,6 +3842,25 @@ struct ContentView: View {
             bundle: bundleOk,
             baselineLinked: baselineLinked
         )
+    }
+
+    private func isNotAuditable(runDir: String) -> Bool {
+        guard let verdict = readVerdictValue(runDir: runDir) else { return false }
+        return verdict.uppercased() == "NOT_AUDITABLE"
+    }
+
+    private func nextActionSuggestion(runDir: String, lang: String) -> String? {
+        let lifecycle = lifecycleStatus(runDir: runDir, lang: lang)
+        if lifecycle.bundle { return "Complete ✓" }
+        if isNotAuditable(runDir: runDir) {
+            return "Next: Deliver (PDF)"
+        }
+        if !lifecycle.audit { return "Next: Run Audit (Tool 1)" }
+        if !lifecycle.plan { return "Next: Run Tool 2 — Plan" }
+        if !lifecycle.baselineLinked { return "Next: Select baseline to run Tool 3/4" }
+        if !lifecycle.verify { return "Next: Run Tool 3 — Verify" }
+        if !lifecycle.guardrail { return "Next: Run Tool 4 — Guard" }
+        return "Next: Deliver (PDF)"
     }
 
     private func requiredFinalArtifacts() -> [String] {
