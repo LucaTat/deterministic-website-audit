@@ -3369,29 +3369,27 @@ struct ContentView: View {
                     }
 
                     let artifacts = self.resolveRunArtifacts(runDir: runDir, lang: spec.lang)
-                    let verdictPath = artifacts.verdictPath ?? ""
-                    let verdictExists = !verdictPath.isEmpty
                     let decisionBriefPath = artifacts.decisionBriefPath
                     let scopeLogPath = (runDir as NSString).appendingPathComponent("scope_run.log")
                     let scopeLogExists = FileManager.default.fileExists(atPath: scopeLogPath)
 
-                    let finalOk = self.finalArtifactsExist(runDir: runDir)
+                    let bundleOk = self.finalArtifactsExist(runDir: runDir)
                     let verdictValue = self.readVerdictValue(runDir: runDir)
+                    let verdictExists = verdictValue != nil
                     let isNotAuditable = verdictValue?.uppercased() == "NOT_AUDITABLE"
                     var status: String
                     if wasCanceled {
                         status = "Canceled"
                     } else if wasTimedOut {
                         status = "FAILED"
-                    } else if code == 0 {
-                        status = masterFinalExit == 0 && verdictExists ? "SUCCESS" : "FAILED"
                     } else if verdictExists {
-                        status = "WARNING"
+                        if isNotAuditable {
+                            status = bundleOk ? "NOT AUDITABLE" : "NOT AUDITABLE (bundle missing)"
+                        } else {
+                            status = bundleOk ? "SUCCESS" : "SUCCESS (bundle missing)"
+                        }
                     } else {
                         status = "FAILED"
-                    }
-                    if finalOk {
-                        status = isNotAuditable ? "NOT AUDITABLE" : "SUCCESS"
                     }
 
                     let deliverablesDir = delivery.runFolderPath ?? delivery.deliveredDir ?? ""
@@ -3459,16 +3457,15 @@ struct ContentView: View {
                         self.currentTask = nil
                         self.lastExitCode = code
 
-                        if finalOk {
+                        if status == "FAILED" {
+                            sawError = true
+                            self.runState = .error
+                        } else if status == "Canceled" {
+                            sawError = false
+                            self.runState = .idle
+                        } else {
                             sawError = false
                             self.runState = .done
-                        } else {
-                            if status == "FAILED" {
-                                sawError = true
-                                self.runState = .error
-                            } else if status == "SUCCESS" {
-                                self.runState = .done
-                            }
                         }
 
                         self.lastRunDomain = delivery.domain ?? self.domainFromURLString(spec.url)
@@ -3514,20 +3511,20 @@ struct ContentView: View {
                         self.campaignsPanel = campaignsSnapshot
 
                         self.lastRunLang = spec.lang
-                        if finalOk, isNotAuditable {
-                            self.lastRunStatus = "NOT AUDITABLE"
-                        } else {
-                            self.lastRunStatus = finalOk ? "SUCCESS" : status
-                        }
+                        self.lastRunStatus = status
                         if let auditCopyError {
-                            self.lastRunStatus = "FAILED"
-                            self.runState = .error
+                            if !verdictExists {
+                                self.lastRunStatus = "FAILED"
+                                self.runState = .error
+                            }
                             self.readyToSend = false
                             self.logOutput += "\n\(auditCopyError)"
                         }
                         if let masterFinalError {
-                            self.lastRunStatus = "FAILED"
-                            self.runState = .error
+                            if !verdictExists {
+                                self.lastRunStatus = "FAILED"
+                                self.runState = .error
+                            }
                             self.readyToSend = false
                             self.logOutput += "\nERROR: master_final failed\n\(masterFinalError)"
                         }
@@ -3540,7 +3537,7 @@ struct ContentView: View {
                             if self.result == nil { self.result = ScopeResult() }
                             self.result?.pdfPaths = [reportPath]
                         }
-                        self.readyToSend = finalOk || status == "SUCCESS" || status == "WARNING"
+                        self.readyToSend = bundleOk
 
                         if wasCanceled {
                             self.cancelRequested = false
@@ -3936,7 +3933,7 @@ struct ContentView: View {
             return nil
         }
         let runId = json["baseline_run_id"] as? String
-        let runHash = json["baseline_run_hash"] as? String
+        let runHash = (json["baseline_run_ref"] as? String) ?? (json["baseline_run_hash"] as? String)
         let label = json["baseline_label"] as? String
         if (runId ?? "").isEmpty && (runHash ?? "").isEmpty {
             return nil
@@ -3953,15 +3950,21 @@ struct ContentView: View {
         let targetDomain = domainFromURLString(target.url)
         let targetLang = target.lang.lowercased()
         let runs = campaignScopedRunHistory()
-        return runs.filter { entry in
-            guard entry.id != target.id else { return false }
-            guard entry.lang.lowercased() == targetLang else { return false }
-            guard targetDomain != nil, domainFromURLString(entry.url) == targetDomain else { return false }
-            guard let runDir = runRootPath(for: entry) else { return false }
-            if isNotAuditable(runDir: runDir) { return false }
+        let candidates: [(entry: RunEntry, finalOk: Bool)] = runs.compactMap { entry in
+            guard entry.id != target.id else { return nil }
+            guard entry.lang.lowercased() == targetLang else { return nil }
+            guard targetDomain != nil, domainFromURLString(entry.url) == targetDomain else { return nil }
+            guard let runDir = runRootPath(for: entry) else { return nil }
+            guard isSuccessStatus(entry.status) else { return nil }
+            if isNotAuditable(runDir: runDir) { return nil }
             let lifecycle = lifecycleStatus(runDir: runDir, lang: entry.lang)
-            return lifecycle.audit && lifecycle.plan
-        }.sorted { $0.timestamp > $1.timestamp }
+            guard lifecycle.audit else { return nil }
+            return (entry: entry, finalOk: finalArtifactsExist(runDir: runDir))
+        }
+        return candidates.sorted {
+            if $0.finalOk != $1.finalOk { return $0.finalOk && !$1.finalOk }
+            return $0.entry.timestamp > $1.entry.timestamp
+        }.map { $0.entry }
     }
 
     private func openBaselinePicker(for entry: RunEntry) {
@@ -3980,10 +3983,11 @@ struct ContentView: View {
             return "Run directory missing."
         }
         let baselineRunDir = runRootPath(for: baseline)
-        let baselineHash = baselineRunDir.map { URL(fileURLWithPath: $0).lastPathComponent } ?? baseline.id
+        let baselineRef = baselineRunDir.map { URL(fileURLWithPath: $0).lastPathComponent } ?? baseline.id
         let payload: [String: Any] = [
             "baseline_run_id": baseline.id,
-            "baseline_run_hash": baselineHash,
+            "baseline_run_ref": baselineRef,
+            "baseline_run_hash": baselineRef,
             "baseline_label": baselineLabel(for: baseline),
             "baseline_url": baseline.url,
             "baseline_lang": baseline.lang.uppercased(),
@@ -5145,13 +5149,19 @@ struct ContentView: View {
 
     private func readyToSendHint() -> String? {
         guard !isRunning, let status = lastRunStatus else { return nil }
-        if status == "SUCCESS" {
+        if status.hasPrefix("SUCCESS") {
+            if status.contains("bundle missing") {
+                return "Finalize pending. Run Deliver (PDF) to generate the client-safe bundle."
+            }
             return "Send the ZIP files to the client. Start with Open Export/Delivery Root."
         }
         if status == "WARNING" {
             return "Warnings found. Send the ZIP files after reviewing. Start with Open Export/Delivery Root."
         }
-        if status == "NOT AUDITABLE" {
+        if status.hasPrefix("NOT AUDITABLE") {
+            if status.contains("bundle missing") {
+                return "Finalize pending. Run Deliver (PDF) to generate the NOT AUDITABLE bundle."
+            }
             return "NOT AUDITABLE deliverable: no audit checks were performed."
         }
         if status == "FAILED" {
@@ -5161,17 +5171,31 @@ struct ContentView: View {
     }
 
     private func statusBadgeSubline(for status: String) -> String {
-        switch status {
-        case "SUCCESS": return "Last run OK"
-        case "WARNING": return "Last run: warnings"
-        case "NOT AUDITABLE": return "Last run: not auditable"
-        case "FAILED": return "Last run failed"
-        case "Canceled": return "Last run canceled"
-        case "OK": return "Last run OK"
-        case "BROKEN": return "Last run: issues found"
-        case "FATAL": return "Last run failed"
-        default: return "Last run unknown"
+        if status.hasPrefix("SUCCESS") {
+            return status.contains("bundle missing") ? "Last run OK (bundle missing)" : "Last run OK"
         }
+        if status == "WARNING" {
+            return "Last run: warnings"
+        }
+        if status.hasPrefix("NOT AUDITABLE") {
+            return status.contains("bundle missing") ? "Last run: not auditable (bundle missing)" : "Last run: not auditable"
+        }
+        if status == "FAILED" {
+            return "Last run failed"
+        }
+        if status == "Canceled" {
+            return "Last run canceled"
+        }
+        if status == "OK" {
+            return "Last run OK"
+        }
+        if status == "BROKEN" {
+            return "Last run: issues found"
+        }
+        if status == "FATAL" {
+            return "Last run failed"
+        }
+        return "Last run unknown"
     }
 
     private func lastRunSummary() -> String? {
