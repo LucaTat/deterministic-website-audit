@@ -666,7 +666,7 @@ struct ContentView: View {
                     HStack(spacing: 12) {
                         let outputDisabled = isRunning || outputFolderPath() == nil
                         Button { openOutputFolder() } label: {
-                            Label("Reveal Output", systemImage: "folder")
+                            Label("Reveal Output (internal)", systemImage: "folder")
                         }
                         .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                         .disabled(outputDisabled)
@@ -684,12 +684,12 @@ struct ContentView: View {
 
                         let runFolderDisabled = isRunning
                         Button { openPinnedRunFolder() } label: {
-                            Label("Open Run Folder", systemImage: "folder.fill")
+                            Label("Open Run Folder (internal)", systemImage: "folder.fill")
                         }
                         .buttonStyle(.bordered)
                         .disabled(runFolderDisabled)
                         .opacity(buttonOpacity(disabled: runFolderDisabled))
-                        .help("Open the last run folder")
+                        .help("Open the last run folder (internal only)")
                     }
 
                     if demoDeliverablePath != nil {
@@ -726,6 +726,10 @@ struct ContentView: View {
                         InfoButton(text: "Opens the run/final folder for the last run.")
                     }
 
+                    Text("Client-safe deliverable: client_safe_bundle.zip only.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+
                     let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
                         HStack(spacing: 6) {
@@ -755,7 +759,7 @@ struct ContentView: View {
                         HStack(spacing: 6) {
                             let zipDisabled = isRunning || finalZipPath(forLangSelection: lang) == nil
                             Button { openFinalZip() } label: {
-                                Label("Reveal ZIP", systemImage: "archivebox.fill")
+                                Label("Reveal Client Bundle", systemImage: "archivebox.fill")
                             }
                             .buttonStyle(NeonOutlineButtonStyle(theme: theme))
                             .disabled(zipDisabled)
@@ -797,7 +801,7 @@ struct ContentView: View {
                     }
 
                     if readyToSend && (lastRunStatus == "SUCCESS" || lastRunStatus == "WARNING") {
-                        Text("All deliverables are client-safe.")
+                        Text("Client-safe bundle is ready.")
                             .font(.footnote)
                             .foregroundColor(.secondary)
                     }
@@ -1801,16 +1805,16 @@ struct ContentView: View {
 
     private func zipHelpText(forLang lang: String) -> String {
         if zipDisabledReason() != nil {
-            return "Open ZIP for the last run. Available after Deliver (PDF)."
+            return "Open client bundle for the last run. Available after Deliver (PDF)."
         }
-        return "Open the ZIP for the last run"
+        return "Open the client bundle for the last run"
     }
 
     private func outputHelpText() -> String {
         if outputFolderPath() == nil {
             return "No run folder available for the last run."
         }
-        return "Open run folder"
+        return "Open run folder (internal)"
     }
 
     private func logsHelpText() -> String {
