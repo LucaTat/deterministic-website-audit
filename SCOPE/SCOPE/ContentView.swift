@@ -293,6 +293,10 @@ struct ContentView: View {
     @State private var toolStatus: String? = nil
     @State private var toolTask: Process? = nil
     @State private var toolRunID: String? = nil
+    @State private var showBaselinePicker: Bool = false
+    @State private var baselinePickerTarget: RunEntry? = nil
+    @State private var baselinePickerCandidates: [RunEntry] = []
+    @State private var baselinePickerMessage: String? = nil
     @State private var finalizeRunning: Bool = false
     @State private var finalizeStatus: String? = nil
     @State private var finalizeRunID: String? = nil
@@ -369,6 +373,9 @@ struct ContentView: View {
             .background(theme.background)
             .preferredColorScheme(theme.colorScheme)
             .tint(theme.accent)
+        }
+        .sheet(isPresented: $showBaselinePicker) {
+            baselinePickerSheet()
         }
         .alert("Delete campaign?", isPresented: $showDeleteCampaignConfirm) {
             Button("Delete", role: .destructive) {
@@ -986,6 +993,20 @@ struct ContentView: View {
                                                 openToolOutput(for: entry, tool: "tool4")
                                             }
                                             .disabled(tool4Disabled)
+
+                                            let baselineSelectable = (lifecycle?.audit ?? false) && !notAuditable
+                                            Button("Select Baseline…") {
+                                                openBaselinePicker(for: entry)
+                                            }
+                                            .disabled(!baselineSelectable)
+
+                                            if lifecycle?.baselineLinked ?? false {
+                                                Button("Clear Baseline") {
+                                                    if let err = clearBaselineLink(for: entry) {
+                                                        alert(title: "Baseline", message: err)
+                                                    }
+                                                }
+                                            }
 
                                             Button("Delete Run") {
                                                 pendingDeleteRun = RunRecord(entry: entry)
@@ -2194,6 +2215,13 @@ struct ContentView: View {
                                     let isFailedThis = (!exportStatusText.isEmpty && exportStatusText.hasPrefix("ERROR:") && runExportRunID == entry.id)
                                     let exportButtonLabel = isExportingThis ? "Exporting…" : (hasBundle ? "Exported ✓" : (isFailedThis ? "Retry Export" : "Export Client Bundle"))
 
+                                    let toolDisabled = isRunning || exportIsRunning || toolRunning
+                                    let lifecycle = runDirForExport.isEmpty ? nil : lifecycleStatus(runDir: runDirForExport, lang: entry.lang)
+                                    let notAuditable = runDirForExport.isEmpty ? false : isNotAuditable(runDir: runDirForExport)
+                                    let tool2Allowed = (lifecycle?.audit ?? false) && !notAuditable
+                                    let tool3Allowed = (lifecycle?.plan ?? false) && (lifecycle?.baselineLinked ?? false) && !notAuditable
+                                    let tool4Allowed = (lifecycle?.verify ?? false) && (lifecycle?.baselineLinked ?? false) && !notAuditable
+
                                     Menu("Advanced") {
                                         Button(exportButtonLabel) {
                                             runExportClientBundle(for: entry)
@@ -2213,14 +2241,21 @@ struct ContentView: View {
                                                 cancelRunExport()
                                             }
                                         }
-                                    }
 
-                                    let toolDisabled = isRunning || exportIsRunning || toolRunning
-                                    let lifecycle = runDirForExport.isEmpty ? nil : lifecycleStatus(runDir: runDirForExport, lang: entry.lang)
-                                    let notAuditable = runDirForExport.isEmpty ? false : isNotAuditable(runDir: runDirForExport)
-                                    let tool2Allowed = (lifecycle?.audit ?? false) && !notAuditable
-                                    let tool3Allowed = (lifecycle?.plan ?? false) && (lifecycle?.baselineLinked ?? false) && !notAuditable
-                                    let tool4Allowed = (lifecycle?.verify ?? false) && (lifecycle?.baselineLinked ?? false) && !notAuditable
+                                        let baselineSelectable = (lifecycle?.audit ?? false) && !notAuditable
+                                        Button("Select Baseline…") {
+                                            openBaselinePicker(for: entry)
+                                        }
+                                        .disabled(!baselineSelectable)
+
+                                        if lifecycle?.baselineLinked ?? false {
+                                            Button("Clear Baseline") {
+                                                if let err = clearBaselineLink(for: entry) {
+                                                    alert(title: "Baseline", message: err)
+                                                }
+                                            }
+                                        }
+                                    }
                                     Button("Run Tool 2 — Action Scope") {
                                         guard let repoRoot = resolvedRepoRoot() else {
                                             toolStatus = "Export failed: Tool 2"
@@ -2322,6 +2357,89 @@ struct ContentView: View {
         }
         .padding(16)
         .frame(minWidth: 860, minHeight: 520)
+        .background(theme.background)
+        .preferredColorScheme(theme.colorScheme)
+        .tint(theme.accent)
+    }
+
+    @ViewBuilder
+    private func baselinePickerSheet() -> some View {
+        let target = baselinePickerTarget
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Select Baseline")
+                    .font(.title3)
+                    .foregroundColor(.primary)
+                Spacer()
+                Button("Close") {
+                    showBaselinePicker = false
+                }
+                .buttonStyle(NeonOutlineButtonStyle(theme: theme))
+            }
+            if let target {
+                let domain = domainFromURLString(target.url) ?? target.url
+                Text("Target: \(domain) • \(target.lang.uppercased())")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            } else {
+                Text("No target run selected.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+            if let message = baselinePickerMessage {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+            if baselinePickerCandidates.isEmpty {
+                Text("No eligible baseline runs found for this domain and language.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            } else {
+                List(baselinePickerCandidates) { entry in
+                    Button {
+                        guard let target else { return }
+                        baselinePickerMessage = nil
+                        if let err = writeBaselineLink(target: target, baseline: entry) {
+                            baselinePickerMessage = err
+                        } else {
+                            baselinePickerMessage = "Baseline linked."
+                            showBaselinePicker = false
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(baselineLabel(for: entry))
+                                .font(.footnote)
+                                .foregroundColor(.primary)
+                            Text(entry.status)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .frame(minHeight: 180)
+            }
+            HStack {
+                if let target, readBaselineLink(runDir: runRootPath(for: target) ?? "") != nil {
+                    Button("Clear Baseline") {
+                        baselinePickerMessage = nil
+                        if let err = clearBaselineLink(for: target) {
+                            baselinePickerMessage = err
+                        } else {
+                            baselinePickerMessage = "Baseline cleared."
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
+                Spacer()
+                Button("Close") {
+                    showBaselinePicker = false
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(16)
+        .frame(minWidth: 640, minHeight: 420)
         .background(theme.background)
         .preferredColorScheme(theme.colorScheme)
         .tint(theme.accent)
@@ -3824,6 +3942,77 @@ struct ContentView: View {
             return nil
         }
         return BaselineLink(runId: runId, runHash: runHash, label: label)
+    }
+
+    private func baselineLabel(for entry: RunEntry) -> String {
+        let domain = domainFromURLString(entry.url) ?? entry.url
+        return "\(formatRunTimestamp(entry.timestamp)) • \(entry.lang.uppercased()) • \(domain)"
+    }
+
+    private func baselineCandidates(for target: RunEntry) -> [RunEntry] {
+        let targetDomain = domainFromURLString(target.url)
+        let targetLang = target.lang.lowercased()
+        let runs = campaignScopedRunHistory()
+        return runs.filter { entry in
+            guard entry.id != target.id else { return false }
+            guard entry.lang.lowercased() == targetLang else { return false }
+            guard targetDomain != nil, domainFromURLString(entry.url) == targetDomain else { return false }
+            guard let runDir = runRootPath(for: entry) else { return false }
+            if isNotAuditable(runDir: runDir) { return false }
+            let lifecycle = lifecycleStatus(runDir: runDir, lang: entry.lang)
+            return lifecycle.audit && lifecycle.plan
+        }.sorted { $0.timestamp > $1.timestamp }
+    }
+
+    private func openBaselinePicker(for entry: RunEntry) {
+        baselinePickerTarget = entry
+        baselinePickerCandidates = baselineCandidates(for: entry)
+        baselinePickerMessage = nil
+        showBaselinePicker = true
+    }
+
+    private func writeBaselineLink(target: RunEntry, baseline: RunEntry) -> String? {
+        guard let targetDir = runRootPath(for: target) else {
+            return "Run directory missing."
+        }
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: targetDir) else {
+            return "Run directory missing."
+        }
+        let baselineRunDir = runRootPath(for: baseline)
+        let baselineHash = baselineRunDir.map { URL(fileURLWithPath: $0).lastPathComponent } ?? baseline.id
+        let payload: [String: Any] = [
+            "baseline_run_id": baseline.id,
+            "baseline_run_hash": baselineHash,
+            "baseline_label": baselineLabel(for: baseline),
+            "baseline_url": baseline.url,
+            "baseline_lang": baseline.lang.uppercased(),
+            "baseline_timestamp": iso8601String(baseline.timestamp)
+        ]
+        let baselinePath = (targetDir as NSString).appendingPathComponent("baseline.json")
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) else {
+            return "Baseline metadata invalid."
+        }
+        do {
+            try data.write(to: URL(fileURLWithPath: baselinePath), options: [.atomic])
+        } catch {
+            return "Baseline link failed."
+        }
+        bumpUIRefresh()
+        return nil
+    }
+
+    private func clearBaselineLink(for target: RunEntry) -> String? {
+        guard let targetDir = runRootPath(for: target) else {
+            return "Run directory missing."
+        }
+        let fm = FileManager.default
+        let baselinePath = (targetDir as NSString).appendingPathComponent("baseline.json")
+        let finalBaselinePath = (targetDir as NSString).appendingPathComponent("final/baseline.json")
+        _ = try? fm.removeItem(atPath: baselinePath)
+        _ = try? fm.removeItem(atPath: finalBaselinePath)
+        bumpUIRefresh()
+        return nil
     }
 
     private func lifecycleStatus(runDir: String, lang: String) -> LifecycleStatus {
